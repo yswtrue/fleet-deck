@@ -4,9 +4,9 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 9 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + workspace 成员可见性,见 §3.6)、node daemon、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、MCP 自查询工具(6 个)、无障碍(键盘可达 + 双主题)、Docker Compose 部署(含 Traefik)、测试 88 Go + 47 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 9 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + workspace 成员可见性,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、MCP 自查询工具(6 个)、无障碍(键盘可达 + 双主题)、Docker Compose 部署(含 Traefik)、测试 91 Go + 47 web。
 
-**未实现**(详见 §5):node 离线事件缓冲、子任务反向写回 agent、ACP `terminal/*` 与 elicitation、`task.cancelled_at` 取消审计列;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
+**未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation、`task.cancelled_at` 取消审计列;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
 ## 1. 目标
 
@@ -146,6 +146,12 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 - **权限**:admin 全权;普通用户仅 `workspace_members` 成员工作区可见——workspace/task/session/message/event 全链路经 `canReadWorkspace` / `requireWorkspaceMember` 收敛,不可见的读返回 404(不泄露存在性),越权写返回 403。节点发现(`GET /api/nodes*`)对所有登录用户开放。
 - **实现**:`internal/hub/{middleware,auth_handlers}.go`;MCP 客户端经 `FLEETDECK_HUB_TOKEN` 环境变量带 Bearer。认证属 HTTP 层,不进 `internal/protocol`(node/hub wire 契约不变)。
 
+### 3.7 node 离线事件缓冲
+
+- **启用**:`FLEETDECK_EVENT_BUFFER_DIR` 设置时启用;未设置保持旧行为(断线即丢)。
+- **WAL 队列**(`internal/node/buffer.go`):每个出站信封一个 JSON 文件(`%020d.json`,原子 tmp+rename),序号续接磁盘最大值(重启不乱序);writer 是唯一消费者,按序号发送、**成功写入 socket 才删除文件**。
+- **语义**:严格 FIFO、at-least-once(崩溃/断线后未删文件会重发);坏文件自动跳过删除,不阻塞队列。adapter 会话的 ctx 是进程级,跨断线存活,故运行中会话的全部事件都经此路径重放。
+
 ## 4. 阶段计划(✅ 已全部完成)
 
 依赖关系:`P0 → P1 → P2 → P3 → P4` 为主线;`P5`、`P6` 依赖 `P3`(adapter 接口)后可并行。各阶段产出与验收均已落地;与原计划的实质偏差集中在 Phase 5:**没有独立的 codex adapter 和 pi bridge** —— codex/pi 均归一到共享 ACP adapter(§3.4),真实验收含 opencode 端到端 smoke。
@@ -203,7 +209,6 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 以下均为**刻意不做**,附重新启动的触发条件(与 `ROADMAP.md` 的 Later 表同源;该表另含测试覆盖扩展、多 hub 等条目):
 
-- **node 离线事件缓冲**(`FLEETDECK_EVENT_BUFFER_DIR` 已预留)——触发:长任务(>30min)或 hub 滚动升级需求
 - **子任务反向写回 agent**(现为 session→看板单向镜像)——触发:产品定下反向语义(ACP 无标准方法)
 - **ACP `terminal/*` 与 elicitation**(现不广告、调用即拒)——触发:出现必须宿主终端的 agent,且先定沙箱威胁模型
 - **`task.cancelled_at` 取消审计列**(现取消直接进 done,无审计痕迹)——触发:合规/审计需求

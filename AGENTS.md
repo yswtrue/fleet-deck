@@ -43,7 +43,7 @@ Order matters; do all of these before pushing.
 go build ./...
 go vet ./...
 gofmt -l cmd/ internal/        # must be empty
-go test -race ./...            # 88 passed / 15 packages (1 skip; live DB required)
+go test -race ./...            # 91 passed / 15 packages (1 skip; live DB required)
 go test -short ./...           # skip live-DB tests
 
 # Frontend (cd web)
@@ -118,6 +118,7 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
 - **react-query v5 drops per-`mutate` callbacks when the caller unmounts** (`hasListeners()` gate). Use `mutateAsync().then()/.catch()` when the outcome must survive unmount (e.g. toast + navigate after a board-column move).
+- **Node offline event buffering** (`FLEETDECK_EVENT_BUFFER_DIR`, `internal/node/buffer.go`): when set, every outbound envelope is persisted first (one JSON file per event, atomic tmp+rename) and the writer replays the queue in sequence order across reconnects — FIFO, at-least-once, files deleted only after a successful write. When unset, events are dropped while the hub is unreachable (the old behavior). Sessions survive hub restarts either way (adapter ctx is process-level).
 
 ## Adding a new adapter
 
@@ -134,4 +135,4 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 
 ## Deferred (do NOT do unless explicitly asked)
 
-The Phase 6 backlog is **fully implemented** (permission picker UI, `GET /api/tasks?node_id=` + `?q=` title search, ACP fs capability negotiation, Gate 4 m1-m7 cleanup, StateChange dedup, Vitest, session-route code splitting, `POST /api/nodes` capabilities fix, WorkspaceList invalidation, em-dash copy, card keyboard reachability, `fleetctl` `--out` flag order, PATCH transition table, dispatchTask transaction). Do not redo them. Remaining known gaps (fix only on request): ACP `terminal/*`/elicitation support (deliberately refused and unadvertised), node offline event buffering (`FLEETDECK_EVENT_BUFFER_DIR` reserved), subtask reverse-writeback to agents, task `cancelled_at` audit column. Multi-user auth is **implemented** (users/auth_tokens/workspace_members, Bearer sessions, membership visibility, `/login` `/users` + membership UI) — do not rebuild it.
+The Phase 6 backlog is **fully implemented** (permission picker UI, `GET /api/tasks?node_id=` + `?q=` title search, ACP fs capability negotiation, Gate 4 m1-m7 cleanup, StateChange dedup, Vitest, session-route code splitting, `POST /api/nodes` capabilities fix, WorkspaceList invalidation, em-dash copy, card keyboard reachability, `fleetctl` `--out` flag order, PATCH transition table, dispatchTask transaction). Do not redo them. Remaining known gaps (fix only on request): ACP `terminal/*`/elicitation support (deliberately refused and unadvertised), subtask reverse-writeback to agents, task `cancelled_at` audit column. Multi-user auth is **implemented** (users/auth_tokens/workspace_members, Bearer sessions, membership visibility, `/login` `/users` + membership UI) — do not rebuild it.

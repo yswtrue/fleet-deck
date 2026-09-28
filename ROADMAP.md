@@ -24,6 +24,10 @@ that would move them forward.
   auth (`/ws/node`) is unchanged
 - **Node lifecycle** — registration + token auth, online status, offline
   cascade (running sessions fail visibly)
+- **Node offline event buffering** — opt-in via `FLEETDECK_EVENT_BUFFER_DIR`:
+  outbound events are persisted (one file per event, atomic rename) while the
+  hub is unreachable and replayed in sequence order on reconnect (FIFO,
+  at-least-once); without it, events drop during outages
 
 ### Agent integrations
 
@@ -50,20 +54,19 @@ that would move them forward.
   with the embedded web UI + optional Traefik :80/:443 ingress via the
   `traefik` profile); the SPA also deploys to any static host via the runtime
   `config.js`; node daemons run locally — `docs/DEPLOYMENT.md`
-- **Test suites** — 88 Go tests (integration against live Postgres) + 47 web
+- **Test suites** — 91 Go tests (integration against live Postgres) + 47 web
   tests (Vitest + RTL: dispatcher, permission wire, auth client/login,
   components, SPA handler)
 
 ## 🗓 Later (known gaps, with triggers)
 
-| Item                             | What it is                                                                                                   | Trigger to build it                                                                  |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| Node offline event buffering     | persist outbound events while the hub is unreachable and replay them (`FLEETDECK_EVENT_BUFFER_DIR` reserved) | long-running (>30 min) real agent tasks, or rolling hub upgrades                     |
-| Subtask reverse-writeback        | edits on the board flow back into the agent's plan                                                           | product decision on semantics (there is no standard ACP method for this)             |
-| ACP `terminal/*` / elicitation   | host-managed terminals and structured forms for agents                                                       | an agent that cannot work without host terminals; needs a sandbox threat model first |
-| `task.cancelled_at` audit column | audit trail for cancellations                                                                                | compliance/audit need (4-state model does not require it)                            |
-| Broader web test coverage        | component/hook tests beyond the current 4 files                                                              | as the UI surface grows — infra (Vitest + jsdom + RTL) is in place                   |
-| Multi-hub / HA                   | replicated control plane                                                                                     | single-hub is fine for the current scale                                             |
+| Item                             | What it is                                             | Trigger to build it                                                                  |
+| -------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Subtask reverse-writeback        | edits on the board flow back into the agent's plan     | product decision on semantics (there is no standard ACP method for this)             |
+| ACP `terminal/*` / elicitation   | host-managed terminals and structured forms for agents | an agent that cannot work without host terminals; needs a sandbox threat model first |
+| `task.cancelled_at` audit column | audit trail for cancellations                          | compliance/audit need (4-state model does not require it)                            |
+| Broader web test coverage        | component/hook tests beyond the current 4 files        | as the UI surface grows — infra (Vitest + jsdom + RTL) is in place                   |
+| Multi-hub / HA                   | replicated control plane                               | single-hub is fine for the current scale                                             |
 
 ## ❌ Non-goals (for now)
 

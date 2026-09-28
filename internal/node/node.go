@@ -100,27 +100,44 @@ type Node struct {
 	registry *adapters.Registry
 	log      *slog.Logger
 
-	// outbound writer plumbing; swapped on every reconnect.
+	// outbound writer plumbing; swapped on every reconnect. With buf != nil
+	// (FLEETDECK_EVENT_BUFFER_DIR) envelopes are persisted first and the
+	// writer replays the queue; otherwise the in-memory channel is used and
+	// overflow is dropped.
 	outMu   sync.Mutex
 	out     chan protocol.Envelope
 	outDone chan struct{}
+	buf     *eventBuffer
 
 	// running adapters, keyed by session id.
 	sessMu   sync.Mutex
 	sessions map[string]adapters.Adapter
 }
 
-// New builds a Node. A nil registry uses adapters.Default.
+// New builds a Node. A nil registry uses adapters.Default. When
+// FLEETDECK_EVENT_BUFFER_DIR is set, outbound events are persisted there while
+// the hub is unreachable and replayed on reconnect (see buffer.go).
 func New(cfg Config, registry *adapters.Registry) *Node {
 	if registry == nil {
 		registry = adapters.Default
 	}
-	return &Node{
+	n := &Node{
 		cfg:      cfg,
 		registry: registry,
 		log:      slog.Default().With("node", cfg.Name),
 		sessions: make(map[string]adapters.Adapter),
 	}
+	if dir := os.Getenv("FLEETDECK_EVENT_BUFFER_DIR"); dir != "" {
+		buf, err := openEventBuffer(dir)
+		if err != nil {
+			n.log.Warn("event buffer unavailable; events drop while the hub is unreachable",
+				"dir", dir, "err", err)
+		} else {
+			n.buf = buf
+			n.log.Info("event buffering enabled", "dir", dir)
+		}
+	}
+	return n
 }
 
 // Run connects to the hub and serves commands until ctx is cancelled. It
@@ -204,8 +221,13 @@ func (n *Node) runOnce(ctx context.Context) error {
 
 // startWriter launches the single outbound writer goroutine and returns a
 // stop function. Adapter sinks enqueue through enqueue; the writer serializes
-// all writes onto the socket.
+// all writes onto the socket. With event buffering enabled the writer instead
+// replays the on-disk queue (startBufferedWriter), which also covers envelopes
+// persisted while the hub was unreachable.
 func (n *Node) startWriter(c *conn) func() {
+	if n.buf != nil {
+		return n.startBufferedWriter(c)
+	}
 	out := make(chan protocol.Envelope, 128)
 	done := make(chan struct{})
 
@@ -238,9 +260,18 @@ func (n *Node) startWriter(c *conn) func() {
 	}
 }
 
-// enqueue queues an outbound message, dropping it if the writer is gone or the
-// buffer is full. EventSink callbacks are expected to be non-blocking.
+// enqueue queues an outbound message. Without event buffering it drops the
+// message if the writer is gone or the buffer is full; with buffering it
+// persists the message for replay either way. EventSink callbacks are expected
+// to be non-blocking.
 func (n *Node) enqueue(env protocol.Envelope) {
+	if n.buf != nil {
+		if err := n.buf.Push(env); err != nil {
+			n.log.Warn("could not persist outbound message; dropping it",
+				"type", env.Type, "err", err)
+		}
+		return
+	}
 	n.outMu.Lock()
 	out, done := n.out, n.outDone
 	n.outMu.Unlock()
@@ -253,6 +284,43 @@ func (n *Node) enqueue(env protocol.Envelope) {
 	default:
 		n.log.Warn("dropping outbound message; writer buffer full", "type", env.Type)
 	}
+}
+
+// startBufferedWriter runs the replay loop used when event buffering is
+// enabled. Every envelope is on disk before it is attempted; each successful
+// write removes its file, so a write failure leaves the envelope queued and
+// the next connection resumes in sequence order. The loop also waits (bounded)
+// when the queue is empty so new pushes wake it promptly.
+func (n *Node) startBufferedWriter(c *conn) func() {
+	done := make(chan struct{})
+	go func() {
+		for {
+			env, path, ok := n.buf.Next()
+			if !ok {
+				select {
+				case <-done:
+					return
+				case <-n.buf.wake:
+				case <-time.After(250 * time.Millisecond):
+				}
+				continue
+			}
+			if err := c.write(env); err != nil {
+				// Connection is dead; the envelope stays queued and the
+				// reconnect's writer picks the queue back up.
+				return
+			}
+			if err := n.buf.Remove(path); err != nil {
+				n.log.Warn("could not remove delivered event file", "path", path, "err", err)
+			}
+			select {
+			case <-done:
+				return
+			default:
+			}
+		}
+	}()
+	return func() { close(done) }
 }
 
 func (n *Node) readToken() string {
