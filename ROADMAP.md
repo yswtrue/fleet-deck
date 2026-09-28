@@ -59,7 +59,7 @@ that would move them forward.
   with the embedded web UI + optional Traefik :80/:443 ingress via the
   `traefik` profile); the SPA also deploys to any static host via the runtime
   `config.js`; node daemons run locally — `docs/DEPLOYMENT.md`
-- **Test suites** — 101 Go tests (integration against live Postgres) + 52 web
+- **Test suites** — 101 Go tests (integration against live Postgres) + 53 web
   tests (Vitest + RTL: dispatcher, permission wire, auth client/login,
   components, SPA handler)
 

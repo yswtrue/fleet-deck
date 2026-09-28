@@ -10,6 +10,7 @@
 .top {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
 }
@@ -54,6 +55,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.noSessionChip {
+  font-size: 0.72rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  border: 1px dashed var(--border);
+  white-space: nowrap;
 }
 
 .moveButton {

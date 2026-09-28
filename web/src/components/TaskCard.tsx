@@ -33,7 +33,13 @@ export function TaskCard({
   const transitions = TASK_STATUS_TRANSITIONS[task.status]
 
   const openSession = () => {
-    if (task.session_id) navigate(`/sessions/${task.session_id}`, { state: { task } })
+    if (task.session_id) {
+      navigate(`/sessions/${task.session_id}`, { state: { task } })
+      return
+    }
+    // Session-less tasks (e.g. waiting while their node is offline) have
+    // nothing to open: say so instead of swallowing the click.
+    messageApi.warning('Task has no session yet — not dispatched (node offline?)')
   }
 
   // Nested actions handle their own keys (Enter opens the move menu); the card
@@ -82,6 +88,14 @@ export function TaskCard({
           {statusLabel(task.status)}
         </span>
         <span className={styles.agentChip}>{task.agent_type}</span>
+        {!task.session_id && (
+          <span
+            className={styles.noSessionChip}
+            title="This task has not been dispatched to a node yet"
+          >
+            No session yet
+          </span>
+        )}
         {transitions.length > 0 && (
           <Dropdown
             menu={{ items: menuItems, onClick: handleMenuClick }}

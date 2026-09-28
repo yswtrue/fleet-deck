@@ -50,7 +50,7 @@ go test -short ./...           # skip live-DB tests
 # Frontend (cd web)
 pnpm exec tsc -b               # real typecheck (bare `tsc --noEmit` is a no-op on the solution tsconfig; `pnpm build` also runs it)
 pnpm lint
-pnpm test                      # vitest (52 tests: dispatchEvent contract, auth, binding UI, components)
+pnpm test                      # vitest (53 tests: dispatchEvent contract, auth, binding UI, components)
 pnpm build
 ```
 
@@ -125,7 +125,7 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - `web/src/hooks/useTaskBoard.ts` cache key is `['tasks', workspaceId]` (an active search extends it with the query). Code that creates tasks must invalidate **both** that prefix and `['tasks-by-workspace']` (the `WorkspaceList` task-count key) — see `NewTaskForm.tsx`.
 - Go tests in `internal/store/store_test.go` and `internal/hub/{hub,api}_test.go` use `127.0.0.1:55432`. They skip with `-short`.
 - **`internal/hub/static/` is the web UI embed root.** `go build` works with just the committed `.keep`, but a hub that serves the UI needs `web/dist` copied there first (the Dockerfile does this). The SPA also reads `web/public/config.js` at runtime for a custom hub URL (standalone static deploys).
-- Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), `Users` (node-binding UI), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
+- Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts, no-session feedback), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), `Users` (node-binding UI), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
 - **react-query v5 drops per-`mutate` callbacks when the caller unmounts** (`hasListeners()` gate). Use `mutateAsync().then()/.catch()` when the outcome must survive unmount (e.g. toast + navigate after a board-column move).
 - **Node offline event buffering** (`FLEETDECK_EVENT_BUFFER_DIR`, `internal/node/buffer.go`): when set, every outbound envelope is persisted first (one JSON file per event, atomic tmp+rename) and the writer replays the queue in sequence order across reconnects — FIFO, at-least-once, files deleted only after a successful write. When unset, events are dropped while the hub is unreachable (the old behavior). Sessions survive hub restarts either way (adapter ctx is process-level).

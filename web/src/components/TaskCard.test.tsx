@@ -101,6 +101,18 @@ describe('TaskCard', () => {
     )
   })
 
+  it('a session-less card shows a badge and toasts on click instead of doing nothing', async () => {
+    renderCard({ ...task, session_id: '' })
+    // The badge makes the state visible before any click.
+    expect(document.body.textContent).toContain('No session yet')
+    fireEvent.click(screen.getByRole('button', { name: 'Task Fix the flaky test, status Waiting' }))
+    await waitFor(() =>
+      expect(document.body.textContent).toContain('Task has no session yet — not dispatched')
+    )
+    // A plain click never mutates.
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('toast survives the card unmounting before the PATCH settles (column move)', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ ...task, status: 'done' }), {
