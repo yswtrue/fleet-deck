@@ -42,6 +42,7 @@ type Hub struct {
 	bus      *Broadcaster
 	log      *slog.Logger
 	cache    cache.Cache
+	bindings *bindingCache
 
 	nodesMu sync.Mutex
 	nodes   map[string]*nodeConn
@@ -68,14 +69,18 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 	if c == nil {
 		c = cache.Noop{}
 	}
-	return &Hub{
+	h := &Hub{
 		store:    st,
 		registry: registry,
-		bus:      NewBroadcaster(),
 		log:      slog.Default().With("component", "hub"),
 		cache:    c,
+		bindings: newBindingCache(),
 		nodes:    make(map[string]*nodeConn),
 	}
+	// Broadcast fan-out is scoped by the node that owns each event; the
+	// resolver runs once per event (see eventNodeID).
+	h.bus = NewBroadcaster(h.eventNodeID)
+	return h
 }
 
 // Store exposes the underlying store.

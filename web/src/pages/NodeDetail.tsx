@@ -2,7 +2,6 @@ import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Tag } from 'antd'
 import { useHubApi } from '../hooks/useHubApi.ts'
-import { useAuth } from '../hooks/useAuth.ts'
 import { WorkspaceList } from '../components/WorkspaceList.tsx'
 import { WorkspaceForm } from '../components/WorkspaceForm.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
@@ -12,12 +11,14 @@ import { formatRelative } from '../util.ts'
 export function NodeDetail() {
   const { nodeId } = useParams<{ nodeId: string }>()
   const api = useHubApi()
-  const { isAdmin } = useAuth()
 
   const nodeQuery = useQuery({
     queryKey: ['nodes', nodeId],
     queryFn: () => api.getNode(nodeId ?? ''),
     enabled: !!nodeId,
+    // Deep links to missing/invisible nodes are permanent failures: surface
+    // the error state immediately instead of retrying behind a skeleton.
+    retry: false,
   })
   const tasksQuery = useQuery({
     queryKey: ['tasks-by-workspace', nodeId],
@@ -26,6 +27,14 @@ export function NodeDetail() {
   })
 
   if (!nodeId) return <ErrorState title="Invalid node" />
+  // An invisible or deleted node is a dead end: do not render the workspaces
+  // section (and its create button) below for a node the user cannot see.
+  if (nodeQuery.isError)
+    return (
+      <ErrorState title="Node not found" onRetry={() => void nodeQuery.refetch()}>
+        It may have been deleted, or your account may not have access to it.
+      </ErrorState>
+    )
 
   const node = nodeQuery.data
   // Agent types are whatever the node's tasks ran with; the node itself does
@@ -39,10 +48,6 @@ export function NodeDetail() {
     <div className="fd-stack fd-stack-lg">
       {nodeQuery.isLoading ? (
         <LoadingSkeleton count={1} />
-      ) : nodeQuery.error ? (
-        <ErrorState title="Could not load node" onRetry={() => void nodeQuery.refetch()}>
-          {nodeQuery.error.message}
-        </ErrorState>
       ) : node ? (
         <header className="fd-stack">
           <div className="fd-section-header">
@@ -86,9 +91,9 @@ export function NodeDetail() {
       <section className="fd-stack">
         <div className="fd-section-header">
           <h2 className="fd-section-title">Workspaces</h2>
-          {/* Workspace creation is admin-only on the hub; hide the affordance
-              for regular users instead of letting the POST 403. */}
-          {isAdmin && <WorkspaceForm nodeId={nodeId} />}
+          {/* Anyone who can see this page is bound to the node (or is an
+              admin), so workspace creation is always permitted here. */}
+          <WorkspaceForm nodeId={nodeId} />
         </div>
         <WorkspaceList nodeId={nodeId} />
       </section>

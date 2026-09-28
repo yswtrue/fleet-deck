@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"fleetdeck/internal/protocol"
@@ -158,34 +159,65 @@ func (h *Hub) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
-var errWorkspaceNotFound = errors.New("hub: workspace not found")
+var (
+	errNodeNotFound      = errors.New("hub: node not found")
+	errWorkspaceNotFound = errors.New("hub: workspace not found")
+)
 
-// canReadWorkspace reports whether user may observe workspaceID: admins see
-// everything, non-admins only memberships. It returns errWorkspaceNotFound
-// when the workspace does not exist, so callers can render 404 either way
-// (a non-member must not learn whether an invisible workspace exists).
-func (h *Hub) canReadWorkspace(ctx context.Context, user *store.User, workspaceID string) (bool, error) {
-	if _, err := h.store.Queries().GetWorkspace(ctx, workspaceID); err != nil {
-		return false, errWorkspaceNotFound
+// nodeVisibleTo resolves a node for user, enforcing the user<->node binding:
+// admins see every node, non-admins only their bound nodes. Missing or
+// unbound nodes both surface as an error so callers render 404 without
+// leaking existence.
+func (h *Hub) nodeVisibleTo(ctx context.Context, user *store.User, nodeID string) (protocol.Node, error) {
+	node, err := h.store.Queries().GetNode(ctx, nodeID)
+	if err != nil {
+		return protocol.Node{}, err
 	}
 	if user.Role == "admin" {
-		return true, nil
+		return node, nil
 	}
-	member, err := h.store.Queries().IsWorkspaceMember(ctx, workspaceID, user.ID)
+	bound, err := h.store.Queries().IsNodeMember(ctx, user.ID, nodeID)
 	if err != nil {
+		return protocol.Node{}, err
+	}
+	if !bound {
+		return protocol.Node{}, errNodeNotFound
+	}
+	return node, nil
+}
+
+// canReadNode reports whether user may access nodeID's subtree (read and
+// write; a node binding grants both). It returns an error when the node does
+// not exist, so callers can render 404 either way (an unbound user must not
+// learn whether an invisible node exists).
+func (h *Hub) canReadNode(ctx context.Context, user *store.User, nodeID string) (bool, error) {
+	if _, err := h.nodeVisibleTo(ctx, user, nodeID); err != nil {
 		return false, err
 	}
-	return member, nil
+	return true, nil
+}
+
+// canReadWorkspace reports whether user may observe workspaceID: the
+// workspace resolves to its node, and visibility follows the binding on that
+// node (subtree inheritance). It returns errWorkspaceNotFound when the
+// workspace does not exist, so callers can render 404 either way.
+func (h *Hub) canReadWorkspace(ctx context.Context, user *store.User, workspaceID string) (bool, error) {
+	workspace, err := h.store.Queries().GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return false, errWorkspaceNotFound
+	}
+	return h.canReadNode(ctx, user, workspace.NodeID)
 }
 
 // workspaceHandler is a handler scoped to one visible workspace: the {id}
-// path value resolved by requireWorkspaceMember.
+// path value resolved by requireWorkspaceAccess.
 type workspaceHandler func(http.ResponseWriter, *http.Request, string)
 
-// requireWorkspaceMember resolves the {id} workspace and enforces visibility:
-// missing or invisible workspaces both render 404. On success it calls next
-// with the workspace id. Use it for every route scoped to one workspace.
-func (h *Hub) requireWorkspaceMember(next workspaceHandler) http.HandlerFunc {
+// requireWorkspaceAccess resolves the {id} workspace and enforces
+// visibility: missing or invisible workspaces both render 404. On success it
+// calls next with the workspace id. Use it for every route scoped to one
+// workspace.
+func (h *Hub) requireWorkspaceAccess(next workspaceHandler) http.HandlerFunc {
 	return h.requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		ok, err := h.canReadWorkspace(r.Context(), userOf(r), id)
@@ -197,20 +229,111 @@ func (h *Hub) requireWorkspaceMember(next workspaceHandler) http.HandlerFunc {
 	})
 }
 
-// canWriteWorkspace reports whether user may mutate inside workspaceID:
-// admins everywhere, non-admins only in member workspaces. A missing
+// canWriteWorkspace reports whether user may mutate inside workspaceID. The
+// binding model has no read-only grants -- a node binding is read+write
+// across the subtree -- so this is exactly canReadWorkspace. A missing
 // workspace is not writable by anyone.
 func (h *Hub) canWriteWorkspace(ctx context.Context, user *store.User, workspaceID string) (bool, error) {
-	ok, err := h.canReadWorkspace(ctx, user, workspaceID)
-	if err != nil || !ok {
-		return false, err
-	}
-	return true, nil
+	return h.canReadWorkspace(ctx, user, workspaceID)
 }
 
-// taskVisibleTo resolves a task for user, enforcing membership of the task's
-// workspace. Invisible or missing tasks both surface as an error so callers
-// render 404 without leaking existence.
+// ---- WebSocket broadcast scoping ------------------------------------------
+
+// nodeScopeTTL bounds how long a cached user->bound-node set is trusted before
+// it is re-read from Postgres. Explicit binding rewrites invalidate the entry
+// outright (see invalidateNodeBindings); the TTL only bounds staleness from
+// out-of-band row changes.
+const nodeScopeTTL = 15 * time.Second
+
+// bindingEntry is one cached user -> bound-node-id set.
+type bindingEntry struct {
+	nodes   map[string]bool
+	expires time.Time
+}
+
+// bindingCache caches which nodes each user is bound to, so per-event
+// visibility checks during WebSocket fan-out do not hit Postgres per event per
+// subscriber (streaming deltas arrive in bursts).
+type bindingCache struct {
+	mu      sync.Mutex
+	entries map[string]bindingEntry
+}
+
+func newBindingCache() *bindingCache {
+	return &bindingCache{entries: make(map[string]bindingEntry)}
+}
+
+// nodes returns userID's bound-node set, re-reading it via load when the entry
+// is missing or stale.
+func (c *bindingCache) nodes(userID string, load func() (map[string]bool, error)) (map[string]bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.entries[userID]; ok && time.Now().Before(e.expires) {
+		return e.nodes, nil
+	}
+	bound, err := load()
+	if err != nil {
+		return nil, err
+	}
+	c.entries[userID] = bindingEntry{nodes: bound, expires: time.Now().Add(nodeScopeTTL)}
+	return bound, nil
+}
+
+// invalidate drops userID's cached bindings so a binding rewrite takes effect
+// on the very next event.
+func (c *bindingCache) invalidate(userID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.entries, userID)
+}
+
+// invalidateNodeBindings drops a user's cached bound-node set. Every write to
+// node_members must call it so unbinds stop deliveries immediately.
+func (h *Hub) invalidateNodeBindings(userID string) {
+	h.bindings.invalidate(userID)
+}
+
+// boundNodes returns the set of node ids userID is bound to, through the
+// short-TTL cache.
+func (h *Hub) boundNodes(userID string) (map[string]bool, error) {
+	return h.bindings.nodes(userID, func() (map[string]bool, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		nodes, err := h.store.Queries().ListNodesByUser(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		set := make(map[string]bool, len(nodes))
+		for _, n := range nodes {
+			set[n.ID] = true
+		}
+		return set, nil
+	})
+}
+
+// webEventScope returns the broadcast scope for one /ws/web connection: admins
+// receive every event, other users only events inside their bound nodes'
+// subtrees. Events whose owning node cannot be resolved are dropped for
+// non-admins (no leak by accident).
+func (h *Hub) webEventScope(user *store.User) EventScope {
+	if user.Role == "admin" {
+		return EventScope{All: true}
+	}
+	// Pre-warm the binding cache so the first events after connect do not
+	// serialize on a cold load behind the broadcaster lock.
+	_, _ = h.boundNodes(user.ID)
+	return EventScope{Visible: func(nodeID string) bool {
+		bound, err := h.boundNodes(user.ID)
+		if err != nil {
+			return false // cache/DB failure: drop rather than leak
+		}
+		return bound[nodeID]
+	}}
+}
+
+// taskVisibleTo resolves a task for user, enforcing the node binding of the
+// task's workspace. Invisible or missing tasks both surface as an error so
+// callers render 404 without leaking existence.
 func (h *Hub) taskVisibleTo(ctx context.Context, user *store.User, taskID string) (protocol.Task, error) {
 	task, err := h.store.Queries().GetTask(ctx, taskID)
 	if err != nil {
@@ -223,8 +346,8 @@ func (h *Hub) taskVisibleTo(ctx context.Context, user *store.User, taskID string
 	return task, nil
 }
 
-// sessionVisibleTo resolves a session for user, enforcing membership of the
-// workspace that owns the session's task. It is the single gate for every
+// sessionVisibleTo resolves a session for user, enforcing the node binding of
+// the workspace that owns the session's task. It is the single gate for every
 // session-scoped route (snapshot, messages, events, send).
 func (h *Hub) sessionVisibleTo(ctx context.Context, user *store.User, sessionID string) (protocol.Session, error) {
 	session, err := h.store.Queries().GetSession(ctx, sessionID)

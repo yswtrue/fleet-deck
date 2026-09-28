@@ -44,13 +44,13 @@ Order matters; do all of these before pushing.
 go build ./...
 go vet ./...
 gofmt -l cmd/ internal/        # must be empty
-go test -race ./...            # 96 passed / 16 packages (1 skip; live DB required)
+go test -race ./...            # 101 passed / 16 packages (1 skip; live DB required)
 go test -short ./...           # skip live-DB tests
 
 # Frontend (cd web)
 pnpm exec tsc -b               # real typecheck (bare `tsc --noEmit` is a no-op on the solution tsconfig; `pnpm build` also runs it)
 pnpm lint
-pnpm test                      # vitest (47 tests: dispatchEvent contract, auth, components)
+pnpm test                      # vitest (52 tests: dispatchEvent contract, auth, binding UI, components)
 pnpm build
 ```
 
@@ -66,7 +66,7 @@ These are locked. Do not change without a Gate review.
 
 - **Single wire contract**: Go structs in `internal/protocol/` are the source of truth. `cmd/fleetctl schema export` → `web/src/gen/protocol/protocol.schema.json` → `pnpm run gen:types` → `web/src/gen/protocol/index.ts`. Run `gen` (or `gen-schema && gen-web-types`) after touching the protocol.
 - **Hub is the sole DB writer**. Node daemons never touch Postgres; they speak to the hub over `ws://hub/ws/node`.
-- **All `/api/*` + `/ws/web` require Bearer auth** (`internal/hub/{middleware,auth_handlers}.go`): roles `admin`/`user`, workspace visibility via `workspace_members` (invisible reads → 404, unauthorized writes → 403). Open: `/api/health`, `/api/auth/{status,setup,login}`, SPA static. `/ws/node` keeps node-token register-frame auth; `/ws/web` takes `?token=`. Auth is HTTP-layer — never add it to `internal/protocol`. The MCP client sends `FLEETDECK_HUB_TOKEN`.
+- **All `/api/*` + `/ws/web` require Bearer auth** (`internal/hub/{middleware,auth_handlers}.go`): roles `admin`/`user`; authorization is **user↔node binding** (`node_members`, set by admins on the user page) with subtree inheritance — a bound user owns everything under the node (workspaces, tasks, sessions, events). Invisible reads → 404, unauthorized writes → 403; non-admins see only bound nodes. The `/ws/web` hello frame and every broadcast are scoped by the same binding per connection (unresolvable events are admin-only). Open: `/api/health`, `/api/auth/{status,setup,login}`, SPA static. `/ws/node` keeps node-token register-frame auth (binding is management-plane, decoupled from registration); `/ws/web` takes `?token=`. Auth is HTTP-layer — never add it to `internal/protocol`. The MCP client sends `FLEETDECK_HUB_TOKEN`.
 - **Adapter interface** lives in `internal/adapters/adapter.go` (`Adapter` + `EventSink` with TextDelta / TodoUpdate / StateChange / UserInputRequested / Done / Error / Message). Real adapters (`internal/adapters/acp/`) and the fake one share this contract.
 - **WebSocket envelope + Msg\* constants** live in `internal/protocol/transport.go` (not `internal/node/`). Do not import `internal/node` from `internal/hub/`.
 - **Shared QueryClient**: Refine is wired to the **same** `web/src/queryClient.ts` via `options.reactQuery.clientConfig`. Two caches break WS-driven `setQueryData` invalidation.
@@ -117,11 +117,11 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - `web/src/hooks/useTaskBoard.ts` cache key is `['tasks', workspaceId]` (an active search extends it with the query). Code that creates tasks must invalidate **both** that prefix and `['tasks-by-workspace']` (the `WorkspaceList` task-count key) — see `NewTaskForm.tsx`.
 - Go tests in `internal/store/store_test.go` and `internal/hub/{hub,api}_test.go` use `127.0.0.1:55432`. They skip with `-short`.
 - **`internal/hub/static/` is the web UI embed root.** `go build` works with just the committed `.keep`, but a hub that serves the UI needs `web/dist` copied there first (the Dockerfile does this). The SPA also reads `web/public/config.js` at runtime for a custom hub URL (standalone static deploys).
-- Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
+- Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), `Users` (node-binding UI), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
 - **react-query v5 drops per-`mutate` callbacks when the caller unmounts** (`hasListeners()` gate). Use `mutateAsync().then()/.catch()` when the outcome must survive unmount (e.g. toast + navigate after a board-column move).
 - **Node offline event buffering** (`FLEETDECK_EVENT_BUFFER_DIR`, `internal/node/buffer.go`): when set, every outbound envelope is persisted first (one JSON file per event, atomic tmp+rename) and the writer replays the queue in sequence order across reconnects — FIFO, at-least-once, files deleted only after a successful write. When unset, events are dropped while the hub is unreachable (the old behavior). Sessions survive hub restarts either way (adapter ctx is process-level).
-- **Read-through cache** (`FLEETDECK_REDIS_URL`, `internal/cache`): auth token→user resolution (60s TTL) and per-workspace task lists (30s TTL) are cached in Redis; logout and every task mutation delete their entries (`invalidateTasks`), TTLs bound any missed invalidation. An unset URL is a Noop cache and cache errors always degrade to a database read — never make the cache a request-failure source. Fuzzy search and node-scoped lists (membership-filtered) are deliberately uncached.
+- **Read-through cache** (`FLEETDECK_REDIS_URL`, `internal/cache`): auth token→user resolution (60s TTL) and per-workspace task lists (30s TTL) are cached in Redis; logout and every task mutation delete their entries (`invalidateTasks`), TTLs bound any missed invalidation. An unset URL is a Noop cache and cache errors always degrade to a database read — never make the cache a request-failure source. Fuzzy search and node-scoped lists (binding-filtered) are deliberately uncached.
 
 ## Adding a new adapter
 
@@ -138,4 +138,4 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 
 ## Deferred (do NOT do unless explicitly asked)
 
-The Phase 6 backlog is **fully implemented** (permission picker UI, `GET /api/tasks?node_id=` + `?q=` title search, ACP fs capability negotiation, Gate 4 m1-m7 cleanup, StateChange dedup, Vitest, session-route code splitting, `POST /api/nodes` capabilities fix, WorkspaceList invalidation, em-dash copy, card keyboard reachability, `fleetctl` `--out` flag order, PATCH transition table, dispatchTask transaction). Do not redo them. Remaining known gaps (fix only on request): ACP `terminal/*`/elicitation support (deliberately refused and unadvertised), subtask reverse-writeback to agents, task `cancelled_at` audit column. Multi-user auth is **implemented** (users/auth_tokens/workspace_members, Bearer sessions, membership visibility, `/login` `/users` + membership UI) — do not rebuild it.
+The Phase 6 backlog is **fully implemented** (permission picker UI, `GET /api/tasks?node_id=` + `?q=` title search, ACP fs capability negotiation, Gate 4 m1-m7 cleanup, StateChange dedup, Vitest, session-route code splitting, `POST /api/nodes` capabilities fix, WorkspaceList invalidation, em-dash copy, card keyboard reachability, `fleetctl` `--out` flag order, PATCH transition table, dispatchTask transaction). Do not redo them. Remaining known gaps (fix only on request): ACP `terminal/*`/elicitation support (deliberately refused and unadvertised), subtask reverse-writeback to agents, task `cancelled_at` audit column. Multi-user auth is **implemented** (users/auth_tokens/node_members, Bearer sessions, user↔node binding with subtree visibility, `/login` `/users` + node-binding UI) — do not rebuild it.

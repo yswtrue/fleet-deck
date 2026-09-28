@@ -36,10 +36,12 @@ type wireEvent struct {
 // handleWebWS serves /ws/web. Browsers cannot set WebSocket headers, so the
 // bearer token arrives as ?token=; the upgrade is rejected with 401 when it
 // is missing, unknown, expired, or revoked. On connect the client receives a
-// hello carrying the current node list; thereafter every hub broadcast is
-// forwarded as a protocol.Event JSON message.
+// hello carrying the node list visible to that user (all nodes for admins,
+// the bound set for anyone else); thereafter every hub broadcast the user may
+// see is forwarded as a protocol.Event JSON message.
 func (h *Hub) handleWebWS(w http.ResponseWriter, r *http.Request) {
-	if user, _, _ := h.userFromToken(r.Context(), r.URL.Query().Get("token")); user == nil {
+	user, _, _ := h.userFromToken(r.Context(), r.URL.Query().Get("token"))
+	if user == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -49,10 +51,10 @@ func (h *Hub) handleWebWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = c.Close() }()
 
-	nodes, err := h.store.Queries().ListNodes(r.Context())
+	nodes, err := h.nodesVisibleTo(r.Context(), user)
 	if err != nil {
 		h.log.Warn("hello: list nodes", "err", err)
-		nodes = nil
+		nodes = []protocol.Node{}
 	}
 	hello := map[string]any{
 		"type": "hello",
@@ -63,7 +65,7 @@ func (h *Hub) handleWebWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events, unsubscribe := h.bus.Subscribe()
+	events, unsubscribe := h.bus.Subscribe(h.webEventScope(user))
 	defer unsubscribe()
 
 	// Drain inbound frames (and pongs) so the read side notices client close.
@@ -440,4 +442,97 @@ func sessionIDOf(we wireEvent) string {
 	default:
 		return ""
 	}
+}
+
+// ---- broadcast scoping -----------------------------------------------------
+
+// eventNodeID maps a hub event onto the node whose subtree owns it — the
+// scoping key for /ws/web fan-out. Node events carry the node id directly;
+// task events resolve through the task's workspace; session events through
+// the session row (falling back to its task). Anything unresolvable (unknown
+// payload shape, vanished rows) returns "": such events are delivered to
+// admins only and dropped for non-admin subscribers.
+func (h *Hub) eventNodeID(evt protocol.Event) string {
+	// Publish has no request context; resolve under a bounded detached one so
+	// a slow query cannot wedge a caller's cancellation into the fan-out.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	switch evt.Type {
+	case protocol.EvNodeStatusChanged:
+		var d protocol.NodeStatusChanged
+		if decodeEventPayload(evt.Data, &d) {
+			return d.NodeID
+		}
+	case protocol.EvTaskCreated:
+		var d protocol.TaskCreated
+		if decodeEventPayload(evt.Data, &d) {
+			if d.Task.WorkspaceID != "" {
+				return h.workspaceNodeID(ctx, d.Task.WorkspaceID)
+			}
+			return h.taskNodeID(ctx, d.Task.ID)
+		}
+	case protocol.EvTaskStatusChanged:
+		var d protocol.TaskStatusChanged
+		if decodeEventPayload(evt.Data, &d) {
+			return h.taskNodeID(ctx, d.TaskID)
+		}
+	case protocol.EvSubtaskUpdated:
+		var d protocol.SubtaskUpdated
+		if decodeEventPayload(evt.Data, &d) {
+			return h.taskNodeID(ctx, d.TaskID)
+		}
+	case protocol.EvSessionDelta, protocol.EvSessionMessage,
+		protocol.EvSessionStateChanged, protocol.EvSessionUserInputRequest:
+		var d struct {
+			SessionID string `json:"session_id"`
+		}
+		if decodeEventPayload(evt.Data, &d) && d.SessionID != "" {
+			if session, err := h.store.Queries().GetSession(ctx, d.SessionID); err == nil {
+				return session.NodeID
+			}
+			if task, err := h.store.Queries().GetTaskBySessionID(ctx, d.SessionID); err == nil {
+				return h.workspaceNodeID(ctx, task.WorkspaceID)
+			}
+		}
+	}
+	return ""
+}
+
+// workspaceNodeID resolves a workspace to its node id ("" when unknown).
+func (h *Hub) workspaceNodeID(ctx context.Context, workspaceID string) string {
+	if workspaceID == "" {
+		return ""
+	}
+	workspace, err := h.store.Queries().GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return ""
+	}
+	return workspace.NodeID
+}
+
+// taskNodeID resolves a task to the node id of its workspace ("" when unknown).
+func (h *Hub) taskNodeID(ctx context.Context, taskID string) string {
+	if taskID == "" {
+		return ""
+	}
+	task, err := h.store.Queries().GetTask(ctx, taskID)
+	if err != nil {
+		return ""
+	}
+	return h.workspaceNodeID(ctx, task.WorkspaceID)
+}
+
+// decodeEventPayload unmarshals an event payload into out. Event.Data is a
+// typed struct at hub call sites and raw JSON when re-broadcast from a node;
+// both encode the same wire shape.
+func decodeEventPayload(data any, out any) bool {
+	raw, ok := data.(json.RawMessage)
+	if !ok {
+		var err error
+		if raw, err = json.Marshal(data); err != nil {
+			return false
+		}
+	}
+	return json.Unmarshal(raw, out) == nil
 }

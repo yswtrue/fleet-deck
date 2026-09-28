@@ -4,7 +4,7 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 9 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + workspace 成员可见性,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、MCP 自查询工具(6 个)、无障碍(键盘可达 + 双主题)、Docker Compose 部署(含 Traefik)、测试 96 Go + 47 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 10 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、MCP 自查询工具(6 个)、无障碍(键盘可达 + 双主题)、Docker Compose 部署(含 Traefik)、测试 101 Go + 52 web。
 
 **未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation、`task.cancelled_at` 取消审计列;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
@@ -143,7 +143,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 - **账号**:`users` 表(email 唯一、小写去空白,bcrypt 密码,`role ∈ {admin,user}`)。账号由 admin 创建,**无自助注册**;首启 `POST /api/auth/setup` 建首个 admin(仅当 users 表为空,否则 409)。
 - **会话**:`auth_tokens` 存 sha256(token);token 为 32 字节随机 base64url,明文只回一次,TTL 30 天,`revoked_at` 可吊销。HTTP 用 `Authorization: Bearer`,`/ws/web` 用 `?token=`(浏览器 WebSocket 无法带 header);`/ws/node` 不变(node token 注册帧)。
-- **权限**:admin 全权;普通用户仅 `workspace_members` 成员工作区可见——workspace/task/session/message/event 全链路经 `canReadWorkspace` / `requireWorkspaceMember` 收敛,不可见的读返回 404(不泄露存在性),越权写返回 403。节点发现(`GET /api/nodes*`)对所有登录用户开放。
+- **权限**:两档角色 `admin`(系统管理员,全权)/ `user`;授权模型是**用户↔节点绑定**(`node_members`,在用户页由 admin 绑定)+ 子树继承——绑定用户可见/可写该节点下全部 workspace/task/session/message/event。不可见的读返回 404(不泄露存在性),越权写返回 403;非 admin 的节点列表/详情只含已绑定节点。workspace/task 不单独设成员表,归属沿子树自动下传。
 - **实现**:`internal/hub/{middleware,auth_handlers}.go`;MCP 客户端经 `FLEETDECK_HUB_TOKEN` 环境变量带 Bearer。认证属 HTTP 层,不进 `internal/protocol`(node/hub wire 契约不变)。
 
 ### 3.7 node 离线事件缓冲

@@ -111,3 +111,48 @@ describe('fetchJson auth behavior', () => {
     await expect(apiClient.logout()).resolves.toBeUndefined()
   })
 })
+
+describe('user ↔ node bindings', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/login')
+  })
+  afterEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/')
+    vi.unstubAllGlobals()
+  })
+
+  it('lists the nodes bound to a user', async () => {
+    const fetchMock = mockFetch(() => jsonResponse([{ id: 'n-1', name: 'alpha' }]))
+
+    await expect(apiClient.listUserNodes('u-1')).resolves.toEqual([{ id: 'n-1', name: 'alpha' }])
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/users/u-1/nodes')
+    expect(init?.method).toBeUndefined() // plain GET
+  })
+
+  it('replaces the whole binding set with PUT and returns the resulting nodes', async () => {
+    const fetchMock = mockFetch(() => jsonResponse([{ id: 'n-2', name: 'beta' }]))
+
+    await expect(apiClient.setUserNodes('u-1', ['n-1', 'n-2'])).resolves.toEqual([
+      { id: 'n-2', name: 'beta' },
+    ])
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/users/u-1/nodes')
+    expect(init?.method).toBe('PUT')
+    expect(init?.body).toBe(JSON.stringify({ node_ids: ['n-1', 'n-2'] }))
+  })
+
+  it('clears all bindings when the node set is empty (full-set replace)', async () => {
+    const fetchMock = mockFetch(() => jsonResponse([]))
+
+    await expect(apiClient.setUserNodes('u-1', [])).resolves.toEqual([])
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(init?.method).toBe('PUT')
+    expect(init?.body).toBe(JSON.stringify({ node_ids: [] }))
+  })
+})

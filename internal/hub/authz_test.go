@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -223,8 +224,9 @@ func TestAuthRequired(t *testing.T) {
 	requireStatus(t, "auth status", resp, raw, http.StatusOK)
 }
 
-// TestNonAdminForbidden pins the admin-only contract: a user-role token gets
-// 403 on admin endpoints but can still list nodes (discovery).
+// TestNonAdminForbidden pins the management-plane contract: a user-role token
+// gets 403 on admin endpoints (user CRUD and node bindings) but can still list
+// nodes (its bound set).
 func TestNonAdminForbidden(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
@@ -242,7 +244,8 @@ func TestNonAdminForbidden(t *testing.T) {
 		{"POST", "/api/users"},
 		{"PATCH", "/api/users/" + auth.user.ID},
 		{"DELETE", "/api/users/" + auth.user.ID},
-		{"POST", "/api/workspaces"},
+		{"GET", "/api/users/" + auth.user.ID + "/nodes"},
+		{"PUT", "/api/users/" + auth.user.ID + "/nodes"},
 	} {
 		resp, raw := doRequest(t, tc.method, userToken, ts.URL+tc.path,
 			map[string]string{"_": "_"})
@@ -452,136 +455,311 @@ func TestLastAdminProtection(t *testing.T) {
 	requireStatus(t, "delete self (also last admin)", resp, raw, http.StatusConflict)
 }
 
-// ---- workspace scoping -----------------------------------------------------
+// ---- user node bindings ----------------------------------------------------
 
-// memberFixture provisions a node, a workspace on it, and two users: an admin
-// (auth) and a plain user. It returns the workspace and the user token.
-func memberFixture(t *testing.T, st *store.Store, tsURL, adminToken, nodeID string) (protocol.Workspace, string) {
-	t.Helper()
-	ws := postJSON[protocol.Workspace](t, adminToken, tsURL+"/api/workspaces", map[string]string{
-		"node_id": nodeID, "name": uniqueName("scope-ws"), "path": "/tmp/scope-ws",
-	})
-	_, userToken := setupUserWithRole(t, st, "user")
-	return ws, userToken
-}
-
-// TestWorkspaceScopingForNonMembers pins the visibility rules: a non-member
-// reads 404 on the workspace's tasks, subtasks, sessions, messages, events and
-// send; cannot create tasks there (403); but sees the node list. Granting
-// membership flips reads and task creation to success.
-func TestWorkspaceScopingForNonMembers(t *testing.T) {
+// TestUserNodeBindingsReplace pins PUT /api/users/{id}/nodes: the body is the
+// complete binding set (a subset unbinds the rest), the operation is
+// idempotent, and both PUT and GET answer with the resulting nodes.
+func TestUserNodeBindingsReplace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
 
 	_, st, ts, auth := newTestHub(t)
-	c, nodeID := dialNode(t, ts, st, uniqueName("scope-node"))
-	defer func() { _ = c.Close() }()
+	c1, n1 := dialNode(t, ts, st, uniqueName("bind-node1"))
+	defer func() { _ = c1.Close() }()
+	c2, n2 := dialNode(t, ts, st, uniqueName("bind-node2"))
+	defer func() { _ = c2.Close() }()
+	c3, n3 := dialNode(t, ts, st, uniqueName("bind-node3"))
+	defer func() { _ = c3.Close() }()
 
-	ws, userToken := memberFixture(t, st, ts.URL, auth.token, nodeID)
-	task := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
-		"workspace_id": ws.ID, "title": uniqueName("scope-task"), "prompt": "p", "agent_type": "fake",
-	})
-	if task.SessionID == "" {
-		t.Fatalf("task has no session: %+v", task)
-	}
+	user, _ := setupUserWithRole(t, st, "user")
 
-	// Non-member reads: everything workspace-scoped is 404.
-	for _, path := range []string{
-		"/api/workspaces/" + ws.ID,
-		"/api/tasks?workspace_id=" + ws.ID,
-		"/api/tasks/" + task.ID + "/subtasks",
-		"/api/sessions/" + task.SessionID,
-		"/api/sessions/" + task.SessionID + "/messages",
-		"/api/sessions/" + task.SessionID + "/events",
-	} {
-		resp, raw := getRaw(t, userToken, ts.URL+path)
-		requireStatus(t, "GET "+path, resp, raw, http.StatusNotFound)
-	}
-	resp, raw := postRaw(t, userToken, ts.URL+"/api/sessions/"+task.SessionID+"/send",
-		map[string]string{"message": "hi"})
-	requireStatus(t, "POST send as non-member", resp, raw, http.StatusNotFound)
-
-	// Non-member mutation: 403.
-	resp, raw = postRaw(t, userToken, ts.URL+"/api/tasks", map[string]string{
-		"workspace_id": ws.ID, "title": "nope",
-	})
-	requireStatus(t, "create task as non-member", resp, raw, http.StatusForbidden)
-	resp, raw = patchRaw(t, userToken, ts.URL+"/api/tasks/"+task.ID, map[string]any{"sort_order": 3})
-	requireStatus(t, "patch task as non-member", resp, raw, http.StatusNotFound)
-
-	// Node discovery still works for the plain user.
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/nodes")
-	requireStatus(t, "user list nodes", resp, raw, http.StatusOK)
-	// ...but the unjoined workspace is not listed.
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/workspaces?node_id="+nodeID)
-	requireStatus(t, "user list workspaces", resp, raw, http.StatusOK)
-	var mine []protocol.Workspace
-	if err := json.Unmarshal(raw, &mine); err != nil {
-		t.Fatalf("decode workspaces: %v (%s)", err, raw)
-	}
-	for _, w := range mine {
-		if w.ID == ws.ID {
-			t.Fatalf("non-member sees workspace %q in list", ws.ID)
+	assertBound := func(want ...string) {
+		t.Helper()
+		resp, raw := getRaw(t, auth.token, ts.URL+"/api/users/"+user.ID+"/nodes")
+		requireStatus(t, "get user nodes", resp, raw, http.StatusOK)
+		var nodes []protocol.Node
+		if err := json.Unmarshal(raw, &nodes); err != nil {
+			t.Fatalf("decode nodes: %v (%s)", err, raw)
+		}
+		got := map[string]bool{}
+		for _, n := range nodes {
+			got[n.ID] = true
+		}
+		if len(nodes) != len(want) {
+			t.Fatalf("bound nodes = %+v, want exactly %v", nodes, want)
+		}
+		for _, id := range want {
+			if !got[id] {
+				t.Fatalf("bound nodes = %+v, want it to include %s", nodes, id)
+			}
 		}
 	}
 
-	// A non-admin member cannot grant membership (403); an admin can (201,
-	// idempotent), and the member list shows the user.
-	var me struct {
-		ID string `json:"id"`
-	}
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/auth/me")
-	requireStatus(t, "user me", resp, raw, http.StatusOK)
-	if err := json.Unmarshal(raw, &me); err != nil {
-		t.Fatalf("decode me: %v (%s)", err, raw)
-	}
-	resp, raw = postRaw(t, userToken, ts.URL+"/api/workspaces/"+ws.ID+"/members",
-		map[string]string{"user_id": me.ID})
-	requireStatus(t, "grant as non-member non-admin", resp, raw, http.StatusNotFound)
+	// Fresh user: no bindings.
+	assertBound()
 
-	resp, raw = postRaw(t, auth.token, ts.URL+"/api/workspaces/"+ws.ID+"/members",
-		map[string]string{"user_id": me.ID})
-	requireStatus(t, "grant member", resp, raw, http.StatusCreated)
-	resp, raw = postRaw(t, auth.token, ts.URL+"/api/workspaces/"+ws.ID+"/members",
-		map[string]string{"user_id": me.ID})
-	requireStatus(t, "grant member idempotent", resp, raw, http.StatusCreated)
-
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/workspaces/"+ws.ID+"/members")
-	requireStatus(t, "list members as member", resp, raw, http.StatusOK)
-	var members []userDTO
-	if err := json.Unmarshal(raw, &members); err != nil {
-		t.Fatalf("decode members: %v (%s)", err, raw)
+	// The PUT response carries the resulting set.
+	bound := bindUserToNodes(t, ts.URL, auth.token, user.ID, n1, n2)
+	if len(bound) != 2 {
+		t.Fatalf("PUT response = %+v, want the two bound nodes", bound)
 	}
-	if len(members) != 1 || members[0].ID != me.ID {
-		t.Fatalf("members = %+v, want exactly the joined user", members)
-	}
+	assertBound(n1, n2)
 
-	// Membership flips reads and task creation to success.
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/workspaces/"+ws.ID)
-	requireStatus(t, "member get workspace", resp, raw, http.StatusOK)
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/tasks?workspace_id="+ws.ID)
-	requireStatus(t, "member list tasks", resp, raw, http.StatusOK)
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/sessions/"+task.SessionID)
-	requireStatus(t, "member get session", resp, raw, http.StatusOK)
-	created := postJSON[protocol.Task](t, userToken, ts.URL+"/api/tasks", map[string]string{
-		"workspace_id": ws.ID, "title": uniqueName("member-task"), "prompt": "p", "agent_type": "fake",
-	})
-	if created.ID == "" {
-		t.Fatal("member task creation returned no id")
-	}
+	// Idempotent: re-PUTting the same set keeps the same result.
+	bindUserToNodes(t, ts.URL, auth.token, user.ID, n1, n2)
+	assertBound(n1, n2)
 
-	// Removing the grant flips reads back to 404.
-	resp, raw = deleteReq(t, auth.token, ts.URL+"/api/workspaces/"+ws.ID+"/members/"+me.ID)
-	requireStatus(t, "remove member", resp, raw, http.StatusNoContent)
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/tasks?workspace_id="+ws.ID)
-	requireStatus(t, "list tasks after removal", resp, raw, http.StatusNotFound)
+	// Full-set semantics: the new set replaces the old one.
+	bindUserToNodes(t, ts.URL, auth.token, user.ID, n2, n3)
+	assertBound(n2, n3)
+
+	// An empty set unbinds everything.
+	bindUserToNodes(t, ts.URL, auth.token, user.ID)
+	assertBound()
+
+	// A missing node_ids field is a bad request.
+	resp, raw := doRequest(t, http.MethodPut, auth.token, ts.URL+"/api/users/"+user.ID+"/nodes", map[string]any{})
+	requireStatus(t, "put without node_ids", resp, raw, http.StatusBadRequest)
+
+	// Unknown users and unknown nodes are 404; a refused replace leaves the
+	// binding set untouched.
+	resp, raw = doRequest(t, http.MethodPut, auth.token, ts.URL+"/api/users/"+randomUUID(t)+"/nodes",
+		map[string]any{"node_ids": []string{}})
+	requireStatus(t, "put nodes of unknown user", resp, raw, http.StatusNotFound)
+	bindUserToNodes(t, ts.URL, auth.token, user.ID, n1)
+	resp, raw = doRequest(t, http.MethodPut, auth.token, ts.URL+"/api/users/"+user.ID+"/nodes",
+		map[string]any{"node_ids": []string{randomUUID(t)}})
+	requireStatus(t, "put unknown node", resp, raw, http.StatusNotFound)
+	assertBound(n1)
 }
 
-// TestTasksByNodeFilteredForNonAdmin pins node-scoped filtering: a plain user
-// with membership in one workspace sees only that workspace's tasks through
-// GET /api/tasks?node_id=.
-func TestTasksByNodeFilteredForNonAdmin(t *testing.T) {
+// TestWorkspaceMemberEndpointsRemoved pins the clean cutover: the
+// workspace-member endpoints are gone and every role gets 404 on them.
+func TestWorkspaceMemberEndpointsRemoved(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("gone-node"))
+	defer func() { _ = c.Close() }()
+	ws := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID, "name": uniqueName("gone-ws"), "path": "/tmp/gone-ws",
+	})
+	_, userToken := setupUserWithRole(t, st, "user")
+
+	for _, token := range []string{auth.token, userToken} {
+		for _, tc := range []struct{ method, path string }{
+			{http.MethodGet, "/api/workspaces/" + ws.ID + "/members"},
+			{http.MethodPost, "/api/workspaces/" + ws.ID + "/members"},
+			{http.MethodDelete, "/api/workspaces/" + ws.ID + "/members/" + randomUUID(t)},
+		} {
+			resp, raw := doRequest(t, tc.method, token, ts.URL+tc.path, map[string]string{"user_id": "x"})
+			requireStatus(t, tc.method+" "+tc.path, resp, raw, http.StatusNotFound)
+		}
+	}
+}
+
+// ---- node binding scoping --------------------------------------------------
+
+// bindUserToNodes replaces a user's full node binding set through the admin
+// API and returns the resulting bound nodes.
+func bindUserToNodes(t *testing.T, tsURL, adminToken, userID string, nodeIDs ...string) []protocol.Node {
+	t.Helper()
+	ids := nodeIDs
+	if ids == nil {
+		ids = []string{}
+	}
+	resp, raw := doRequest(t, http.MethodPut, adminToken, tsURL+"/api/users/"+userID+"/nodes",
+		map[string]any{"node_ids": ids})
+	return decodeOK[[]protocol.Node](t, "PUT /api/users/{id}/nodes", resp, raw)
+}
+
+// bindingFixture provisions one node holding a workspace and a dispatched
+// task (with its session), plus a plain user with a bearer token. The user
+// starts unbound; bind it via bindUserToNodes or a direct store insert.
+type bindingFixture struct {
+	nodeID    string
+	workspace protocol.Workspace
+	task      protocol.Task
+	user      store.User
+	userToken string
+}
+
+func newBindingFixture(t *testing.T, st *store.Store, ts *httptest.Server, adminToken string) bindingFixture {
+	t.Helper()
+	c, nodeID := dialNode(t, ts, st, uniqueName("bind-node"))
+	t.Cleanup(func() { _ = c.Close() })
+
+	ws := postJSON[protocol.Workspace](t, adminToken, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID, "name": uniqueName("bind-ws"), "path": "/tmp/bind-ws",
+	})
+	task := postJSON[protocol.Task](t, adminToken, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": ws.ID, "title": uniqueName("bind-task"), "prompt": "p", "agent_type": "fake",
+	})
+	user, userToken := setupUserWithRole(t, st, "user")
+	return bindingFixture{nodeID: nodeID, workspace: ws, task: task, user: user, userToken: userToken}
+}
+
+// TestNodeVisibilityForNonAdmins pins node discovery scoping: a non-admin's
+// node list holds only bound nodes and an unbound node id is 404 (no
+// existence leak). Binding flips exactly that node visible.
+func TestNodeVisibilityForNonAdmins(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c1, nodeID1 := dialNode(t, ts, st, uniqueName("vis-node1"))
+	defer func() { _ = c1.Close() }()
+	c2, nodeID2 := dialNode(t, ts, st, uniqueName("vis-node2"))
+	defer func() { _ = c2.Close() }()
+
+	user, userToken := setupUserWithRole(t, st, "user")
+
+	listNodes := func() []protocol.Node {
+		t.Helper()
+		resp, raw := getRaw(t, userToken, ts.URL+"/api/nodes")
+		requireStatus(t, "user list nodes", resp, raw, http.StatusOK)
+		var nodes []protocol.Node
+		if err := json.Unmarshal(raw, &nodes); err != nil {
+			t.Fatalf("decode nodes: %v (%s)", err, raw)
+		}
+		return nodes
+	}
+
+	// Unbound: an empty list and 404 on both ids.
+	if nodes := listNodes(); len(nodes) != 0 {
+		t.Fatalf("unbound user sees %d nodes, want 0: %+v", len(nodes), nodes)
+	}
+	for _, id := range []string{nodeID1, nodeID2} {
+		resp, raw := getRaw(t, userToken, ts.URL+"/api/nodes/"+id)
+		requireStatus(t, "get unbound node "+id, resp, raw, http.StatusNotFound)
+	}
+
+	// Binding node1 flips exactly node1 visible.
+	bound := bindUserToNodes(t, ts.URL, auth.token, user.ID, nodeID1)
+	if len(bound) != 1 || bound[0].ID != nodeID1 {
+		t.Fatalf("bound nodes = %+v, want exactly [%s]", bound, nodeID1)
+	}
+	nodes := listNodes()
+	if len(nodes) != 1 || nodes[0].ID != nodeID1 {
+		t.Fatalf("nodes after binding = %+v, want exactly [%s]", nodes, nodeID1)
+	}
+	resp, raw := getRaw(t, userToken, ts.URL+"/api/nodes/"+nodeID1)
+	requireStatus(t, "get bound node", resp, raw, http.StatusOK)
+	resp, raw = getRaw(t, userToken, ts.URL+"/api/nodes/"+nodeID2)
+	requireStatus(t, "get unbound node after binding", resp, raw, http.StatusNotFound)
+}
+
+// TestWorkspaceScopingForUnboundUsers pins the subtree visibility rules: an
+// unbound user reads 404 across the node's subtree (workspace, tasks,
+// subtasks, sessions, messages, events, send) and gets 403 on writes
+// (workspace/task creation); PATCH of an invisible task is 404. Binding the
+// user to the node flips the whole subtree visible and writable; unbinding
+// flips reads back to 404.
+func TestWorkspaceScopingForUnboundUsers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	f := newBindingFixture(t, st, ts, auth.token)
+	if f.task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", f.task)
+	}
+
+	// Unbound reads: everything in the node's subtree is 404.
+	for _, path := range []string{
+		"/api/workspaces/" + f.workspace.ID,
+		"/api/tasks?workspace_id=" + f.workspace.ID,
+		"/api/tasks?node_id=" + f.nodeID,
+		"/api/tasks/" + f.task.ID + "/subtasks",
+		"/api/sessions/" + f.task.SessionID,
+		"/api/sessions/" + f.task.SessionID + "/messages",
+		"/api/sessions/" + f.task.SessionID + "/events",
+	} {
+		resp, raw := getRaw(t, f.userToken, ts.URL+path)
+		requireStatus(t, "GET "+path, resp, raw, http.StatusNotFound)
+	}
+	resp, raw := postRaw(t, f.userToken, ts.URL+"/api/sessions/"+f.task.SessionID+"/send",
+		map[string]string{"message": "hi"})
+	requireStatus(t, "POST send as unbound", resp, raw, http.StatusNotFound)
+
+	// Unbound writes: 403 on creation, 404 on patching an invisible task.
+	resp, raw = postRaw(t, f.userToken, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": f.workspace.ID, "title": "nope",
+	})
+	requireStatus(t, "create task as unbound", resp, raw, http.StatusForbidden)
+	resp, raw = patchRaw(t, f.userToken, ts.URL+"/api/tasks/"+f.task.ID, map[string]any{"sort_order": 3})
+	requireStatus(t, "patch task as unbound", resp, raw, http.StatusNotFound)
+	resp, raw = postRaw(t, f.userToken, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": f.nodeID, "name": "nope", "path": "/tmp/nope",
+	})
+	requireStatus(t, "create workspace as unbound", resp, raw, http.StatusForbidden)
+
+	// The unbound node is absent from discovery, and its workspace list is
+	// 404 -- never a leaky empty list.
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/nodes")
+	requireStatus(t, "user list nodes", resp, raw, http.StatusOK)
+	var nodes []protocol.Node
+	if err := json.Unmarshal(raw, &nodes); err != nil {
+		t.Fatalf("decode nodes: %v (%s)", err, raw)
+	}
+	for _, n := range nodes {
+		if n.ID == f.nodeID {
+			t.Fatalf("unbound user sees node %q in list", f.nodeID)
+		}
+	}
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/workspaces?node_id="+f.nodeID)
+	requireStatus(t, "user list workspaces on unbound node", resp, raw, http.StatusNotFound)
+
+	// Binding the user flips the whole subtree visible and writable.
+	bindUserToNodes(t, ts.URL, auth.token, f.user.ID, f.nodeID)
+
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/workspaces/"+f.workspace.ID)
+	requireStatus(t, "bound get workspace", resp, raw, http.StatusOK)
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/tasks?workspace_id="+f.workspace.ID)
+	requireStatus(t, "bound list tasks", resp, raw, http.StatusOK)
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/tasks?node_id="+f.nodeID)
+	requireStatus(t, "bound list tasks by node", resp, raw, http.StatusOK)
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/tasks/"+f.task.ID+"/subtasks")
+	requireStatus(t, "bound list subtasks", resp, raw, http.StatusOK)
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/sessions/"+f.task.SessionID)
+	requireStatus(t, "bound get session", resp, raw, http.StatusOK)
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/sessions/"+f.task.SessionID+"/messages")
+	requireStatus(t, "bound list messages", resp, raw, http.StatusOK)
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/sessions/"+f.task.SessionID+"/events")
+	requireStatus(t, "bound list events", resp, raw, http.StatusOK)
+
+	created := postJSON[protocol.Task](t, f.userToken, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": f.workspace.ID, "title": uniqueName("bound-task"), "prompt": "p", "agent_type": "fake",
+	})
+	if created.ID == "" {
+		t.Fatal("bound task creation returned no id")
+	}
+	createdWS := postJSON[protocol.Workspace](t, f.userToken, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": f.nodeID, "name": uniqueName("bound-ws"), "path": "/tmp/bound-ws",
+	})
+	if createdWS.ID == "" {
+		t.Fatal("bound workspace creation returned no id")
+	}
+
+	// Unbinding flips reads back to 404.
+	bindUserToNodes(t, ts.URL, auth.token, f.user.ID)
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/tasks?workspace_id="+f.workspace.ID)
+	requireStatus(t, "list tasks after unbind", resp, raw, http.StatusNotFound)
+	resp, raw = getRaw(t, f.userToken, ts.URL+"/api/sessions/"+f.task.SessionID)
+	requireStatus(t, "get session after unbind", resp, raw, http.StatusNotFound)
+}
+
+// TestTasksByNodeScopedToBoundNodes pins node-scoped task lists and fuzzy
+// search: a non-admin sees every task beneath a bound node (across all of its
+// workspaces) and gets 404 for an unbound node -- for plain lists and q=
+// searches alike.
+func TestTasksByNodeScopedToBoundNodes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
@@ -589,10 +767,12 @@ func TestTasksByNodeFilteredForNonAdmin(t *testing.T) {
 	_, st, ts, auth := newTestHub(t)
 	c, nodeID := dialNode(t, ts, st, uniqueName("filternode"))
 	defer func() { _ = c.Close() }()
+	c2, otherNodeID := dialNode(t, ts, st, uniqueName("othernode"))
+	defer func() { _ = c2.Close() }()
 
-	mkWS := func(name string) protocol.Workspace {
+	mkWS := func(node, name string) protocol.Workspace {
 		return postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
-			"node_id": nodeID, "name": name, "path": "/tmp/" + name,
+			"node_id": node, "name": name, "path": "/tmp/" + name,
 		})
 	}
 	mkTask := func(wsID, title string) protocol.Task {
@@ -600,46 +780,246 @@ func TestTasksByNodeFilteredForNonAdmin(t *testing.T) {
 			"workspace_id": wsID, "title": title, "prompt": "p", "agent_type": "fake",
 		})
 	}
-	wsIn := mkWS(uniqueName("filter-in"))
-	wsOut := mkWS(uniqueName("filter-out"))
+	wsIn := mkWS(nodeID, uniqueName("filter-in"))
+	wsIn2 := mkWS(nodeID, uniqueName("filter-in2"))
+	wsOut := mkWS(otherNodeID, uniqueName("filter-out"))
 	inTask := mkTask(wsIn.ID, uniqueName("in-task"))
+	inTask2 := mkTask(wsIn2.ID, uniqueName("in-task2"))
 	_ = mkTask(wsOut.ID, uniqueName("out-task"))
 
-	_, userToken := setupUserWithRole(t, st, "user")
-	var me struct {
-		ID string `json:"id"`
-	}
-	resp, raw := getRaw(t, userToken, ts.URL+"/api/auth/me")
-	requireStatus(t, "user me", resp, raw, http.StatusOK)
-	if err := json.Unmarshal(raw, &me); err != nil {
-		t.Fatalf("decode me: %v (%s)", err, raw)
-	}
-	resp, raw = postRaw(t, auth.token, ts.URL+"/api/workspaces/"+wsIn.ID+"/members",
-		map[string]string{"user_id": me.ID})
-	requireStatus(t, "grant member", resp, raw, http.StatusCreated)
+	user, userToken := setupUserWithRole(t, st, "user")
+	bindUserToNodes(t, ts.URL, auth.token, user.ID, nodeID)
 
-	resp, raw = getRaw(t, userToken, ts.URL+"/api/tasks?node_id="+nodeID)
+	// Every task beneath the bound node is listed, across its workspaces.
+	resp, raw := getRaw(t, userToken, ts.URL+"/api/tasks?node_id="+nodeID)
 	requireStatus(t, "filtered list by node", resp, raw, http.StatusOK)
 	var tasks []protocol.Task
 	if err := json.Unmarshal(raw, &tasks); err != nil {
 		t.Fatalf("decode tasks: %v (%s)", err, raw)
 	}
-	if len(tasks) != 1 || tasks[0].ID != inTask.ID {
-		t.Fatalf("filtered tasks = %v, want exactly [%s]", tasks, inTask.ID)
+	got := map[string]bool{}
+	for _, task := range tasks {
+		got[task.ID] = true
+	}
+	if len(tasks) != 2 || !got[inTask.ID] || !got[inTask2.ID] {
+		t.Fatalf("tasks by bound node = %v, want exactly [%s %s]", tasks, inTask.ID, inTask2.ID)
 	}
 
-	// Node-scoped search is filtered the same way.
+	// q= search is scoped to bound workspaces the same way.
 	resp, raw = getRaw(t, userToken, ts.URL+"/api/tasks?node_id="+nodeID+"&q="+inTask.Title)
 	requireStatus(t, "filtered search by node", resp, raw, http.StatusOK)
 	tasks = nil
 	if err := json.Unmarshal(raw, &tasks); err != nil {
 		t.Fatalf("decode tasks: %v (%s)", err, raw)
 	}
+	sawWanted := false
 	for _, task := range tasks {
-		if task.WorkspaceID != wsIn.ID {
-			t.Fatalf("search leaked task from outside member workspaces: %+v", task)
+		if task.WorkspaceID != wsIn.ID && task.WorkspaceID != wsIn2.ID {
+			t.Fatalf("search leaked task from outside bound workspaces: %+v", task)
+		}
+		if task.ID == inTask.ID {
+			sawWanted = true
 		}
 	}
+	if !sawWanted {
+		t.Fatalf("search for %q returned %+v, want it to include %s", inTask.Title, tasks, inTask.ID)
+	}
+
+	// An unbound node is 404 for lists and searches alike.
+	resp, raw = getRaw(t, userToken, ts.URL+"/api/tasks?node_id="+otherNodeID)
+	requireStatus(t, "list tasks by unbound node", resp, raw, http.StatusNotFound)
+	resp, raw = getRaw(t, userToken, ts.URL+"/api/tasks?node_id="+otherNodeID+"&q=whatever")
+	requireStatus(t, "search tasks by unbound node", resp, raw, http.StatusNotFound)
+}
+
+// TestWorkspaceCreationFollowsBinding pins POST /api/workspaces under the
+// binding model: unbound users get 403 on a node, bound users may create
+// workspaces there (subtree inheritance), and admins create anywhere.
+func TestWorkspaceCreationFollowsBinding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("wscreate-node"))
+	defer func() { _ = c.Close() }()
+
+	user, userToken := setupUserWithRole(t, st, "user")
+	resp, raw := postRaw(t, userToken, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID, "name": "nope", "path": "/tmp/nope",
+	})
+	requireStatus(t, "create workspace as unbound user", resp, raw, http.StatusForbidden)
+
+	// Binding the user grants workspace creation on that node.
+	bindUserToNodes(t, ts.URL, auth.token, user.ID, nodeID)
+	ws := postJSON[protocol.Workspace](t, userToken, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID, "name": uniqueName("bound-ws"), "path": "/tmp/bound-ws",
+	})
+	if ws.ID == "" {
+		t.Fatal("bound workspace creation returned no id")
+	}
+
+	// Admins keep creating anywhere.
+	adminWS := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID, "name": uniqueName("admin-ws"), "path": "/tmp/admin-ws",
+	})
+	if adminWS.ID == "" {
+		t.Fatal("admin workspace creation returned no id")
+	}
+}
+
+// ---- web socket scoping ----------------------------------------------------
+
+// helloFrame is the first /ws/web frame: a hello carrying the node list
+// visible to the connecting user.
+type helloFrame struct {
+	Type string `json:"type"`
+	Data struct {
+		Nodes []protocol.Node `json:"nodes"`
+	} `json:"data"`
+}
+
+// readHello reads the hello frame off a freshly dialed /ws/web connection.
+func readHello(t *testing.T, c *websocket.Conn) helloFrame {
+	t.Helper()
+	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var hello helloFrame
+	if err := c.ReadJSON(&hello); err != nil {
+		t.Fatalf("read hello: %v", err)
+	}
+	if hello.Type != "hello" {
+		t.Fatalf("first frame type = %q, want hello", hello.Type)
+	}
+	return hello
+}
+
+// expectSilent asserts that a /ws/web connection receives no event at all
+// within a short window.
+func expectSilent(t *testing.T, ch <-chan protocol.Envelope) {
+	t.Helper()
+	timeout := time.After(500 * time.Millisecond)
+	for {
+		select {
+		case env, ok := <-ch:
+			if !ok {
+				t.Fatal("connection closed while asserting no events are delivered")
+			}
+			t.Fatalf("event leaked to a scoped-out subscriber: %+v", env)
+		case <-timeout:
+			return
+		}
+	}
+}
+
+// TestWebWSHelloScopedToBoundNodes pins the /ws/web hello frame: it carries
+// every node for admins and only the bound nodes for anyone else (empty for
+// an unbound user) -- the same view GET /api/nodes reports.
+func TestWebWSHelloScopedToBoundNodes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c1, nodeID1 := dialNode(t, ts, st, uniqueName("hello-node1"))
+	defer func() { _ = c1.Close() }()
+	c2, nodeID2 := dialNode(t, ts, st, uniqueName("hello-node2"))
+	defer func() { _ = c2.Close() }()
+
+	user, userToken := setupUserWithRole(t, st, "user")
+
+	// Admin: the hello carries both nodes (possibly among leftover rows).
+	adminHello := readHello(t, dialWebWS(t, ts, auth.token))
+	got := map[string]bool{}
+	for _, n := range adminHello.Data.Nodes {
+		got[n.ID] = true
+	}
+	if !got[nodeID1] || !got[nodeID2] {
+		t.Fatalf("admin hello nodes = %+v, want it to include %s and %s", adminHello.Data.Nodes, nodeID1, nodeID2)
+	}
+
+	// Unbound user: an empty node list.
+	unboundHello := readHello(t, dialWebWS(t, ts, userToken))
+	if len(unboundHello.Data.Nodes) != 0 {
+		t.Fatalf("unbound hello nodes = %+v, want none", unboundHello.Data.Nodes)
+	}
+
+	// Bound to node1: exactly that node.
+	bindUserToNodes(t, ts.URL, auth.token, user.ID, nodeID1)
+	boundHello := readHello(t, dialWebWS(t, ts, userToken))
+	if len(boundHello.Data.Nodes) != 1 || boundHello.Data.Nodes[0].ID != nodeID1 {
+		t.Fatalf("bound hello nodes = %+v, want exactly [%s]", boundHello.Data.Nodes, nodeID1)
+	}
+}
+
+// TestWebWSBroadcastScopedByNodeBinding pins per-connection broadcast
+// scoping: an event inside one user's subtree reaches that user's socket and
+// the admin's, but never a differently bound peer's.
+func TestWebWSBroadcastScopedByNodeBinding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	cA, nodeA := dialNode(t, ts, st, uniqueName("scope-nodea"))
+	defer func() { _ = cA.Close() }()
+	cB, nodeB := dialNode(t, ts, st, uniqueName("scope-nodeb"))
+	defer func() { _ = cB.Close() }()
+
+	wsA := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeA, "name": uniqueName("scope-ws-a"), "path": "/tmp/scope-ws-a",
+	})
+	taskA := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": wsA.ID, "title": uniqueName("scope-task-a"), "prompt": "p", "agent_type": "fake",
+	})
+	if taskA.SessionID == "" {
+		t.Fatalf("task has no session: %+v", taskA)
+	}
+
+	userA, tokenA := setupUserWithRole(t, st, "user")
+	userB, tokenB := setupUserWithRole(t, st, "user")
+	bindUserToNodes(t, ts.URL, auth.token, userA.ID, nodeA)
+	bindUserToNodes(t, ts.URL, auth.token, userB.ID, nodeB)
+
+	adminEvents := readEnvelopes(dialWebWS(t, ts, auth.token))
+	aEvents := readEnvelopes(dialWebWS(t, ts, tokenA))
+	bEvents := readEnvelopes(dialWebWS(t, ts, tokenB))
+	for _, ch := range []<-chan protocol.Envelope{adminEvents, aEvents, bEvents} {
+		waitEnvelope(t, ch, "hello")
+	}
+
+	// A real mutation in A's subtree: task creation publishes task.created
+	// plus the dispatch state changes, all scoped to nodeA.
+	created := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": wsA.ID, "title": uniqueName("scope-task-a2"), "prompt": "p", "agent_type": "fake",
+	})
+	got := waitEnvelope(t, aEvents, protocol.EvTaskCreated)
+	var tc protocol.TaskCreated
+	if err := got.Decode(&tc); err != nil || tc.Task.ID != created.ID {
+		t.Fatalf("A got task.created %+v (err %v), want task %s", tc.Task, err, created.ID)
+	}
+	waitEnvelope(t, adminEvents, protocol.EvTaskCreated)
+	expectSilent(t, bEvents)
+
+	// A session event in the same subtree (arriving from the node) is scoped
+	// the same way.
+	msg := protocol.SessionMessage{
+		SessionID: taskA.SessionID,
+		Message: protocol.Message{
+			ID: "m1", SessionID: taskA.SessionID,
+			Role: protocol.RoleAssistant, Content: uniqueName("scoped-msg"),
+			CreatedAt: time.Now().UTC(),
+		},
+	}
+	if err := cA.WriteJSON(protocol.NewEnvelope(protocol.MsgSessionEvent, msg)); err != nil {
+		t.Fatalf("send session.event: %v", err)
+	}
+	got = waitEnvelope(t, aEvents, protocol.EvSessionMessage)
+	var sm protocol.SessionMessage
+	if err := got.Decode(&sm); err != nil || sm.Message.Content != msg.Message.Content {
+		t.Fatalf("A got session.message %+v (err %v), want content %q", sm.Message, err, msg.Message.Content)
+	}
+	waitEnvelope(t, adminEvents, protocol.EvSessionMessage)
+	expectSilent(t, bEvents)
 }
 
 // TestWebSocketRequiresAuth pins the /ws/web gate: no token (or a bogus one)
@@ -681,29 +1061,5 @@ func TestWebSocketRequiresAuth(t *testing.T) {
 	}
 	if hello.Type != "hello" {
 		t.Fatalf("first frame type = %q, want hello", hello.Type)
-	}
-}
-
-// TestWorkspaceCreationForbiddenForUsers pins workspace creation as admin-only.
-func TestWorkspaceCreationForbiddenForUsers(t *testing.T) {
-	if testing.Short() {
-		t.Skip("hub integration test needs a live Postgres; skipped under -short")
-	}
-
-	_, st, ts, auth := newTestHub(t)
-	c, nodeID := dialNode(t, ts, st, uniqueName("wscreate-node"))
-	defer func() { _ = c.Close() }()
-
-	_, userToken := setupUserWithRole(t, st, "user")
-	resp, raw := postRaw(t, userToken, ts.URL+"/api/workspaces", map[string]string{
-		"node_id": nodeID, "name": "nope", "path": "/tmp/nope",
-	})
-	requireStatus(t, "create workspace as user", resp, raw, http.StatusForbidden)
-
-	ws := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
-		"node_id": nodeID, "name": uniqueName("admin-ws"), "path": "/tmp/admin-ws",
-	})
-	if ws.ID == "" {
-		t.Fatal("admin workspace creation returned no id")
 	}
 }

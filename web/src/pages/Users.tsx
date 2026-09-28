@@ -16,6 +16,7 @@ import type { TableColumnsType } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../apiClient.ts'
 import type { AuthUser, CreateUserInput, PatchUserInput, UserRole } from '../apiClient.ts'
+import type { Node } from '../gen/protocol/index.ts'
 import { useAuth } from '../hooks/useAuth.ts'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
@@ -27,6 +28,12 @@ interface UserFormValues {
   display_name: string
   password?: string
   role: UserRole
+  node_ids: string[]
+}
+
+/** Node option label: name plus host so identically named nodes stay distinct. */
+function nodeLabel(node: Node): string {
+  return node.host ? `${node.name} — ${node.host}` : node.name
 }
 
 const ROLE_OPTIONS = [
@@ -58,6 +65,20 @@ function UserFormModal({
   // antd's static message API does not render under React 19; useMessage does.
   const [messageApi, messageHolder] = message.useMessage()
 
+  // Node options for the binding multi-select. The Users page is admin-only,
+  // so listNodes returns every node in the system.
+  const nodes = useQuery({
+    queryKey: ['nodes'],
+    queryFn: () => apiClient.listNodes(),
+    enabled: open,
+  })
+  // Current bindings of the user being edited (create starts unbound).
+  const boundNodes = useQuery({
+    queryKey: ['user-nodes', editing?.id],
+    queryFn: () => apiClient.listUserNodes(editing?.id ?? ''),
+    enabled: open && !!editing,
+  })
+
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
@@ -65,30 +86,38 @@ function UserFormModal({
         display_name: editing?.display_name ?? '',
         password: undefined,
         role: editing?.role ?? 'user',
+        // Re-applied once the bindings query resolves (below).
+        node_ids: boundNodes.data?.map((node) => node.id) ?? [],
       })
     }
-  }, [open, editing, form])
+  }, [open, editing, form, boundNodes.data])
 
   const saveUser = useMutation<AuthUser, Error, void>({
     mutationFn: async () => {
       const values = form.getFieldsValue()
+      const nodeIds = values.node_ids ?? []
+      let user: AuthUser
       if (editing) {
         const patch: PatchUserInput = { display_name: values.display_name, role: values.role }
         if (values.password) patch.password = values.password
-        return apiClient.patchUser(editing.id, patch)
+        user = await apiClient.patchUser(editing.id, patch)
+      } else {
+        const input: CreateUserInput = {
+          email: values.email,
+          display_name: values.display_name,
+          password: values.password ?? '',
+          role: values.role,
+        }
+        user = await apiClient.createUser(input)
       }
-      const input: CreateUserInput = {
-        email: values.email,
-        display_name: values.display_name,
-        password: values.password ?? '',
-        role: values.role,
-      }
-      return apiClient.createUser(input)
+      // Full-set replace of the user's node bindings (idempotent).
+      await apiClient.setUserNodes(user.id, nodeIds)
+      return user
     },
     onSuccess: () => {
       messageApi.success(editing ? 'User updated' : 'User created')
       void queryClient.invalidateQueries({ queryKey: ['users'] })
-      void queryClient.invalidateQueries({ queryKey: ['workspace-members'] })
+      void queryClient.invalidateQueries({ queryKey: ['user-nodes'] })
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
       onClose()
     },
@@ -149,15 +178,51 @@ function UserFormModal({
         >
           <Select options={ROLE_OPTIONS} />
         </Form.Item>
+        <Form.Item
+          label="Bound nodes"
+          name="node_ids"
+          extra="Access to a node covers everything beneath it: workspaces, tasks and sessions."
+        >
+          <Select
+            mode="multiple"
+            placeholder="Select the nodes this user can access"
+            options={(nodes.data ?? []).map((node) => ({ value: node.id, label: nodeLabel(node) }))}
+            optionFilterProp="label"
+            loading={nodes.isPending}
+            notFoundContent={nodes.isPending ? 'Loading nodes…' : 'No nodes registered yet'}
+            allowClear
+          />
+        </Form.Item>
       </Form>
     </Modal>
   )
 }
 
 /**
- * Admin-only user management: list, create, edit (incl. password reset) and
- * delete. Deleting yourself is disabled here and rejected with 409 server-side;
- * last-admin protections surface as error toasts.
+ * Node chips for one users-table row: the row's bound nodes (kept fresh via
+ * the `user-nodes` query cache shared with the edit modal).
+ */
+function UserNodeChips({ userId }: { userId: string }) {
+  const boundNodes = useQuery({
+    queryKey: ['user-nodes', userId],
+    queryFn: () => apiClient.listUserNodes(userId),
+  })
+  if (boundNodes.isPending) return <Typography.Text type="secondary">…</Typography.Text>
+  const nodes = boundNodes.data ?? []
+  if (nodes.length === 0) return <Typography.Text type="secondary">None</Typography.Text>
+  return (
+    <Space size={[4, 4]} wrap>
+      {nodes.map((node) => (
+        <Tag key={node.id}>{node.name}</Tag>
+      ))}
+    </Space>
+  )
+}
+
+/**
+ * Admin-only user management: list, create, edit (incl. password reset and
+ * node bindings) and delete. Deleting yourself is disabled here and rejected
+ * with 409 server-side; last-admin protections surface as error toasts.
  */
 export function Users() {
   const { user: currentUser } = useAuth()
@@ -176,7 +241,7 @@ export function Users() {
     onSuccess: (_res, user) => {
       messageApi.success(`Deleted ${user.email}`)
       void queryClient.invalidateQueries({ queryKey: ['users'] })
-      void queryClient.invalidateQueries({ queryKey: ['workspace-members'] })
+      void queryClient.invalidateQueries({ queryKey: ['user-nodes'] })
     },
     onError: (err) => {
       messageApi.error(err.message)
@@ -190,6 +255,11 @@ export function Users() {
       title: 'Role',
       key: 'role',
       render: (_: unknown, user: AuthUser) => <RoleTag role={user.role} />,
+    },
+    {
+      title: 'Bound nodes',
+      key: 'nodes',
+      render: (_: unknown, user: AuthUser) => <UserNodeChips userId={user.id} />,
     },
     {
       title: 'Created',

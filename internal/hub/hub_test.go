@@ -206,7 +206,7 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 		t.Fatalf("task not dispatched: status=%q session=%q", task.Status, task.SessionID)
 	}
 
-	events, unsubscribe := h.Bus().Subscribe()
+	events, unsubscribe := h.Bus().Subscribe(EventScope{All: true})
 	defer unsubscribe()
 
 	// The node disappears without reporting completion.

@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store"
 )
 
@@ -385,42 +386,14 @@ func (h *Hub) revokeAllTokens(ctx context.Context, userID string) {
 	}
 }
 
-// ---- workspace members -----------------------------------------------------
+// ---- user node bindings ----------------------------------------------------
 
-// handleListWorkspaceMembers returns a workspace's member users. The route is
-// gated by requireWorkspaceMember: admins and members only.
-func (h *Hub) handleListWorkspaceMembers(w http.ResponseWriter, r *http.Request, workspaceID string) {
-	members, err := h.store.Queries().ListWorkspaceMembers(r.Context(), workspaceID)
-	if err != nil {
-		h.serverError(w, "list workspace members", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, usersToDTO(members))
-}
-
-// handleAddWorkspaceMember grants a workspace to a user (admin only; the
-// caller already passed requireWorkspaceMember). Idempotent: re-adding a
-// member returns 201 with that member.
-func (h *Hub) handleAddWorkspaceMember(w http.ResponseWriter, r *http.Request, workspaceID string) {
-	if userOf(r).Role != "admin" {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
-	var req struct {
-		UserID string `json:"user_id"`
-	}
-	if err := decodeBody(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	if strings.TrimSpace(req.UserID) == "" {
-		writeError(w, http.StatusBadRequest, "user_id is required")
-		return
-	}
-
+// handleGetUserNodes returns the nodes a user is bound to (admin only). It is
+// the read side of the binding management plane.
+func (h *Hub) handleGetUserNodes(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
 	ctx := r.Context()
-	user, err := h.store.Queries().GetUser(ctx, req.UserID)
-	if err != nil {
+	if _, err := h.store.Queries().GetUser(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "user not found")
 			return
@@ -428,25 +401,107 @@ func (h *Hub) handleAddWorkspaceMember(w http.ResponseWriter, r *http.Request, w
 		h.serverError(w, "get user", err)
 		return
 	}
-	if err := h.store.Queries().AddWorkspaceMember(ctx, workspaceID, user.ID); err != nil {
-		h.serverError(w, "add workspace member", err)
+	nodes, err := h.store.Queries().ListNodesByUser(ctx, id)
+	if err != nil {
+		h.serverError(w, "list user nodes", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, userToDTO(user))
+	if nodes == nil {
+		nodes = []protocol.Node{}
+	}
+	writeJSON(w, http.StatusOK, nodes)
 }
 
-// handleRemoveWorkspaceMember revokes a workspace grant (admin only).
-func (h *Hub) handleRemoveWorkspaceMember(w http.ResponseWriter, r *http.Request, workspaceID string) {
-	if userOf(r).Role != "admin" {
-		writeError(w, http.StatusForbidden, "forbidden")
+// handleSetUserNodes replaces a user's full node binding set (admin only):
+// the body {"node_ids": [...]} is the complete new set, so passing a subset
+// unbinds everything else. Idempotent: PUTting the unchanged set is a no-op
+// and answers 200 with the resulting nodes.
+func (h *Hub) handleSetUserNodes(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req struct {
+		NodeIDs []string `json:"node_ids"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	memberID := r.PathValue("user_id")
-	if err := h.store.Queries().RemoveWorkspaceMember(r.Context(), workspaceID, memberID); err != nil {
-		h.serverError(w, "remove workspace member", err)
+	if req.NodeIDs == nil {
+		writeError(w, http.StatusBadRequest, "node_ids is required")
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+
+	ctx := r.Context()
+	if _, err := h.store.Queries().GetUser(ctx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		h.serverError(w, "get user", err)
+		return
+	}
+
+	// De-duplicate the requested set and verify every node exists up front,
+	// so the replace cannot half-apply or fail on a foreign key.
+	want := make(map[string]bool, len(req.NodeIDs))
+	ids := make([]string, 0, len(req.NodeIDs))
+	for _, nodeID := range req.NodeIDs {
+		if want[nodeID] {
+			continue
+		}
+		want[nodeID] = true
+		ids = append(ids, nodeID)
+	}
+	for _, nodeID := range ids {
+		if _, err := h.store.Queries().GetNode(ctx, nodeID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "node not found")
+				return
+			}
+			h.serverError(w, "get node", err)
+			return
+		}
+	}
+
+	// Replace = drop stale bindings, add missing ones, in one transaction.
+	if err := h.store.WithTx(ctx, func(q *store.Queries) error {
+		have, err := q.ListNodeMembersByUser(ctx, id)
+		if err != nil {
+			return err
+		}
+		present := make(map[string]bool, len(have))
+		for _, m := range have {
+			present[m.NodeID] = true
+			if !want[m.NodeID] {
+				if err := q.RemoveNodeMember(ctx, id, m.NodeID); err != nil {
+					return err
+				}
+			}
+		}
+		for _, nodeID := range ids {
+			if !present[nodeID] {
+				if err := q.AddNodeMember(ctx, id, nodeID); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		h.serverError(w, "set user nodes", err)
+		return
+	}
+	// Binding rewrites invalidate the cached bound-node set so /ws/web
+	// scoping reflects the new set on the very next event.
+	h.invalidateNodeBindings(id)
+
+	nodes, err := h.store.Queries().ListNodesByUser(ctx, id)
+	if err != nil {
+		h.serverError(w, "list user nodes", err)
+		return
+	}
+	if nodes == nil {
+		nodes = []protocol.Node{}
+	}
+	writeJSON(w, http.StatusOK, nodes)
 }
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint

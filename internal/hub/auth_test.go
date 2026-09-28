@@ -20,7 +20,7 @@ import (
 
 // testAuth carries the credentials newTestHub provisions for each test: an
 // admin user plus its bearer token. The user is removed on cleanup (tokens and
-// memberships cascade).
+// node bindings cascade).
 type testAuth struct {
 	user  store.User
 	token string

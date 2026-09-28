@@ -48,30 +48,28 @@ WHERE token_hash = $1;
 UPDATE auth_tokens
 SET revoked_at = now()
 WHERE user_id = $1 AND revoked_at IS NULL;
--- name: ListWorkspaceMembers :many
-SELECT u.* FROM users u
-JOIN workspace_members m ON m.user_id = u.id
-WHERE m.workspace_id = $1
-ORDER BY u.created_at, u.email;
-
--- name: AddWorkspaceMember :one
-INSERT INTO workspace_members (workspace_id, user_id)
+-- name: AddNodeMember :exec
+INSERT INTO node_members (user_id, node_id)
 VALUES ($1, $2)
-ON CONFLICT (workspace_id, user_id) DO UPDATE SET workspace_id = EXCLUDED.workspace_id
-RETURNING *;
+ON CONFLICT (user_id, node_id) DO NOTHING;
 
--- name: RemoveWorkspaceMember :exec
-DELETE FROM workspace_members
-WHERE workspace_id = $1 AND user_id = $2;
+-- name: RemoveNodeMember :exec
+DELETE FROM node_members
+WHERE user_id = $1 AND node_id = $2;
 
--- name: IsWorkspaceMember :one
-SELECT EXISTS(
-    SELECT 1 FROM workspace_members
-    WHERE workspace_id = $1 AND user_id = $2
-)::bool AS is_member;
+-- name: ListNodeMembersByUser :many
+SELECT * FROM node_members
+WHERE user_id = $1
+ORDER BY added_at;
 
--- name: ListWorkspacesByMember :many
-SELECT w.* FROM workspace w
-JOIN workspace_members m ON m.workspace_id = w.id
+-- name: ListNodesByUser :many
+SELECT n.* FROM node n
+JOIN node_members m ON m.node_id = n.id
 WHERE m.user_id = $1
-ORDER BY w.created_at;
+ORDER BY n.name;
+
+-- name: IsNodeMember :one
+SELECT EXISTS(
+    SELECT 1 FROM node_members
+    WHERE user_id = $1 AND node_id = $2
+)::bool AS is_member;

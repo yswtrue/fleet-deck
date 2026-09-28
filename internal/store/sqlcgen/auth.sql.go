@@ -10,23 +10,20 @@ import (
 	"time"
 )
 
-const addWorkspaceMember = `-- name: AddWorkspaceMember :one
-INSERT INTO workspace_members (workspace_id, user_id)
+const addNodeMember = `-- name: AddNodeMember :exec
+INSERT INTO node_members (user_id, node_id)
 VALUES ($1, $2)
-ON CONFLICT (workspace_id, user_id) DO UPDATE SET workspace_id = EXCLUDED.workspace_id
-RETURNING workspace_id, user_id, added_at
+ON CONFLICT (user_id, node_id) DO NOTHING
 `
 
-type AddWorkspaceMemberParams struct {
-	WorkspaceID string
-	UserID      string
+type AddNodeMemberParams struct {
+	UserID string
+	NodeID string
 }
 
-func (q *Queries) AddWorkspaceMember(ctx context.Context, arg AddWorkspaceMemberParams) (WorkspaceMember, error) {
-	row := q.db.QueryRow(ctx, addWorkspaceMember, arg.WorkspaceID, arg.UserID)
-	var i WorkspaceMember
-	err := row.Scan(&i.WorkspaceID, &i.UserID, &i.AddedAt)
-	return i, err
+func (q *Queries) AddNodeMember(ctx context.Context, arg AddNodeMemberParams) error {
+	_, err := q.db.Exec(ctx, addNodeMember, arg.UserID, arg.NodeID)
+	return err
 }
 
 const countAdmins = `-- name: CountAdmins :one
@@ -172,23 +169,84 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 	return i, err
 }
 
-const isWorkspaceMember = `-- name: IsWorkspaceMember :one
+const isNodeMember = `-- name: IsNodeMember :one
 SELECT EXISTS(
-    SELECT 1 FROM workspace_members
-    WHERE workspace_id = $1 AND user_id = $2
+    SELECT 1 FROM node_members
+    WHERE user_id = $1 AND node_id = $2
 )::bool AS is_member
 `
 
-type IsWorkspaceMemberParams struct {
-	WorkspaceID string
-	UserID      string
+type IsNodeMemberParams struct {
+	UserID string
+	NodeID string
 }
 
-func (q *Queries) IsWorkspaceMember(ctx context.Context, arg IsWorkspaceMemberParams) (bool, error) {
-	row := q.db.QueryRow(ctx, isWorkspaceMember, arg.WorkspaceID, arg.UserID)
+func (q *Queries) IsNodeMember(ctx context.Context, arg IsNodeMemberParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isNodeMember, arg.UserID, arg.NodeID)
 	var is_member bool
 	err := row.Scan(&is_member)
 	return is_member, err
+}
+
+const listNodeMembersByUser = `-- name: ListNodeMembersByUser :many
+SELECT user_id, node_id, added_at FROM node_members
+WHERE user_id = $1
+ORDER BY added_at
+`
+
+func (q *Queries) ListNodeMembersByUser(ctx context.Context, userID string) ([]NodeMember, error) {
+	rows, err := q.db.Query(ctx, listNodeMembersByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NodeMember
+	for rows.Next() {
+		var i NodeMember
+		if err := rows.Scan(&i.UserID, &i.NodeID, &i.AddedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNodesByUser = `-- name: ListNodesByUser :many
+SELECT n.id, n.name, n.host, n.status, n.capabilities, n.token_hash, n.last_seen_at FROM node n
+JOIN node_members m ON m.node_id = n.id
+WHERE m.user_id = $1
+ORDER BY n.name
+`
+
+func (q *Queries) ListNodesByUser(ctx context.Context, userID string) ([]Node, error) {
+	rows, err := q.db.Query(ctx, listNodesByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Node
+	for rows.Next() {
+		var i Node
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Host,
+			&i.Status,
+			&i.Capabilities,
+			&i.TokenHash,
+			&i.LastSeenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listUsers = `-- name: ListUsers :many
@@ -222,85 +280,18 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 	return items, nil
 }
 
-const listWorkspaceMembers = `-- name: ListWorkspaceMembers :many
-SELECT u.id, u.email, u.display_name, u.password_hash, u.role, u.created_at FROM users u
-JOIN workspace_members m ON m.user_id = u.id
-WHERE m.workspace_id = $1
-ORDER BY u.created_at, u.email
+const removeNodeMember = `-- name: RemoveNodeMember :exec
+DELETE FROM node_members
+WHERE user_id = $1 AND node_id = $2
 `
 
-func (q *Queries) ListWorkspaceMembers(ctx context.Context, workspaceID string) ([]User, error) {
-	rows, err := q.db.Query(ctx, listWorkspaceMembers, workspaceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []User
-	for rows.Next() {
-		var i User
-		if err := rows.Scan(
-			&i.ID,
-			&i.Email,
-			&i.DisplayName,
-			&i.PasswordHash,
-			&i.Role,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type RemoveNodeMemberParams struct {
+	UserID string
+	NodeID string
 }
 
-const listWorkspacesByMember = `-- name: ListWorkspacesByMember :many
-SELECT w.id, w.node_id, w.name, w.path, w.created_at FROM workspace w
-JOIN workspace_members m ON m.workspace_id = w.id
-WHERE m.user_id = $1
-ORDER BY w.created_at
-`
-
-func (q *Queries) ListWorkspacesByMember(ctx context.Context, userID string) ([]Workspace, error) {
-	rows, err := q.db.Query(ctx, listWorkspacesByMember, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []Workspace
-	for rows.Next() {
-		var i Workspace
-		if err := rows.Scan(
-			&i.ID,
-			&i.NodeID,
-			&i.Name,
-			&i.Path,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const removeWorkspaceMember = `-- name: RemoveWorkspaceMember :exec
-DELETE FROM workspace_members
-WHERE workspace_id = $1 AND user_id = $2
-`
-
-type RemoveWorkspaceMemberParams struct {
-	WorkspaceID string
-	UserID      string
-}
-
-func (q *Queries) RemoveWorkspaceMember(ctx context.Context, arg RemoveWorkspaceMemberParams) error {
-	_, err := q.db.Exec(ctx, removeWorkspaceMember, arg.WorkspaceID, arg.UserID)
+func (q *Queries) RemoveNodeMember(ctx context.Context, arg RemoveNodeMemberParams) error {
+	_, err := q.db.Exec(ctx, removeNodeMember, arg.UserID, arg.NodeID)
 	return err
 }
 

@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,9 +25,9 @@ import (
 //     POST /api/auth/setup, POST /api/auth/login, the SPA static files, and
 //     /ws/node (node auth is the register-frame token, unchanged).
 //   - requireAuth: every /api/* endpoint below plus /ws/web (?token=).
-//   - requireAdmin: POST /api/nodes, POST /api/workspaces, /api/users*,
-//     and the mutating workspace-member routes. Non-admin reads are scoped
-//     to member workspaces; see canReadWorkspace / requireWorkspaceMember.
+//   - requireAdmin: POST /api/nodes and the /api/users* management plane
+//     (including node bindings). Non-admin access follows the user<->node
+//     binding with subtree inheritance; see canReadNode / canReadWorkspace.
 func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/health", h.handleHealth)
 
@@ -44,16 +45,12 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/users", h.requireAdmin(h.handleCreateUser))
 	mux.HandleFunc("PATCH /api/users/{id}", h.requireAdmin(h.handlePatchUser))
 	mux.HandleFunc("DELETE /api/users/{id}", h.requireAdmin(h.handleDeleteUser))
+	mux.HandleFunc("GET /api/users/{id}/nodes", h.requireAdmin(h.handleGetUserNodes))
+	mux.HandleFunc("PUT /api/users/{id}/nodes", h.requireAdmin(h.handleSetUserNodes))
 
 	mux.HandleFunc("GET /api/workspaces", h.requireAuth(h.handleListWorkspaces))
-	mux.HandleFunc("GET /api/workspaces/{id}", h.requireWorkspaceMember(h.handleGetWorkspace))
-	mux.HandleFunc("POST /api/workspaces", h.requireAdmin(h.handleCreateWorkspace))
-	mux.HandleFunc("GET /api/workspaces/{id}/members",
-		h.requireWorkspaceMember(h.handleListWorkspaceMembers))
-	mux.HandleFunc("POST /api/workspaces/{id}/members",
-		h.requireWorkspaceMember(h.handleAddWorkspaceMember))
-	mux.HandleFunc("DELETE /api/workspaces/{id}/members/{user_id}",
-		h.requireWorkspaceMember(h.handleRemoveWorkspaceMember))
+	mux.HandleFunc("GET /api/workspaces/{id}", h.requireWorkspaceAccess(h.handleGetWorkspace))
+	mux.HandleFunc("POST /api/workspaces", h.requireAuth(h.handleCreateWorkspace))
 
 	mux.HandleFunc("GET /api/tasks", h.requireAuth(h.handleListTasks))
 	mux.HandleFunc("POST /api/tasks", h.requireAuth(h.handleCreateTask))
@@ -67,6 +64,16 @@ func (h *Hub) routes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /ws/web", h.handleWebWS)
 	mux.HandleFunc("GET /ws/node", h.handleNodeWS)
+
+	// Unknown API paths (including the removed workspace-member endpoints)
+	// answer 404 JSON instead of falling through to the SPA. Each method gets
+	// its own fallback so the patterns stay more specific than the catch-all
+	// "GET /" below.
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete} {
+		mux.HandleFunc(method+" /api/", func(w http.ResponseWriter, _ *http.Request) {
+			writeError(w, http.StatusNotFound, "not found")
+		})
+	}
 
 	// Embedded web UI; "/" is the catch-all, everything above is more specific.
 	mux.HandleFunc("GET /", newSPAHandler(uiFS))
@@ -102,8 +109,32 @@ func (h *Hub) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 // ---- nodes -----------------------------------------------------------------
 
+// nodesVisibleTo returns the node list for one user: every node for admins,
+// only bound nodes for anyone else. It backs GET /api/nodes and the /ws/web
+// hello frame so both report the same view.
+func (h *Hub) nodesVisibleTo(ctx context.Context, user *store.User) ([]protocol.Node, error) {
+	q := h.store.Queries()
+	var (
+		nodes []protocol.Node
+		err   error
+	)
+	if user.Role == "admin" {
+		nodes, err = q.ListNodes(ctx)
+	} else {
+		// Non-admins discover only the nodes they are bound to.
+		nodes, err = q.ListNodesByUser(ctx, user.ID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if nodes == nil {
+		nodes = []protocol.Node{}
+	}
+	return nodes, nil
+}
+
 func (h *Hub) handleListNodes(w http.ResponseWriter, r *http.Request) {
-	nodes, err := h.store.Queries().ListNodes(r.Context())
+	nodes, err := h.nodesVisibleTo(r.Context(), userOf(r))
 	if err != nil {
 		h.serverError(w, "list nodes", err)
 		return
@@ -112,10 +143,10 @@ func (h *Hub) handleListNodes(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetNode serves GET /api/nodes/{id}: the single-node lookup the web UI
-// deep links (/nodes/:nodeId) rely on. Nodes are visible to every authenticated
-// user; membership scoping applies to workspaces, not to node identity.
+// deep links (/nodes/:nodeId) rely on. Admins see every node; non-admins only
+// their bound nodes (unbound -> 404, no existence leak).
 func (h *Hub) handleGetNode(w http.ResponseWriter, r *http.Request) {
-	node, err := h.store.Queries().GetNode(r.Context(), r.PathValue("id"))
+	node, err := h.nodeVisibleTo(r.Context(), userOf(r), r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "node not found")
 		return
@@ -164,28 +195,19 @@ func (h *Hub) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "node_id is required")
 		return
 	}
-	user := userOf(r)
-	if user.Role == "admin" {
-		workspaces, err := h.store.Queries().ListWorkspacesByNode(r.Context(), nodeID)
-		if err != nil {
-			h.serverError(w, "list workspaces", err)
-			return
-		}
-		writeJSON(w, http.StatusOK, workspaces)
+	ctx := r.Context()
+	// An unbound node is invisible: 404, never an empty list (no existence
+	// leak). A binding covers the node's whole subtree.
+	if ok, err := h.canReadNode(ctx, userOf(r), nodeID); err != nil || !ok {
+		writeError(w, http.StatusNotFound, "node not found")
 		return
 	}
-	mine, err := h.store.Queries().ListWorkspacesByMember(r.Context(), user.ID)
+	workspaces, err := h.store.Queries().ListWorkspacesByNode(ctx, nodeID)
 	if err != nil {
 		h.serverError(w, "list workspaces", err)
 		return
 	}
-	out := make([]protocol.Workspace, 0, len(mine))
-	for _, ws := range mine {
-		if ws.NodeID == nodeID {
-			out = append(out, ws)
-		}
-	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, workspaces)
 }
 
 func (h *Hub) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -202,7 +224,15 @@ func (h *Hub) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "node_id, name and path are required")
 		return
 	}
-	workspace, err := h.store.Queries().CreateWorkspace(r.Context(), store.CreateWorkspaceParams{
+
+	// Admins may create anywhere; other users only on nodes they are bound
+	// to (unauthorized write -> 403).
+	ctx := r.Context()
+	if ok, err := h.canReadNode(ctx, userOf(r), req.NodeID); err != nil || !ok {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	workspace, err := h.store.Queries().CreateWorkspace(ctx, store.CreateWorkspaceParams{
 		NodeID: req.NodeID,
 		Name:   req.Name,
 		Path:   req.Path,
@@ -215,8 +245,8 @@ func (h *Hub) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGetWorkspace returns one workspace by id — the workspace page header
-// resolves its name/path through this. Visibility is the standard
-// member-or-admin rule via requireWorkspaceMember (invisible -> 404).
+// resolves its name/path through this. Visibility is the node-binding rule
+// via requireWorkspaceAccess (invisible -> 404).
 func (h *Hub) handleGetWorkspace(w http.ResponseWriter, r *http.Request, id string) {
 	workspace, err := h.store.Queries().GetWorkspace(r.Context(), id)
 	if err != nil {
@@ -241,26 +271,28 @@ func (h *Hub) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Non-admins see only tasks in member workspaces. Workspace-scoped
-	// queries gate on that workspace; node-scoped queries list the node's
-	// tasks and then filter to member workspaces.
+	// Non-admins reach tasks only through the node binding (subtree
+	// inheritance): an unbound workspace or node is invisible -> 404. A
+	// binding covers every workspace beneath the node.
 	ctx := r.Context()
 	user := userOf(r)
-	if user.Role != "admin" && workspaceID != "" {
-		if ok, err := h.canReadWorkspace(ctx, user, workspaceID); err != nil || !ok {
-			writeError(w, http.StatusNotFound, "workspace not found")
-			return
+	if user.Role != "admin" {
+		var (
+			ok  bool
+			err error
+		)
+		if workspaceID != "" {
+			ok, err = h.canReadWorkspace(ctx, user, workspaceID)
+		} else {
+			ok, err = h.canReadNode(ctx, user, nodeID)
 		}
-	}
-	memberOf := map[string]bool{}
-	if user.Role != "admin" && nodeID != "" {
-		mine, err := h.store.Queries().ListWorkspacesByMember(ctx, user.ID)
-		if err != nil {
-			h.serverError(w, "list tasks", err)
+		if err != nil || !ok {
+			if workspaceID != "" {
+				writeError(w, http.StatusNotFound, "workspace not found")
+			} else {
+				writeError(w, http.StatusNotFound, "node not found")
+			}
 			return
-		}
-		for _, ws := range mine {
-			memberOf[ws.ID] = true
 		}
 	}
 
@@ -293,15 +325,6 @@ func (h *Hub) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.serverError(w, "list tasks", err)
 		return
-	}
-	if nodeID != "" && user.Role != "admin" {
-		filtered := tasks[:0]
-		for _, t := range tasks {
-			if memberOf[t.WorkspaceID] {
-				filtered = append(filtered, t)
-			}
-		}
-		tasks = filtered
 	}
 	if tasks == nil {
 		tasks = []protocol.Task{}

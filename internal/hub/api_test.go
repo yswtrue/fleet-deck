@@ -93,7 +93,7 @@ func TestSendMessageSuccess(t *testing.T) {
 		t.Fatalf("seed awaiting_user: %v", err)
 	}
 
-	events, unsubscribe := h.Bus().Subscribe()
+	events, unsubscribe := h.Bus().Subscribe(EventScope{All: true})
 	defer unsubscribe()
 
 	const reply = "please continue"
@@ -379,7 +379,7 @@ func TestSendMessageBumpsTaskToRunning(t *testing.T) {
 		t.Fatalf("seed task awaiting_user: %v", err)
 	}
 
-	events, unsubscribe := h.Bus().Subscribe()
+	events, unsubscribe := h.Bus().Subscribe(EventScope{All: true})
 	defer unsubscribe()
 
 	const reply = "carry on"
@@ -993,14 +993,15 @@ func TestPatchTaskTransitionValidation(t *testing.T) {
 }
 
 // TestGetNodeByID covers GET /api/nodes/{id}, the lookup behind the web UI's
-// /nodes/:nodeId deep links: any authenticated user may read it, unknown ids
-// are 404, and anonymous callers are 401.
+// /nodes/:nodeId deep links: admins read every node, non-admins only their
+// bound nodes (unbound -> 404), unknown ids are 404, and anonymous callers
+// are 401.
 func TestGetNodeByID(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
 	_, st, ts, auth := newTestHub(t)
-	_, userToken := setupUserWithRole(t, st, "user")
+	user, userToken := setupUserWithRole(t, st, "user")
 
 	node := postJSON[protocol.Node](t, auth.token, ts.URL+"/api/nodes", map[string]string{
 		"name": uniqueName("it-node-get"),
@@ -1012,8 +1013,14 @@ func TestGetNodeByID(t *testing.T) {
 		t.Fatalf("get node name = %q, want %q", got.Name, node.Name)
 	}
 
+	// Unbound non-admin: 404 (no existence leak).
 	resp, raw = getRaw(t, userToken, ts.URL+"/api/nodes/"+node.ID)
-	requireStatus(t, "get node (user)", resp, raw, http.StatusOK)
+	requireStatus(t, "get node (unbound user)", resp, raw, http.StatusNotFound)
+
+	// Binding the user flips the node visible.
+	bindUserToNodes(t, ts.URL, auth.token, user.ID, node.ID)
+	resp, raw = getRaw(t, userToken, ts.URL+"/api/nodes/"+node.ID)
+	requireStatus(t, "get node (bound user)", resp, raw, http.StatusOK)
 
 	resp, raw = getRaw(t, auth.token, ts.URL+"/api/nodes/00000000-0000-0000-0000-000000000000")
 	requireStatus(t, "get unknown node", resp, raw, http.StatusNotFound)

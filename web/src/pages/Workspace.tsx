@@ -4,12 +4,11 @@ import { useHubApi } from '../hooks/useHubApi.ts'
 import { Board } from '../components/Board.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
-import { WorkspaceMembers } from '../components/WorkspaceMembers.tsx'
 
 /**
  * Workspace board page. The header resolves the workspace itself
- * (GET /api/workspaces/{id}) for its name + path and mounts the membership
- * manager; the board below owns the task columns.
+ * (GET /api/workspaces/{id}) for its name + path; the board below owns the
+ * task columns.
  */
 export function Workspace() {
   const { workspaceId } = useParams<{ workspaceId: string }>()
@@ -37,22 +36,10 @@ export function Workspace() {
   return (
     <div>
       <header className="fd-page-header">
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            justifyContent: 'space-between',
-            gap: 'var(--space-4)',
-          }}
-        >
-          <div>
-            <h1 className="fd-page-title">{workspace.name}</h1>
-            <p className="fd-page-subtitle">
-              <code title={workspace.path}>{workspace.path}</code>
-            </p>
-          </div>
-          <WorkspaceMembers workspaceId={workspaceId} />
-        </div>
+        <h1 className="fd-page-title">{workspace.name}</h1>
+        <p className="fd-page-subtitle">
+          <code title={workspace.path}>{workspace.path}</code>
+        </p>
       </header>
       <Board workspaceId={workspaceId} />
     </div>

@@ -160,7 +160,7 @@ func (q *Queries) UpdateUserPasswordHash(ctx context.Context, id, hash string) e
 	return nil
 }
 
-// DeleteUser removes a user; auth tokens and memberships cascade.
+// DeleteUser removes a user; auth tokens and node bindings cascade.
 func (q *Queries) DeleteUser(ctx context.Context, id string) error {
 	if err := q.q.DeleteUser(ctx, id); err != nil {
 		return fmt.Errorf("store: delete user: %w", err)
@@ -215,56 +215,77 @@ func (q *Queries) RevokeAuthTokensByUser(ctx context.Context, userID string) err
 	return nil
 }
 
-// ListWorkspaceMembers returns a workspace's member users ordered by creation.
-func (q *Queries) ListWorkspaceMembers(ctx context.Context, workspaceID string) ([]User, error) {
-	rows, err := q.q.ListWorkspaceMembers(ctx, workspaceID)
+// NodeMember is one user<->node binding row. A binding grants the user
+// read+write across the node's whole subtree (workspaces, tasks, sessions,
+// messages, events, subtasks).
+type NodeMember struct {
+	UserID  string
+	NodeID  string
+	AddedAt time.Time
+}
+
+func nodeMemberFromRow(r sqlcgen.NodeMember) NodeMember {
+	return NodeMember{
+		UserID:  r.UserID,
+		NodeID:  r.NodeID,
+		AddedAt: r.AddedAt,
+	}
+}
+
+// AddNodeMember binds a user to a node. It is idempotent: re-binding an
+// existing pair is a no-op.
+func (q *Queries) AddNodeMember(ctx context.Context, userID, nodeID string) error {
+	if err := q.q.AddNodeMember(ctx, sqlcgen.AddNodeMemberParams{
+		UserID: userID,
+		NodeID: nodeID,
+	}); err != nil {
+		return fmt.Errorf("store: add node member: %w", err)
+	}
+	return nil
+}
+
+// RemoveNodeMember unbinds a user from a node. Removing a non-binding is a
+// no-op.
+func (q *Queries) RemoveNodeMember(ctx context.Context, userID, nodeID string) error {
+	if err := q.q.RemoveNodeMember(ctx, sqlcgen.RemoveNodeMemberParams{
+		UserID: userID,
+		NodeID: nodeID,
+	}); err != nil {
+		return fmt.Errorf("store: remove node member: %w", err)
+	}
+	return nil
+}
+
+// ListNodeMembersByUser returns the raw node bindings of a user, oldest first.
+func (q *Queries) ListNodeMembersByUser(ctx context.Context, userID string) ([]NodeMember, error) {
+	rows, err := q.q.ListNodeMembersByUser(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("store: list workspace members: %w", err)
+		return nil, fmt.Errorf("store: list node members: %w", err)
 	}
-	return usersFromRows(rows), nil
+	out := make([]NodeMember, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, nodeMemberFromRow(r))
+	}
+	return out, nil
 }
 
-// AddWorkspaceMember grants a user access to a workspace. It is idempotent:
-// re-adding an existing member is a no-op.
-func (q *Queries) AddWorkspaceMember(ctx context.Context, workspaceID, userID string) error {
-	if _, err := q.q.AddWorkspaceMember(ctx, sqlcgen.AddWorkspaceMemberParams{
-		WorkspaceID: workspaceID,
-		UserID:      userID,
-	}); err != nil {
-		return fmt.Errorf("store: add workspace member: %w", err)
+// ListNodesByUser returns the nodes a user is bound to, ordered by name.
+func (q *Queries) ListNodesByUser(ctx context.Context, userID string) ([]protocol.Node, error) {
+	rows, err := q.q.ListNodesByUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list nodes by user: %w", err)
 	}
-	return nil
+	return nodesFromRows(rows), nil
 }
 
-// RemoveWorkspaceMember revokes a user's access to a workspace. Removing a
-// non-member is a no-op.
-func (q *Queries) RemoveWorkspaceMember(ctx context.Context, workspaceID, userID string) error {
-	if err := q.q.RemoveWorkspaceMember(ctx, sqlcgen.RemoveWorkspaceMemberParams{
-		WorkspaceID: workspaceID,
-		UserID:      userID,
-	}); err != nil {
-		return fmt.Errorf("store: remove workspace member: %w", err)
-	}
-	return nil
-}
-
-// IsWorkspaceMember reports whether a user is a member of a workspace.
-func (q *Queries) IsWorkspaceMember(ctx context.Context, workspaceID, userID string) (bool, error) {
-	ok, err := q.q.IsWorkspaceMember(ctx, sqlcgen.IsWorkspaceMemberParams{
-		WorkspaceID: workspaceID,
-		UserID:      userID,
+// IsNodeMember reports whether a user is bound to a node.
+func (q *Queries) IsNodeMember(ctx context.Context, userID, nodeID string) (bool, error) {
+	ok, err := q.q.IsNodeMember(ctx, sqlcgen.IsNodeMemberParams{
+		UserID: userID,
+		NodeID: nodeID,
 	})
 	if err != nil {
-		return false, fmt.Errorf("store: workspace membership: %w", err)
+		return false, fmt.Errorf("store: node membership: %w", err)
 	}
 	return ok, nil
-}
-
-// ListWorkspacesByMember returns the workspaces a user is a member of.
-func (q *Queries) ListWorkspacesByMember(ctx context.Context, userID string) ([]protocol.Workspace, error) {
-	rows, err := q.q.ListWorkspacesByMember(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("store: list workspaces by member: %w", err)
-	}
-	return workspacesFromRows(rows), nil
 }

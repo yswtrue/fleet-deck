@@ -273,22 +273,19 @@ export const apiClient = {
   deleteUser: (id: string) =>
     fetchJson<void>(`/api/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
-  // ── Workspace members ─────────────────────────────────────────────────────
+  // ── User ↔ node bindings (admin) ──────────────────────────────────────────
 
-  listWorkspaceMembers: (workspaceId: string) =>
-    fetchJson<AuthUser[]>(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`),
+  /** GET /api/users/{id}/nodes returns the nodes bound to the user. */
+  listUserNodes: (userId: string) =>
+    fetchJson<Node[]>(`/api/users/${encodeURIComponent(userId)}/nodes`),
 
-  addWorkspaceMember: (workspaceId: string, userId: string) =>
-    fetchJson<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
-      method: 'POST',
-      body: JSON.stringify({ user_id: userId }),
+  /** PUT /api/users/{id}/nodes replaces the whole binding set; the response
+   * carries the resulting bound nodes. */
+  setUserNodes: (userId: string, nodeIds: string[]) =>
+    fetchJson<Node[]>(`/api/users/${encodeURIComponent(userId)}/nodes`, {
+      method: 'PUT',
+      body: JSON.stringify({ node_ids: nodeIds }),
     }),
-
-  removeWorkspaceMember: (workspaceId: string, userId: string) =>
-    fetchJson<void>(
-      `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
-      { method: 'DELETE' }
-    ),
 
   getHealth: () => fetchJson<{ status: string }>('/api/health'),
 

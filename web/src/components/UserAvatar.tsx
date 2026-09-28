@@ -4,7 +4,7 @@ import type { AuthUser } from '../apiClient.ts'
 
 type UserIdentity = Pick<AuthUser, 'display_name' | 'email'>
 
-/** Avatar showing a user's initials; used in the account menu and member lists. */
+/** Avatar showing a user's initials; used in the account menu and user lists. */
 export function UserAvatar({ user, ...rest }: { user: UserIdentity } & AvatarProps) {
   // First letters of up to two display-name words; fall back to the email.
   const fromName = user.display_name

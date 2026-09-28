@@ -44,6 +44,12 @@ type Node struct {
 	LastSeenAt   time.Time
 }
 
+type NodeMember struct {
+	UserID  string
+	NodeID  string
+	AddedAt time.Time
+}
+
 type Session struct {
 	ID                string
 	TaskID            string
@@ -92,10 +98,4 @@ type Workspace struct {
 	Name      string
 	Path      string
 	CreatedAt time.Time
-}
-
-type WorkspaceMember struct {
-	WorkspaceID string
-	UserID      string
-	AddedAt     time.Time
 }

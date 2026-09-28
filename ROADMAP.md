@@ -18,10 +18,11 @@ that would move them forward.
   gap-fill from the persisted event stream, direct-URL deep links
 - **Multi-user auth** — accounts with admin/user roles (bcrypt passwords,
   admin-managed creation — no self-registration), revocable opaque bearer
-  sessions (30-day tokens, hashed at rest), workspace-membership visibility
-  (non-members get 404 on workspace-scoped reads), first-boot admin setup,
-  login/user-management/membership UI, and `?token=` auth on `/ws/web`; node
-  auth (`/ws/node`) is unchanged
+  sessions (30-day tokens, hashed at rest), and **user↔node binding**
+  (`node_members`, set on the user page) with subtree inheritance: a bound
+  user owns the node's workspaces, tasks and sessions (unauthorized reads
+  404, writes 403), first-boot admin setup, login/user-management/binding
+  UI, and `?token=` auth on `/ws/web`; node auth (`/ws/node`) is unchanged
 - **Node lifecycle** — registration + token auth, online status, offline
   cascade (running sessions fail visibly)
 - **Node offline event buffering** — opt-in via `FLEETDECK_EVENT_BUFFER_DIR`:
@@ -58,7 +59,7 @@ that would move them forward.
   with the embedded web UI + optional Traefik :80/:443 ingress via the
   `traefik` profile); the SPA also deploys to any static host via the runtime
   `config.js`; node daemons run locally — `docs/DEPLOYMENT.md`
-- **Test suites** — 96 Go tests (integration against live Postgres) + 47 web
+- **Test suites** — 101 Go tests (integration against live Postgres) + 52 web
   tests (Vitest + RTL: dispatcher, permission wire, auth client/login,
   components, SPA handler)
 
