@@ -59,6 +59,40 @@ export interface ListTasksOptions {
   archived?: boolean
 }
 
+// ── Token usage statistics ───────────────────────────────────────────────────
+
+/**
+ * Filters for {@link apiClient.getStatsTokens}. Every field is optional; an
+ * unfiltered call aggregates every session the caller can see. `from`/`to`
+ * are RFC3339 timestamps bounding the reporting window.
+ */
+export interface StatsTokensFilters {
+  session_id?: string
+  workspace_id?: string
+  node_id?: string
+  from?: string
+  to?: string
+}
+
+/** Per-model roll-up row; `by_model` is sorted by `total_tokens` descending. */
+export interface StatsModelUsage {
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  turns: number
+}
+
+/** Body of GET /api/stats/tokens. */
+export interface StatsTokens {
+  total: {
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+  }
+  by_model: StatsModelUsage[]
+}
+
 // ── Auth (multi-user) ────────────────────────────────────────────────────────
 
 export type UserRole = 'admin' | 'user'
@@ -354,6 +388,28 @@ export const apiClient = {
   /** GET /api/tasks/{id}/subtasks returns a {"subtasks":[...]} envelope; unwrap it. */
   listSubtasks: async (taskId: string): Promise<Subtask[]> =>
     (await fetchJson<{ subtasks: Subtask[] }>(`/api/tasks/${taskId}/subtasks`)).subtasks,
+
+  // ── Token usage statistics ──────────────────────────────────────────────────
+
+  /**
+   * GET /api/stats/tokens aggregates token usage over the optional filters
+   * (session, workspace, node, RFC3339 time window); absent filters are left
+   * out of the query string so the hub sums everything visible.
+   */
+  getStatsTokens: (filters?: StatsTokensFilters) => {
+    const params = new URLSearchParams()
+    for (const [key, value] of [
+      ['session_id', filters?.session_id],
+      ['workspace_id', filters?.workspace_id],
+      ['node_id', filters?.node_id],
+      ['from', filters?.from],
+      ['to', filters?.to],
+    ] as const) {
+      if (value) params.set(key, value)
+    }
+    const query = params.toString()
+    return fetchJson<StatsTokens>(`/api/stats/tokens${query ? `?${query}` : ''}`)
+  },
 
   sendMessage: (sessionId: string, message: string) =>
     fetchJson<void>(`/api/sessions/${sessionId}/send`, {

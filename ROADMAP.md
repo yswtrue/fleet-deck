@@ -55,6 +55,14 @@ that would move them forward.
 
 - **Task title fuzzy search** — pg_trgm trigram matching (typo tolerant,
   relevance-ranked) with a board search box
+- **Token usage statistics** — per-turn capture from the agents
+  (ACP prompt results carry real usage; model from the session's config
+  options) with per-model and aggregate dashboards, session-level usage,
+  and node-binding-scoped visibility
+- **Mobile-ready web UI** — responsive layout below 768px (stacked
+  columns/panels, full-width cards, usable composer, touch targets)
+- **Task notifications** — browser notifications on task creation and
+  status changes (permission + user setting gated, coalesced per task)
 - **Task lifecycle** — backlog tasks (`auto_start:false` + explicit Start,
   never auto-dispatched), task archiving (hidden by default, `?archived=1`
   view), resumable finished sessions (chat with a done/failed session: it
@@ -69,7 +77,7 @@ that would move them forward.
   with the embedded web UI + optional Traefik :80/:443 ingress via the
   `traefik` profile); the SPA also deploys to any static host via the runtime
   `config.js`; node daemons run locally — `docs/DEPLOYMENT.md`
-- **Test suites** — 115 Go tests (integration against live Postgres) + 66 web
+- **Test suites** — 123 Go tests (integration against live Postgres) + 90 web
   tests (Vitest + RTL: dispatcher, permission wire, auth client/login,
   components, SPA handler)
 

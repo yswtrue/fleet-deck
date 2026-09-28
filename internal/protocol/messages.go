@@ -32,6 +32,7 @@ const (
 	EvSessionMessage          = "session.message"
 	EvSessionStateChanged     = "session.state_changed"
 	EvSessionUserInputRequest = "session.user_input_requested"
+	EvSessionUsage            = "session.usage"
 )
 
 // ---- Hub -> Web event payloads -------------------------------------------
@@ -86,6 +87,17 @@ type SessionStateChanged struct {
 type SessionUserInputRequested struct {
 	SessionID string `json:"session_id"`
 	Prompt    string `json:"prompt"`
+}
+
+// SessionUsage reports one turn's model token usage. The node relays what the
+// agent reported; the hub persists it as a token_usage row. A session with no
+// reported usage produces no rows — numbers are never fabricated.
+type SessionUsage struct {
+	SessionID        string `json:"session_id"`
+	Model            string `json:"model"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	TotalTokens      int64  `json:"total_tokens"`
 }
 
 // ---- Hub <-> Node messages ------------------------------------------------

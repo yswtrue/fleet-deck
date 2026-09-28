@@ -50,6 +50,18 @@ func (s *connSink) UserInputRequested(_ context.Context, sessionID, prompt strin
 	s.emit(protocol.EvSessionUserInputRequest, protocol.SessionUserInputRequested{SessionID: sessionID, Prompt: prompt})
 }
 
+// Usage reports one turn's token usage. It travels as a MsgEvent envelope
+// like the other reports; the hub persists it as a token_usage row.
+func (s *connSink) Usage(_ context.Context, sessionID string, u adapters.Usage) {
+	s.emit(protocol.EvSessionUsage, protocol.SessionUsage{
+		SessionID:        sessionID,
+		Model:            u.Model,
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      u.TotalTokens,
+	})
+}
+
 func (s *connSink) Done(_ context.Context, sessionID string) {
 	s.emit(protocol.EvSessionStateChanged, protocol.SessionStateChanged{SessionID: sessionID, Status: protocol.SessionDone})
 	s.n.forget(sessionID)

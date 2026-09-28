@@ -85,6 +85,17 @@ type Task struct {
 	AutoStart   bool
 }
 
+type TokenUsage struct {
+	ID               string
+	SessionID        string
+	TaskID           string
+	Model            string
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+	CreatedAt        time.Time
+}
+
 type User struct {
 	ID           string
 	Email        string

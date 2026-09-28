@@ -271,10 +271,42 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 			}
 		case protocol.EvSessionUserInputRequest:
 			h.applySessionStatus(ctx, sessionID, protocol.SessionAwaitingUser)
+		case protocol.EvSessionUsage:
+			var u protocol.SessionUsage
+			if json.Unmarshal(we.Data, &u) == nil {
+				h.applyUsage(ctx, sessionID, u)
+			}
 		}
 	}
 
 	h.bus.Publish(protocol.Event{Type: we.Type, Data: json.RawMessage(we.Data), Ts: time.Now().UTC()})
+}
+
+// applyUsage persists one reported turn's token usage as a token_usage row.
+// The session must resolve (its task_id backs the row); reports for unknown
+// sessions are dropped with a warning. An empty model falls back to the
+// session's agent_type — the documented fallback (numbers are never touched).
+func (h *Hub) applyUsage(ctx context.Context, sessionID string, u protocol.SessionUsage) {
+	q := h.store.Queries()
+	session, err := q.GetSession(ctx, sessionID)
+	if err != nil {
+		h.log.Warn("usage for unknown session", "session_id", sessionID, "err", err)
+		return
+	}
+	model := u.Model
+	if model == "" {
+		model = session.AgentType
+	}
+	if _, err := q.InsertTokenUsage(ctx, store.InsertTokenUsageParams{
+		SessionID:        sessionID,
+		TaskID:           session.TaskID,
+		Model:            model,
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      u.TotalTokens,
+	}); err != nil {
+		h.log.Warn("persist token usage", "session_id", sessionID, "err", err)
+	}
 }
 
 // moveTaskTo updates a task's status and broadcasts task.status_changed when the
@@ -482,6 +514,10 @@ func sessionIDOf(we wireEvent) string {
 		var u protocol.SessionUserInputRequested
 		_ = json.Unmarshal(we.Data, &u)
 		return u.SessionID
+	case protocol.EvSessionUsage:
+		var u protocol.SessionUsage
+		_ = json.Unmarshal(we.Data, &u)
+		return u.SessionID
 	default:
 		return ""
 	}
@@ -526,7 +562,8 @@ func (h *Hub) eventNodeID(evt protocol.Event) string {
 			return h.taskNodeID(ctx, d.TaskID)
 		}
 	case protocol.EvSessionDelta, protocol.EvSessionMessage,
-		protocol.EvSessionStateChanged, protocol.EvSessionUserInputRequest:
+		protocol.EvSessionStateChanged, protocol.EvSessionUserInputRequest,
+		protocol.EvSessionUsage:
 		var d struct {
 			SessionID string `json:"session_id"`
 		}

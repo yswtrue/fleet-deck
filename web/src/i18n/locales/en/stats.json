@@ -1,0 +1,36 @@
+{
+  "title": "Token usage",
+  "subtitle": "Prompt and completion tokens across your fleet.",
+  "loadError": "Couldn't load token usage",
+  "loading": "Loading usage…",
+  "byModel": "By model",
+  "filters": {
+    "workspace": "Workspace",
+    "allWorkspaces": "All workspaces",
+    "range": "Date range",
+    "fromPlaceholder": "Start date",
+    "toPlaceholder": "End date"
+  },
+  "summary": {
+    "prompt": "Prompt tokens",
+    "completion": "Completion tokens",
+    "total": "Total tokens",
+    "turns": "Turns"
+  },
+  "table": {
+    "model": "Model",
+    "prompt": "Prompt",
+    "completion": "Completion",
+    "total": "Total",
+    "turns": "Turns"
+  },
+  "empty": {
+    "title": "No usage recorded yet",
+    "body": "Token usage will show up here once agents start running."
+  },
+  "session": {
+    "title": "Token usage",
+    "empty": "No usage yet",
+    "line": "{{model}} · {{prompt}} in / {{completion}} out / {{total}} total"
+  }
+}

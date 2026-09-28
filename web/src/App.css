@@ -8,3 +8,10 @@
   padding: var(--space-5) var(--space-5) var(--space-6);
   box-sizing: border-box;
 }
+
+@media (max-width: 768px) {
+  .appMain {
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+}

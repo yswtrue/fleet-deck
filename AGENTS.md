@@ -44,13 +44,13 @@ Order matters; do all of these before pushing.
 go build ./...
 go vet ./...
 gofmt -l cmd/ internal/        # must be empty
-go test -race ./...            # 115 passed / 16 packages (1 skip; live DB required)
+go test -race ./...            # 123 passed / 16 packages (1 skip; live DB required)
 go test -short ./...           # skip live-DB tests
 
 # Frontend (cd web)
 pnpm exec tsc -b               # real typecheck (bare `tsc --noEmit` is a no-op on the solution tsconfig; `pnpm build` also runs it)
 pnpm lint
-pnpm test                      # vitest (66 tests: dispatchEvent contract, auth, i18n, lifecycle, binding UI, components)
+pnpm test                      # vitest (90 tests: dispatchEvent contract, auth, i18n, lifecycle, usage stats, notifications, binding UI, components)
 pnpm build
 ```
 
@@ -130,6 +130,10 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
 - **react-query v5 drops per-`mutate` callbacks when the caller unmounts** (`hasListeners()` gate). Use `mutateAsync().then()/.catch()` when the outcome must survive unmount (e.g. toast + navigate after a board-column move).
 - **Node offline event buffering** (`FLEETDECK_EVENT_BUFFER_DIR`, `internal/node/buffer.go`): when set, every outbound envelope is persisted first (one JSON file per event, atomic tmp+rename) and the writer replays the queue in sequence order across reconnects — FIFO, at-least-once, files deleted only after a successful write. When unset, events are dropped while the hub is unreachable (the old behavior). Sessions survive hub restarts either way (adapter ctx is process-level).
+- **Token usage**: adapters report per-turn usage via `EventSink.Usage` → `EvSessionUsage` → `token_usage` rows (model + prompt/completion/total). `GET /api/stats/tokens` aggregates per model + totals (node-binding scoped). Model comes from the ACP `session/new` `configOptions` (`model` currentValue); agents that report no model fall back to `agent_type`, agents that report no usage record nothing (never fabricate). The locked `dispatchEvent.ts` returns null for `session.usage` (harmless — the usage UI reads via react-query).
+- **Task notifications**: `useTaskNotifications` (mounted as `TaskNotificationBridge` in App) fires browser Notifications on `task.created`/`task.status_changed`; gated by `Notification.permission === 'granted'` AND `localStorage('fleetdeck.notify') === 'on'` (values are `'on'`/`'off'`, not `'true'`), coalesced per task via `tag`, click focuses the tab.
+- **Mobile**: layout is responsive at ≤768px (columns stack, sidebar stacks under the transcript, modals fit, ≥36px touch targets on coarse pointers) — keep new surfaces working at 320px+.
+- **Smoke scripts wipe rows in their target DB**: `scripts/smoke_acp_opencode.sh` runs `delete from users` (deterministic setup) and deletes its node on exit (cascading its workspaces/tasks/sessions/usage). Point them at a scratch DB or expect dev data loss.
 - **Task lifecycle**: `POST /api/tasks` takes `auto_start:false` for backlog tasks (created but never dispatched until `POST /api/tasks/{id}/start`); `PATCH /api/tasks/{id} {archived:true}` archives `done` tasks (hidden from default board lists; `?archived=1` lists only archived); `POST /api/sessions/{id}/send` also reaches `done`/`failed` sessions — the task reopens `running`, the node reattaches via `MsgSessionResume` (`session/load`; unresumable sessions restart fresh with the follow-up as prompt). A completion gate parks sessions ending with unfinished mirrored todos in `awaiting_user` instead of `done`.
 - **Read-through cache** (`FLEETDECK_REDIS_URL`, `internal/cache`): auth token→user resolution (60s TTL) and per-workspace task lists (30s TTL) are cached in Redis; logout and every task mutation delete their entries (`invalidateTasks`), TTLs bound any missed invalidation. An unset URL is a Noop cache and cache errors always degrade to a database read — never make the cache a request-failure source. Fuzzy search and node-scoped lists (binding-filtered) are deliberately uncached.
 

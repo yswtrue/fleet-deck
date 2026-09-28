@@ -331,6 +331,35 @@
         "status"
       ]
     },
+    "SessionUsage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "prompt_tokens": {
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "type": "integer"
+        },
+        "total_tokens": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "model",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens"
+      ]
+    },
     "SessionUserInputRequested": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
@@ -716,6 +745,126 @@
       "required": [
         "session_id",
         "todos"
+      ]
+    },
+    "TokenUsageByModel": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "prompt_tokens": {
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "type": "integer"
+        },
+        "total_tokens": {
+          "type": "integer"
+        },
+        "turns": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "model",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "turns"
+      ]
+    },
+    "TokenUsageStats": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "TokenUsageByModel": {
+          "properties": {
+            "model": {
+              "type": "string"
+            },
+            "prompt_tokens": {
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "type": "integer"
+            },
+            "total_tokens": {
+              "type": "integer"
+            },
+            "turns": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "model",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "turns"
+          ]
+        },
+        "TokenUsageTotals": {
+          "properties": {
+            "prompt_tokens": {
+              "type": "integer"
+            },
+            "completion_tokens": {
+              "type": "integer"
+            },
+            "total_tokens": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens"
+          ]
+        }
+      },
+      "properties": {
+        "total": {
+          "$ref": "#/$defs/TokenUsageTotals"
+        },
+        "by_model": {
+          "items": {
+            "$ref": "#/$defs/TokenUsageByModel"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "total",
+        "by_model"
+      ]
+    },
+    "TokenUsageTotals": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "prompt_tokens": {
+          "type": "integer"
+        },
+        "completion_tokens": {
+          "type": "integer"
+        },
+        "total_tokens": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens"
       ]
     },
     "Workspace": {

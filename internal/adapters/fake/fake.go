@@ -263,8 +263,16 @@ func (a *Adapter) waitReply(ctx context.Context) bool {
 // finish reports the terminal outcome exactly once, unless it was already
 // cancelled into the same state. Done is terminal and carries the final
 // (done) state itself (see EventSink); a separate StateChange would double it.
+// Every run reports one deterministic synthetic usage sample first, so tests
+// and the UI always have data.
 func (a *Adapter) finish(ctx context.Context, sessionID string, sink adapters.EventSink) {
 	a.finishOnce.Do(func() {
+		sink.Usage(ctx, sessionID, adapters.Usage{
+			Model:            "fake",
+			PromptTokens:     120,
+			CompletionTokens: 80,
+			TotalTokens:      200,
+		})
 		a.mu.Lock()
 		a.status = protocol.SessionDone
 		a.mu.Unlock()

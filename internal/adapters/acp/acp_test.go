@@ -23,6 +23,7 @@ type recEvent struct {
 	todos  []protocol.Todo
 	status protocol.SessionStatus
 	prompt string
+	tokens adapters.Usage
 }
 
 type recorder struct {
@@ -91,6 +92,10 @@ func (r *recorder) UserInputRequested(_ context.Context, _ string, prompt string
 	case r.userCh <- prompt:
 	default:
 	}
+}
+
+func (r *recorder) Usage(_ context.Context, _ string, u adapters.Usage) {
+	r.record(recEvent{kind: "usage", text: u.Model, tokens: u})
 }
 
 func (r *recorder) Done(_ context.Context, _ string) {
@@ -190,6 +195,19 @@ func (r *recorder) texts() []string {
 	return out
 }
 
+// usages returns the recorded usage reports in order.
+func (r *recorder) usages() []adapters.Usage {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []adapters.Usage
+	for _, e := range r.events {
+		if e.kind == "usage" {
+			out = append(out, e.tokens)
+		}
+	}
+	return out
+}
+
 // ---- test harness ----------------------------------------------------------
 
 type adapterOpts struct {
@@ -255,6 +273,50 @@ func TestTextDeltaMapping(t *testing.T) {
 	}
 	if got := strings.Join(texts, ""); got != "Hello, world" {
 		t.Fatalf("concatenated text = %q, want %q", got, "Hello, world")
+	}
+}
+
+// TestUsageCaptureFromPromptResult pins the usage mapping on the shape a real
+// opencode prompt result carries (see the package comment): inputTokens ->
+// PromptTokens, outputTokens -> CompletionTokens, totalTokens -> TotalTokens,
+// verbatim; thoughtTokens stay inside the agent's total.
+func TestUsageCaptureFromPromptResult(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "usage"})
+	rec.waitDone(t)
+
+	usages := rec.usages()
+	if len(usages) != 1 {
+		t.Fatalf("Usage calls = %d, want 1: %+v", len(usages), usages)
+	}
+	want := adapters.Usage{Model: "fake/model-x", PromptTokens: 10, CompletionTokens: 5, TotalTokens: 17}
+	if usages[0] != want {
+		t.Fatalf("usage = %+v, want %+v", usages[0], want)
+	}
+}
+
+// TestUsageModelFallsBackToAgentType pins the documented model fallback: an
+// agent that reports no model config option records the agent_type instead.
+func TestUsageModelFallsBackToAgentType(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "usage-nomodel"})
+	rec.waitDone(t)
+
+	usages := rec.usages()
+	if len(usages) != 1 {
+		t.Fatalf("Usage calls = %d, want 1: %+v", len(usages), usages)
+	}
+	if usages[0].Model != "test" {
+		t.Fatalf("model = %q, want the agent_type fallback %q", usages[0].Model, "test")
+	}
+}
+
+// TestNoUsageWhenAgentReportsNone pins the never-fabricate rule: a prompt
+// result without a usage field records nothing.
+func TestNoUsageWhenAgentReportsNone(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "deltas"})
+	rec.waitDone(t)
+
+	if usages := rec.usages(); len(usages) != 0 {
+		t.Fatalf("Usage calls = %d, want 0 (agent reported no usage): %+v", len(usages), usages)
 	}
 }
 
@@ -597,7 +659,19 @@ func runFakeAgent(scenario string) {
 		case "initialize":
 			fakeResult(enc, msg.ID, map[string]any{"protocolVersion": 1})
 		case "session/new":
-			fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-1"})
+			if scenario == "usage" {
+				// Mirror what opencode reports: session metadata carries the
+				// active model as a config option.
+				fakeResult(enc, msg.ID, map[string]any{
+					"sessionId": "agent-sess-1",
+					"configOptions": []map[string]any{
+						{"id": "model", "name": "Model", "category": "model",
+							"type": "select", "currentValue": "fake/model-x"},
+					},
+				})
+			} else {
+				fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-1"})
+			}
 		case "session/load":
 			fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-loaded"})
 		case "session/prompt":
@@ -637,6 +711,16 @@ func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenar
 		os.Exit(1)
 	case "fs":
 		fakeFSTurn(enc, dec, id)
+	case "usage", "usage-nomodel":
+		// The prompt result carries turn usage exactly like opencode's
+		// (input/output/total/thought); the adapter relays input/output/total
+		// verbatim.
+		fakeResult(enc, id, map[string]any{
+			"stopReason": "end_turn",
+			"usage": map[string]any{
+				"inputTokens": 10, "outputTokens": 5, "totalTokens": 17, "thoughtTokens": 2,
+			},
+		})
 	case "wait":
 		// Never answer: the adapter must cancel and kill us.
 	default:

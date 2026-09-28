@@ -1,0 +1,39 @@
+{
+  "created": {
+    "title": "新任务",
+    "body": "{{title}}"
+  },
+  "status": {
+    "waiting": {
+      "title": "任务等待中",
+      "body": "{{title}}"
+    },
+    "running": {
+      "title": "任务进行中",
+      "body": "{{title}}"
+    },
+    "awaiting_user": {
+      "title": "任务需要你的确认",
+      "body": "{{title}}"
+    },
+    "done": {
+      "title": "任务完成",
+      "body": "{{title}}"
+    }
+  },
+  "settings": {
+    "title": "浏览器通知",
+    "menuItem": "通知",
+    "open": "通知",
+    "permission": "权限",
+    "permissionGranted": "已允许",
+    "permissionDenied": "已阻止",
+    "permissionDefault": "尚未请求",
+    "permissionUnsupported": "不可用",
+    "enable": "启用通知",
+    "enabledLabel": "任务更新时通知我",
+    "unsupported": "你的浏览器不支持浏览器通知。",
+    "deniedHelp": "通知已被阻止。请在浏览器网站设置中允许 FleetDeck 以启用通知。",
+    "permissionRequired": "必须先在浏览器中允许通知，才能接收任务更新提醒。"
+  }
+}

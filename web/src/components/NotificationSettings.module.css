@@ -1,0 +1,16 @@
+.panel {
+  width: 100%;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.switchLabel {
+  flex: 1;
+  min-width: 0;
+}

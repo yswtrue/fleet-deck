@@ -53,6 +53,41 @@ func eventsFromRows(rows []sqlcgen.Event) []Event {
 	return out
 }
 
+// TokenUsage is one persisted turn's reported model token usage. Like Event,
+// it has no protocol.* equivalent: protocol.SessionUsage is the node->hub
+// report payload, not a database row.
+type TokenUsage struct {
+	ID               string
+	SessionID        string
+	TaskID           string
+	Model            string
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+	CreatedAt        time.Time
+}
+
+func tokenUsageFromRow(r sqlcgen.TokenUsage) TokenUsage {
+	return TokenUsage{
+		ID:               r.ID,
+		SessionID:        r.SessionID,
+		TaskID:           r.TaskID,
+		Model:            r.Model,
+		PromptTokens:     r.PromptTokens,
+		CompletionTokens: r.CompletionTokens,
+		TotalTokens:      r.TotalTokens,
+		CreatedAt:        r.CreatedAt,
+	}
+}
+
+func tokenUsagesFromRows(rows []sqlcgen.TokenUsage) []TokenUsage {
+	out := make([]TokenUsage, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, tokenUsageFromRow(r))
+	}
+	return out
+}
+
 func nodeFromRow(r sqlcgen.Node) protocol.Node {
 	caps := r.Capabilities
 	if caps == nil {

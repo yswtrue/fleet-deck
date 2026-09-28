@@ -1,0 +1,39 @@
+{
+  "created": {
+    "title": "New task",
+    "body": "{{title}}"
+  },
+  "status": {
+    "waiting": {
+      "title": "Task waiting",
+      "body": "{{title}}"
+    },
+    "running": {
+      "title": "Task started",
+      "body": "{{title}}"
+    },
+    "awaiting_user": {
+      "title": "Task needs your input",
+      "body": "{{title}}"
+    },
+    "done": {
+      "title": "Task done",
+      "body": "{{title}}"
+    }
+  },
+  "settings": {
+    "title": "Browser notifications",
+    "menuItem": "Notifications",
+    "open": "Notifications",
+    "permission": "Permission",
+    "permissionGranted": "Allowed",
+    "permissionDenied": "Blocked",
+    "permissionDefault": "Not requested yet",
+    "permissionUnsupported": "Not available",
+    "enable": "Enable notifications",
+    "enabledLabel": "Notify me about task updates",
+    "unsupported": "Your browser does not support browser notifications.",
+    "deniedHelp": "Notifications are blocked. Allow FleetDeck in your browser's site settings to enable them.",
+    "permissionRequired": "Notifications must be allowed in your browser for updates to appear."
+  }
+}

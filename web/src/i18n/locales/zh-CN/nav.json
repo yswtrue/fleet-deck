@@ -12,5 +12,6 @@
   "languageEnglish": "English",
   "languageChinese": "中文",
   "sessionCrumb": "会话 {{id}}",
-  "brandHome": "FleetDeck 主页"
+  "brandHome": "FleetDeck 主页",
+  "usage": "用量统计"
 }

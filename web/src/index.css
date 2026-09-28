@@ -208,6 +208,44 @@ code {
   outline-offset: 2px;
 }
 
+/* Modals should never run off a narrow viewport. */
+@media (max-width: 768px) {
+  body .ant-modal {
+    max-width: calc(100vw - 32px);
+  }
+}
+
+/* Coarse pointers (phones, tablets) need larger hit areas. */
+@media (pointer: coarse) {
+  .ant-btn,
+  .ant-btn-sm,
+  .ant-dropdown-menu-item,
+  .ant-dropdown-menu-submenu-title,
+  .ant-select-selector,
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-breadcrumb a {
+    min-height: 36px;
+  }
+
+  .ant-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .ant-dropdown-menu-item,
+  .ant-dropdown-menu-submenu-title {
+    display: flex;
+    align-items: center;
+  }
+
+  .ant-breadcrumb a {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
 /* Page scaffolding shared by the overview pages. */
 .fd-stack {
   display: flex;

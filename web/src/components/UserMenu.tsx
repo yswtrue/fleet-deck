@@ -1,8 +1,10 @@
 import { Button, Dropdown, theme } from 'antd'
 import type { MenuProps } from 'antd'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.ts'
 import { useTranslation } from '../i18n/index.ts'
+import { NotificationSettingsPanel } from './NotificationSettings.tsx'
 import { RoleTag } from './RoleTag.tsx'
 import { UserAvatar } from './UserAvatar.tsx'
 import styles from './UserMenu.module.css'
@@ -18,6 +20,7 @@ export function UserMenu() {
   const navigate = useNavigate()
   const { t } = useTranslation('auth')
   const { token } = theme.useToken()
+  const [notifyOpen, setNotifyOpen] = useState(false)
 
   if (!user) return null
 
@@ -25,6 +28,12 @@ export function UserMenu() {
     ...(isAdmin
       ? [{ key: 'users', label: t('users.title'), onClick: () => navigate('/users') }]
       : []),
+    { key: 'usage', label: t('nav:usage'), onClick: () => navigate('/usage') },
+    {
+      key: 'notifications',
+      label: t('notify:settings.menuItem'),
+      onClick: () => setNotifyOpen(true),
+    },
     { type: 'divider' },
     {
       key: 'logout',
@@ -42,24 +51,27 @@ export function UserMenu() {
   ]
 
   return (
-    <Dropdown
-      trigger={['click']}
-      placement="bottomRight"
-      popupRender={(menu) => (
-        <div className={styles.menu} style={{ background: token.colorBgElevated }}>
-          <div className={styles.identity}>
-            <div className={styles.name}>{user.display_name}</div>
-            <div className={styles.email}>{user.email}</div>
-            <RoleTag role={user.role} />
+    <>
+      <Dropdown
+        trigger={['click']}
+        placement="bottomRight"
+        popupRender={(menu) => (
+          <div className={styles.menu} style={{ background: token.colorBgElevated }}>
+            <div className={styles.identity}>
+              <div className={styles.name}>{user.display_name}</div>
+              <div className={styles.email}>{user.email}</div>
+              <RoleTag role={user.role} />
+            </div>
+            {menu}
           </div>
-          {menu}
-        </div>
-      )}
-      menu={{ items }}
-    >
-      <Button className={styles.trigger} type="text" aria-label={t('userMenu.accountMenu')}>
-        <UserAvatar user={user} size="small" />
-      </Button>
-    </Dropdown>
+        )}
+        menu={{ items }}
+      >
+        <Button className={styles.trigger} type="text" aria-label={t('userMenu.accountMenu')}>
+          <UserAvatar user={user} size="small" />
+        </Button>
+      </Dropdown>
+      <NotificationSettingsPanel open={notifyOpen} onClose={() => setNotifyOpen(false)} />
+    </>
   )
 }

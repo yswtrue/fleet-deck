@@ -12,5 +12,6 @@
   "languageEnglish": "English",
   "languageChinese": "中文",
   "sessionCrumb": "Session {{id}}",
-  "brandHome": "FleetDeck home"
+  "brandHome": "FleetDeck home",
+  "usage": "Usage"
 }

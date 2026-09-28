@@ -125,3 +125,30 @@ type Message struct {
 	Content   string      `json:"content"`
 	CreatedAt time.Time   `json:"created_at"`
 }
+
+// ---- Token usage stats (GET /api/stats/tokens) -----------------------------
+
+// TokenUsageTotals aggregates token counts across every matching usage row.
+type TokenUsageTotals struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	TotalTokens      int64 `json:"total_tokens"`
+}
+
+// TokenUsageByModel aggregates token counts for one model. Turns counts the
+// underlying usage rows (one row per reported turn).
+type TokenUsageByModel struct {
+	Model            string `json:"model"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	TotalTokens      int64  `json:"total_tokens"`
+	Turns            int64  `json:"turns"`
+}
+
+// TokenUsageStats is the GET /api/stats/tokens response: the aggregate over
+// all usage rows matching the query filters, plus a per-model breakdown
+// sorted by total_tokens descending.
+type TokenUsageStats struct {
+	Total   TokenUsageTotals    `json:"total"`
+	ByModel []TokenUsageByModel `json:"by_model"`
+}

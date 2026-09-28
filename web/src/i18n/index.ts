@@ -15,12 +15,16 @@ import enAuth from './locales/en/auth.json'
 import enPages from './locales/en/pages.json'
 import enBoard from './locales/en/board.json'
 import enSession from './locales/en/session.json'
+import enStats from './locales/en/stats.json'
+import enNotify from './locales/en/notify.json'
 import zhCommon from './locales/zh-CN/common.json'
 import zhNav from './locales/zh-CN/nav.json'
 import zhAuth from './locales/zh-CN/auth.json'
 import zhPages from './locales/zh-CN/pages.json'
 import zhBoard from './locales/zh-CN/board.json'
 import zhSession from './locales/zh-CN/session.json'
+import zhStats from './locales/zh-CN/stats.json'
+import zhNotify from './locales/zh-CN/notify.json'
 
 export const LANGS = ['en', 'zh-CN'] as const
 export type Lang = (typeof LANGS)[number]
@@ -45,6 +49,8 @@ void i18n.use(initReactI18next).init({
       pages: enPages,
       board: enBoard,
       session: enSession,
+      stats: enStats,
+      notify: enNotify,
     },
     'zh-CN': {
       common: zhCommon,
@@ -53,6 +59,8 @@ void i18n.use(initReactI18next).init({
       pages: zhPages,
       board: zhBoard,
       session: zhSession,
+      stats: zhStats,
+      notify: zhNotify,
     },
   },
   lng: detectLang(),

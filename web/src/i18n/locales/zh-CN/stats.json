@@ -1,0 +1,36 @@
+{
+  "title": "Token 用量",
+  "subtitle": "整个集群的提示与补全 Token 用量。",
+  "loadError": "无法加载 Token 用量",
+  "loading": "正在加载用量…",
+  "byModel": "按模型",
+  "filters": {
+    "workspace": "工作区",
+    "allWorkspaces": "全部工作区",
+    "range": "日期范围",
+    "fromPlaceholder": "开始日期",
+    "toPlaceholder": "结束日期"
+  },
+  "summary": {
+    "prompt": "提示 Token",
+    "completion": "补全 Token",
+    "total": "Token 总计",
+    "turns": "对话轮次"
+  },
+  "table": {
+    "model": "模型",
+    "prompt": "提示",
+    "completion": "补全",
+    "total": "总计",
+    "turns": "轮次"
+  },
+  "empty": {
+    "title": "暂无用量记录",
+    "body": "Agent 开始运行后，Token 用量会显示在这里。"
+  },
+  "session": {
+    "title": "Token 用量",
+    "empty": "暂无用量",
+    "line": "{{model}} · 输入 {{prompt}} / 输出 {{completion}} / 总计 {{total}}"
+  }
+}

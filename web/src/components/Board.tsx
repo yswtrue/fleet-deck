@@ -67,7 +67,7 @@ export function Board({ workspaceId }: { workspaceId: string }) {
           placeholder={t('search.placeholder')}
           aria-label={t('search.label')}
           aria-busy={isSearching}
-          style={{ width: 260 }}
+          className={styles.searchInput}
           suffix={
             isSearching ? (
               <Spin size="small" />

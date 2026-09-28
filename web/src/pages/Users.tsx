@@ -346,6 +346,7 @@ export function Users() {
         rowKey="id"
         columns={columns}
         dataSource={users.data ?? []}
+        scroll={{ x: true }}
         pagination={false}
         locale={{
           emptyText: <EmptyState title={t('users.emptyTitle')}>{t('users.emptyBody')}</EmptyState>,

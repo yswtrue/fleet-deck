@@ -35,6 +35,7 @@ func (s *stubSink) StateChange(_ context.Context, sessionID string, status proto
 	}
 }
 func (s *stubSink) UserInputRequested(_ context.Context, _ string, _ string) {}
+func (s *stubSink) Usage(_ context.Context, _ string, _ adapters.Usage)      {}
 func (s *stubSink) Done(_ context.Context, sessionID string) {
 	s.mu.Lock()
 	s.dones = append(s.dones, sessionID)

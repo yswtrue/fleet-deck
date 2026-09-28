@@ -8,8 +8,14 @@
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 0 4px;
+}
+
+.searchInput {
+  width: 260px;
+  max-width: 100%;
 }
 
 .clearButton {
@@ -26,5 +32,16 @@
 @media (max-width: 900px) {
   .columns {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .toolbar {
+    justify-content: stretch;
+  }
+
+  .searchInput {
+    flex: 1 1 100%;
+    width: 100%;
   }
 }

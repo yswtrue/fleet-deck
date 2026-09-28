@@ -4,6 +4,7 @@ import { useOne } from '@refinedev/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Typography, message } from 'antd'
 import { MessageBubble } from './MessageBubble.tsx'
+import { SessionUsage } from './SessionUsage.tsx'
 import { PermissionPicker } from './PermissionPicker.tsx'
 import { useSession } from '../hooks/useSession.ts'
 import { useWebSocket } from '../hooks/useWebSocket.ts'
@@ -239,7 +240,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                   }
                   disabled={!canSend}
                   rows={3}
-                  style={{ flex: 1 }}
+                  className={styles.replyInput}
                 />
                 <Button type="primary" htmlType="submit" disabled={!canSend || !reply.trim()}>
                   {t('composer.send')}
@@ -279,6 +280,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
               </ul>
             )}
           </section>
+          <SessionUsage sessionId={sessionId} />
           <section className={styles.panel}>
             <h3 className={styles.panelTitle}>{t('panel.session')}</h3>
             <dl className={styles.meta}>

@@ -17,6 +17,7 @@ export interface ProtocolSchema {
   SessionDelta?: SessionDelta;
   SessionMessage?: SessionMessage;
   SessionStateChanged?: SessionStateChanged;
+  SessionUsage?: SessionUsage;
   SessionUserInputRequested?: SessionUserInputRequested;
   Subtask?: Subtask;
   SubtaskUpdated?: SubtaskUpdated;
@@ -26,6 +27,9 @@ export interface ProtocolSchema {
   TaskStatusChanged?: TaskStatusChanged;
   Todo?: Todo;
   TodoUpdate?: TodoUpdate;
+  TokenUsageByModel?: TokenUsageByModel;
+  TokenUsageStats?: TokenUsageStats;
+  TokenUsageTotals?: TokenUsageTotals;
   Workspace?: Workspace;
 }
 export interface CancelCommand {
@@ -92,6 +96,13 @@ export interface SessionStateChanged {
   session_id: string;
   status: "waiting" | "running" | "done" | "failed" | "awaiting_user";
 }
+export interface SessionUsage {
+  session_id: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
 export interface SessionUserInputRequested {
   session_id: string;
   prompt: string;
@@ -146,6 +157,22 @@ export interface Todo {
 export interface TodoUpdate {
   session_id: string;
   todos: Todo[];
+}
+export interface TokenUsageByModel {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  turns: number;
+}
+export interface TokenUsageStats {
+  total: TokenUsageTotals;
+  by_model: TokenUsageByModel[];
+}
+export interface TokenUsageTotals {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
 }
 export interface Workspace {
   id: string;

@@ -63,6 +63,8 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/events", h.requireAuth(h.handleListEvents))
 	mux.HandleFunc("POST /api/sessions/{id}/send", h.requireAuth(h.handleSendMessage))
 
+	mux.HandleFunc("GET /api/stats/tokens", h.requireAuth(h.handleStatsTokens))
+
 	mux.HandleFunc("GET /ws/web", h.handleWebWS)
 	mux.HandleFunc("GET /ws/node", h.handleNodeWS)
 
@@ -869,4 +871,78 @@ func intQuery(r *http.Request, key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// ---- token usage stats -----------------------------------------------------
+
+// handleStatsTokens serves GET /api/stats/tokens: aggregated model token usage
+// over the visible subtree with optional filters session_id, workspace_id,
+// node_id, from, to (RFC3339). Every explicit id filter must resolve to rows
+// the caller may see — invisible or missing ids both render 404 (no existence
+// leak). Unfiltered reads aggregate everything for admins and only rows whose
+// task belongs to a workspace on a bound node for everyone else.
+func (h *Hub) handleStatsTokens(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := userOf(r)
+
+	filter := store.TokenUsageFilter{
+		SessionID:   r.URL.Query().Get("session_id"),
+		WorkspaceID: r.URL.Query().Get("workspace_id"),
+		NodeID:      r.URL.Query().Get("node_id"),
+	}
+	if filter.SessionID != "" {
+		if _, err := h.sessionVisibleTo(ctx, user, filter.SessionID); err != nil {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+	}
+	if filter.WorkspaceID != "" {
+		if ok, err := h.canReadWorkspace(ctx, user, filter.WorkspaceID); err != nil || !ok {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+	}
+	if filter.NodeID != "" {
+		if ok, err := h.canReadNode(ctx, user, filter.NodeID); err != nil || !ok {
+			writeError(w, http.StatusNotFound, "node not found")
+			return
+		}
+	}
+	fromRaw := r.URL.Query().Get("from")
+	if fromRaw != "" {
+		t, err := time.Parse(time.RFC3339, fromRaw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "from must be an RFC3339 timestamp")
+			return
+		}
+		filter.From = &t
+	}
+	toRaw := r.URL.Query().Get("to")
+	if toRaw != "" {
+		t, err := time.Parse(time.RFC3339, toRaw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "to must be an RFC3339 timestamp")
+			return
+		}
+		filter.To = &t
+	}
+	if user.Role != "admin" {
+		filter.MemberUserID = user.ID
+	}
+
+	byModel, err := h.store.Queries().AggregateTokenUsage(ctx, filter)
+	if err != nil {
+		h.serverError(w, "aggregate token usage", err)
+		return
+	}
+	stats := protocol.TokenUsageStats{ByModel: byModel}
+	if stats.ByModel == nil {
+		stats.ByModel = []protocol.TokenUsageByModel{}
+	}
+	for _, row := range stats.ByModel {
+		stats.Total.PromptTokens += row.PromptTokens
+		stats.Total.CompletionTokens += row.CompletionTokens
+		stats.Total.TotalTokens += row.TotalTokens
+	}
+	writeJSON(w, http.StatusOK, stats)
 }

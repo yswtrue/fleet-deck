@@ -21,6 +21,7 @@ type recordedEvent struct {
 	status    protocol.SessionStatus
 	prompt    string
 	msg       protocol.Message
+	usage     adapters.Usage
 }
 
 const (
@@ -28,6 +29,7 @@ const (
 	kindMessage     = "message"
 	kindTodoUpdate  = "todo_update"
 	kindStateChange = "state_change"
+	kindUsage       = "usage"
 	kindUserInput   = "user_input_requested"
 	kindDone        = "done"
 	kindError       = "error"
@@ -78,6 +80,10 @@ func (r *recorder) UserInputRequested(_ context.Context, sessionID, prompt strin
 	case r.userInput <- prompt:
 	default:
 	}
+}
+
+func (r *recorder) Usage(_ context.Context, sessionID string, u adapters.Usage) {
+	r.record(recordedEvent{kind: kindUsage, sessionID: sessionID, usage: u})
 }
 
 func (r *recorder) Done(_ context.Context, sessionID string) {
@@ -182,6 +188,7 @@ func TestHappyPath(t *testing.T) {
 		kindMessage,    // complete assistant message after the text burst
 		kindTodoUpdate, // snapshot(2)
 		kindTodoUpdate, // snapshot(3): all done
+		kindUsage,      // deterministic synthetic usage, once per run
 		kindDone,       // terminal; Done carries the final state (no paired StateChange)
 	})
 
@@ -246,7 +253,8 @@ func TestAsksInput(t *testing.T) {
 		kindMessage, // complete assistant message after the text burst
 		kindTodoUpdate,
 		kindTodoUpdate,
-		kindDone, // terminal; Done carries the final state (no paired StateChange)
+		kindUsage, // deterministic synthetic usage, once per run
+		kindDone,  // terminal; Done carries the final state (no paired StateChange)
 	})
 
 	events := rec.snapshot()
@@ -293,12 +301,40 @@ func TestCancel(t *testing.T) {
 	assertKinds(t, rec.kinds(), []string{
 		kindStateChange, // running
 		kindTodoUpdate,  // snapshot(0) emitted before first pause
+		kindUsage,       // deterministic synthetic usage, once per run
 		kindDone,        // terminal; Done carries the final state (no paired StateChange)
 	})
 
 	events := rec.snapshot()
-	if events[2].kind != kindDone {
-		t.Errorf("terminal event kind = %q, want %q", events[2].kind, kindDone)
+	if events[3].kind != kindDone {
+		t.Errorf("terminal event kind = %q, want %q", events[3].kind, kindDone)
+	}
+}
+
+// TestSyntheticUsagePerRun pins the deterministic synthetic usage the fake
+// reports so tests and the UI always have data: model "fake", 120 prompt +
+// 80 completion = 200 total, exactly one report per run, before Done.
+func TestSyntheticUsagePerRun(t *testing.T) {
+	_, rec := newStarted(t, ScenarioHappyPath, time.Millisecond)
+	rec.waitDone(t)
+
+	events := rec.snapshot()
+	usages := []recordedEvent{}
+	for _, e := range events {
+		if e.kind == kindUsage {
+			usages = append(usages, e)
+		}
+	}
+	if len(usages) != 1 {
+		t.Fatalf("usage events = %d, want 1: %+v", len(usages), usages)
+	}
+	u := usages[0].usage
+	if u != (adapters.Usage{Model: "fake", PromptTokens: 120, CompletionTokens: 80, TotalTokens: 200}) {
+		t.Fatalf("usage = %+v, want model fake / 120 / 80 / 200", u)
+	}
+	if events[len(events)-2].kind != kindUsage || events[len(events)-1].kind != kindDone {
+		t.Fatalf("usage must precede terminal Done, got tail %q %q",
+			events[len(events)-2].kind, events[len(events)-1].kind)
 	}
 }
 

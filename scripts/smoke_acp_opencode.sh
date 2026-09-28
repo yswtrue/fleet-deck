@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Gate 4 cleanup smoke: drive a one-line prompt through the shared ACP adapter
-# with agent_type "opencode", end to end via the node daemon + hub.
+# with agent_type "opencode", end to end via the node daemon + hub. A completed
+# turn also asserts the token usage capture (model + counters) landed as
+# token_usage rows.
 #
 # Best-effort: if the `opencode` CLI is not installed on this host the smoke
 # prints SMOKE_SKIP and exits 0. It never fails the lane on missing tooling.
@@ -144,9 +146,18 @@ echo "session_status=$STATUS"
 MSGS=$(curl -fsS -H "$AUTH_HEADER" "http://$HUB_ADDR/api/sessions/$SESSION_ID/messages?limit=20" 2>/dev/null)
 echo "messages=$MSGS"
 
+# Usage capture assertion: a completed real turn must have produced
+# token_usage rows (model + counters verbatim from the agent's prompt result).
+USAGE=$(psql "$DBURL" -tAc "select model || ' ' || prompt_tokens || '/' || completion_tokens || '/' || total_tokens from token_usage where session_id='$SESSION_ID' order by created_at" 2>/dev/null)
+echo "token_usage=$USAGE"
+
 psql "$DBURL" -q -c "delete from node where id='$NODE_ID'" >/dev/null 2>&1
 
 if [ "$STATUS" = "done" ] && echo "$MSGS" | grep -q '"role":"assistant"'; then
+  if [ -z "$USAGE" ]; then
+    echo "SMOKE_FAIL: session completed but reported no token usage rows"
+    exit 1
+  fi
   echo "SMOKE_OK"
   exit 0
 fi

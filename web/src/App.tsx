@@ -7,12 +7,14 @@ import { Login } from './pages/Login.tsx'
 import { Users } from './pages/Users.tsx'
 import { NodeDetail } from './pages/NodeDetail.tsx'
 import { Workspace } from './pages/Workspace.tsx'
+import { Usage } from './pages/Usage.tsx'
 import { ErrorState } from './components/ErrorState.tsx'
 import { LoadingSkeleton } from './components/LoadingSkeleton.tsx'
 import { AntdProvider } from './providers/AntdProvider.tsx'
 import { RefineProvider } from './providers/RefineProvider.tsx'
 import { getStoredToken } from './apiClient.ts'
 import { useAuth } from './hooks/useAuth.ts'
+import { useTaskNotifications } from './hooks/useTaskNotifications.ts'
 import './App.css'
 
 // The session stream view is the heaviest route (streaming, message bubbles,
@@ -47,6 +49,16 @@ function RequireAdmin({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/*
+ * Mounts the task-notification bridge inside the provider tree: subscribes to
+ * task WS events and raises browser notifications (permission + user setting
+ * gated, see useTaskNotifications).
+ */
+function TaskNotificationBridge() {
+  useTaskNotifications()
+  return null
+}
+
 function App() {
   const location = useLocation()
   // The login page is a bare full-screen card — no app chrome above it.
@@ -55,6 +67,7 @@ function App() {
     <AntdProvider>
       <RefineProvider>
         {showChrome && <Header />}
+        <TaskNotificationBridge />
         <main className="appMain">
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -79,6 +92,14 @@ function App() {
               element={
                 <RequireAuth>
                   <Workspace />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/usage"
+              element={
+                <RequireAuth>
+                  <Usage />
                 </RequireAuth>
               }
             />

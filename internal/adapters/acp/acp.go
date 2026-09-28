@@ -49,6 +49,25 @@
 //
 // Unparseable payloads are skipped silently: a todo mirror must never break a
 // running session.
+//
+// # Usage & model capture
+//
+// Evidence (raw frames from `opencode acp`, scripts/smoke_acp_opencode.sh):
+//
+//   - usage: each `session/prompt` result carries
+//     `usage: {inputTokens, outputTokens, totalTokens, thoughtTokens}`. The
+//     mapping onto adapters.Usage is inputTokens -> PromptTokens,
+//     outputTokens -> CompletionTokens, totalTokens -> TotalTokens, verbatim.
+//     Observed opencode arithmetic: totalTokens = input + output + thought, so
+//     prompt + completion may not sum to total; the agent's total is kept as
+//     reported. A result without a `usage` field reports nothing (zero rows) —
+//     numbers are never fabricated.
+//   - model: `session/new` (and `session/load`) results carry
+//     `configOptions: [{id: "model", currentValue: "<provider/model>", ...}]`.
+//     That currentValue is the model the agent actually runs — the best real
+//     source. When an agent reports no model config option (the ACP spec makes
+//     it optional and other agents may omit it), the documented fallback is
+//     the agent_type (e.g. "codex", "opencode").
 package acp
 
 import (
@@ -135,6 +154,7 @@ type Adapter struct {
 	sessionID    string
 	externalID   string
 	workspace    string
+	model        string // agent-reported model (session metadata); see modelOrAgentType
 	status       protocol.SessionStatus
 	proc         *process
 	awaitingPerm chan string
@@ -262,7 +282,8 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 }
 
 // openSession performs session/new (or session/load when resuming) and returns
-// the agent-side session id.
+// the agent-side session id. The result's configOptions are also mined for the
+// agent-reported model (see captureModel).
 func (a *Adapter) openSession(ctx context.Context, workspace string) (string, error) {
 	servers := a.cfg.mcpServers
 	if servers == nil {
@@ -270,13 +291,15 @@ func (a *Adapter) openSession(ctx context.Context, workspace string) (string, er
 	}
 
 	if a.ResumeSessionID != "" {
-		if _, err := a.call(ctx, "session/load", sessionLoadParams{
+		raw, err := a.call(ctx, "session/load", sessionLoadParams{
 			SessionID:  a.ResumeSessionID,
 			Cwd:        workspace,
 			MCPServers: servers,
-		}); err != nil {
+		})
+		if err != nil {
 			return "", fmt.Errorf("acp: session/load: %w", err)
 		}
+		a.captureModel(raw)
 		return a.ResumeSessionID, nil
 	}
 
@@ -284,16 +307,62 @@ func (a *Adapter) openSession(ctx context.Context, workspace string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("acp: session/new: %w", err)
 	}
-	var res struct {
-		SessionID string `json:"sessionId"`
-	}
+	var res sessionOpenResult
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return "", fmt.Errorf("acp: decode session/new: %w", err)
 	}
 	if res.SessionID == "" {
 		return "", errors.New("acp: session/new returned no sessionId")
 	}
+	a.captureModel(raw)
 	return res.SessionID, nil
+}
+
+// sessionOpenResult is the shape shared by session/new and session/load
+// results: the agent-side session id plus optional session metadata.
+type sessionOpenResult struct {
+	SessionID     string         `json:"sessionId"`
+	ConfigOptions []configOption `json:"configOptions"`
+}
+
+// configOption is one agent-reported session configuration entry. A select
+// option carries its active choice in CurrentValue (other kinds may carry
+// other JSON types, hence any).
+type configOption struct {
+	ID           string `json:"id"`
+	CurrentValue any    `json:"currentValue"`
+}
+
+// captureModel records the model the agent reports in its session metadata
+// (configOptions entry id "model"). Agents that report no model config option
+// leave it unset; modelOrAgentType then falls back to the agent_type.
+func (a *Adapter) captureModel(raw json.RawMessage) {
+	var res sessionOpenResult
+	if json.Unmarshal(raw, &res) != nil {
+		return
+	}
+	for _, opt := range res.ConfigOptions {
+		if opt.ID != "model" {
+			continue
+		}
+		if s, ok := opt.CurrentValue.(string); ok && s != "" {
+			a.mu.Lock()
+			a.model = s
+			a.mu.Unlock()
+			return
+		}
+	}
+}
+
+// modelOrAgentType returns the agent-reported model, falling back to the
+// agent_type when the agent reported none (documented in the package comment).
+func (a *Adapter) modelOrAgentType() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.model != "" {
+		return a.model
+	}
+	return a.agentType
 }
 
 // SendMessage either answers a pending permission request (when one is open) or
@@ -571,6 +640,25 @@ func (a *Adapter) promptTurn(ctx context.Context, sink adapters.EventSink, text 
 	return nil
 }
 
+// promptResult is the decoded session/prompt result. Usage is what the agent
+// reported for this turn (see the package comment); nil means "reported no
+// usage" and must stay unrecorded.
+type promptResult struct {
+	StopReason string       `json:"stopReason"`
+	Usage      *usageReport `json:"usage"`
+}
+
+// usageReport is one turn's token accounting as carried in a session/prompt
+// result (observed from opencode: inputTokens/outputTokens/totalTokens/
+// thoughtTokens). Fields are relayed verbatim; the agent's totalTokens is kept
+// even though it may include thoughtTokens beyond input + output.
+type usageReport struct {
+	InputTokens   int64 `json:"inputTokens"`
+	OutputTokens  int64 `json:"outputTokens"`
+	TotalTokens   int64 `json:"totalTokens"`
+	ThoughtTokens int64 `json:"thoughtTokens"`
+}
+
 func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSink, resp rpcResponse) {
 	if sink == nil {
 		return
@@ -580,10 +668,16 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 		return
 	}
 
-	var res struct {
-		StopReason string `json:"stopReason"`
-	}
+	var res promptResult
 	_ = json.Unmarshal(resp.result, &res)
+	if res.Usage != nil {
+		sink.Usage(ctx, a.currentSessionID(), adapters.Usage{
+			Model:            a.modelOrAgentType(),
+			PromptTokens:     res.Usage.InputTokens,
+			CompletionTokens: res.Usage.OutputTokens,
+			TotalTokens:      res.Usage.TotalTokens,
+		})
+	}
 	switch res.StopReason {
 	case "end_turn", "cancelled", "":
 		a.emitFinalMessage(ctx, sink)

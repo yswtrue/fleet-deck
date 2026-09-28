@@ -28,6 +28,16 @@ type StartResult struct {
 	ExternalSessionID string
 }
 
+// Usage is one turn's model token usage as reported by the agent. Adapters
+// relay real numbers only; when an agent reports no usage, no Usage is
+// emitted and nothing is recorded — numbers are never fabricated.
+type Usage struct {
+	Model            string
+	PromptTokens     int64
+	CompletionTokens int64
+	TotalTokens      int64
+}
+
 // Adapter is the contract every agent backend implements (pi-agent, ACP,
 // codex, fake). The Node daemon drives the lifecycle; events flow out via the
 // EventSink callback.
@@ -75,6 +85,9 @@ type EventSink interface {
 	// StateChange, or the consumer sees the transition twice.
 	StateChange(ctx context.Context, sessionID string, status protocol.SessionStatus)
 	UserInputRequested(ctx context.Context, sessionID string, prompt string)
+	// Usage reports one turn's model token usage. Emit it per turn when the
+	// agent reports usage; omit it entirely when the agent reports none.
+	Usage(ctx context.Context, sessionID string, u Usage)
 	// Done ends the session successfully. It is terminal: implementations map
 	// it to the session's final (done) state on the wire.
 	Done(ctx context.Context, sessionID string)
