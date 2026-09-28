@@ -58,7 +58,15 @@ Composite (from devenv shell): `check` runs gofmt + vet + golangci-lint + `go te
 
 ## Live tests need Postgres
 
-`go test ./...` hits the dev DB at `$FLEETDECK_DATABASE_URL`. Tests that touch `internal/store/`, `internal/hub/`, `internal/mcp/` will fail without Postgres reachable. Use `db-reset` first, or `db-up && migrate` if the schema is intact.
+`go test ./...` hits Postgres at `$FLEETDECK_DATABASE_URL` (default: the dev DB on `127.0.0.1:55432`). Tests that touch `internal/store/`, `internal/hub/`, `internal/mcp/` will fail without Postgres reachable. Use `db-reset` first, or `db-up && migrate` if the schema is intact.
+
+**The suite wipes rows (e.g. `DELETE FROM users`) — run it against a scratch DB to keep dev data intact.** Every test package honors `FLEETDECK_DATABASE_URL`; create the DB with the devenv bootstrap superuser (the OS username role, e.g. `yswtrue`), migrate, then point the suite at it:
+
+```sh
+psql -h 127.0.0.1 -p 55432 -U "$USER" -d postgres -c "CREATE DATABASE fleetdeck_test OWNER fleetdeck"
+goose -dir migrations postgres postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck_test?sslmode=disable up
+FLEETDECK_DATABASE_URL=postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck_test?sslmode=disable go test -race ./...
+```
 
 ## Architecture invariants
 
