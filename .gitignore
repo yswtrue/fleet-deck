@@ -62,3 +62,5 @@ result-*
 *.swp
 *.swo
 *~
+
+.omp/
