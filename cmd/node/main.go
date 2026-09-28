@@ -1,0 +1,59 @@
+// Command node runs a FleetDeck node daemon: it connects to the hub, registers,
+// and executes agent adapters the hub asks it to run.
+//
+// Usage:
+//
+//	node --config examples/fake-node.config.yaml
+//	node --config examples/node.config.yaml --adapter fake
+package main
+
+import (
+	"context"
+	"flag"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"fleetdeck/internal/adapters"
+	_ "fleetdeck/internal/adapters/all" // registers every adapter (fake + ACP agents)
+	"fleetdeck/internal/node"
+)
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("node exited with error", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	configPath := flag.String("config", "examples/fake-node.config.yaml", "path to node YAML config")
+	adapterFlag := flag.String("adapter", "", "advertise/force a single adapter type (overrides config)")
+	flag.Parse()
+
+	cfg, err := node.LoadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if *adapterFlag != "" {
+		cfg.AgentTypes = []string{*adapterFlag}
+		cfg.DefaultAdapter = *adapterFlag
+		cfg.Capabilities = appendUnique(cfg.Capabilities, *adapterFlag)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	slog.Info("node starting", "name", cfg.Name, "hub", cfg.HubURL, "agent_types", cfg.AgentTypes)
+	return node.New(cfg, adapters.Default).Run(ctx)
+}
+
+func appendUnique(list []string, v string) []string {
+	for _, item := range list {
+		if item == v {
+			return list
+		}
+	}
+	return append(list, v)
+}

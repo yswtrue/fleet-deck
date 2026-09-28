@@ -1,0 +1,50 @@
+.wrap {
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 16px;
+  /* Subtle primary-tinted glow above the plain surface; palette via vars. */
+  background:
+    radial-gradient(ellipse 80% 55% at 50% -10%, var(--status-running-bg), transparent 70%),
+    var(--bg);
+}
+
+.card {
+  width: 100%;
+  max-width: 400px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.wordmark {
+  font-family: var(--heading);
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  color: var(--text-h);
+}
+
+.tagline {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.error {
+  margin-bottom: 16px;
+}
+
+.submit {
+  margin-top: 8px;
+}

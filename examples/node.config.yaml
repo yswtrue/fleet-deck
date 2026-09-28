@@ -1,0 +1,13 @@
+# FleetDeck node configuration for the default `devenv up` node.
+#
+#   go run ./cmd/node --config ./examples/node.config.yaml
+#
+# Phase 2 ships only the fake adapter, so this node advertises it too. Phase 4
+# replaces the agent_types list with the real backends available on this host.
+name: node-1
+host: localhost
+capabilities:
+  - fake
+agent_types:
+  - fake
+hub_url: ws://127.0.0.1:7710/ws/node

@@ -1,0 +1,89 @@
+.card {
+  border-radius: 10px;
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 2px;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.statusChip {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--status-waiting-bg);
+  color: var(--status-waiting-text);
+  border: 1px solid var(--status-waiting-border);
+  white-space: nowrap;
+}
+
+.statusChip[data-status='running'] {
+  background: var(--status-running-bg);
+  color: var(--status-running-text);
+  border-color: var(--status-running-border);
+}
+
+.statusChip[data-status='awaiting_user'] {
+  background: var(--status-awaiting-bg);
+  color: var(--status-awaiting-text);
+  border-color: var(--status-awaiting-border);
+}
+
+.statusChip[data-status='done'] {
+  background: var(--status-done-bg);
+  color: var(--status-done-text);
+  border-color: var(--status-done-border);
+}
+
+.agentChip {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--text-h);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.moveButton {
+  margin-left: auto;
+  flex: none;
+  font-size: 0.72rem;
+  color: var(--text);
+}
+
+.title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+
+.prompt {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: var(--text);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.footer {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  color: var(--text);
+}

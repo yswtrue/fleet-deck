@@ -1,0 +1,737 @@
+{
+  "$defs": {
+    "CancelCommand": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id"
+      ]
+    },
+    "Event": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "data": true,
+        "ts": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "seq": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type",
+        "data",
+        "ts"
+      ]
+    },
+    "Message": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "user",
+            "assistant",
+            "system"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "session_id",
+        "role",
+        "content",
+        "created_at"
+      ]
+    },
+    "Node": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "online",
+            "offline"
+          ]
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "last_seen_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "status"
+      ]
+    },
+    "NodeStatusChanged": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "online",
+            "offline"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "node_id",
+        "status"
+      ]
+    },
+    "RegisterRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "capabilities"
+      ]
+    },
+    "RegisterResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "node_id"
+      ]
+    },
+    "SendMessageCommand": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "message"
+      ]
+    },
+    "Session": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "agent_type": {
+          "type": "string"
+        },
+        "external_session_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "done",
+            "failed",
+            "awaiting_user"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "task_id",
+        "node_id",
+        "agent_type",
+        "status",
+        "created_at"
+      ]
+    },
+    "SessionDelta": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "text"
+      ]
+    },
+    "SessionMessage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Message": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "user",
+                "assistant",
+                "system"
+              ]
+            },
+            "content": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "session_id",
+            "role",
+            "content",
+            "created_at"
+          ]
+        }
+      },
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "message": {
+          "$ref": "#/$defs/Message"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "message"
+      ]
+    },
+    "SessionStateChanged": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "done",
+            "failed",
+            "awaiting_user"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "status"
+      ]
+    },
+    "SessionUserInputRequested": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "prompt"
+      ]
+    },
+    "Subtask": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "done"
+          ]
+        },
+        "external_id": {
+          "type": "string"
+        },
+        "sort_order": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "task_id",
+        "title",
+        "status",
+        "sort_order"
+      ]
+    },
+    "SubtaskUpdated": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Subtask": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "task_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "in_progress",
+                "done"
+              ]
+            },
+            "external_id": {
+              "type": "string"
+            },
+            "sort_order": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "task_id",
+            "title",
+            "status",
+            "sort_order"
+          ]
+        }
+      },
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "subtask": {
+          "$ref": "#/$defs/Subtask"
+        },
+        "removed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_id",
+        "subtask"
+      ]
+    },
+    "Task": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "done",
+            "awaiting_user"
+          ]
+        },
+        "agent_type": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "sort_order": {
+          "type": "integer"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "workspace_id",
+        "title",
+        "status",
+        "agent_type",
+        "sort_order",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "TaskCreated": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Task": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "workspace_id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "waiting",
+                "running",
+                "done",
+                "awaiting_user"
+              ]
+            },
+            "agent_type": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "sort_order": {
+              "type": "integer"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updated_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "workspace_id",
+            "title",
+            "status",
+            "agent_type",
+            "sort_order",
+            "created_at",
+            "updated_at"
+          ]
+        }
+      },
+      "properties": {
+        "task": {
+          "$ref": "#/$defs/Task"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task"
+      ]
+    },
+    "TaskStartCommand": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "agent_type": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "workspace_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_id",
+        "session_id",
+        "agent_type",
+        "prompt",
+        "workspace_path"
+      ]
+    },
+    "TaskStatusChanged": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "done",
+            "awaiting_user"
+          ]
+        },
+        "to": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "done",
+            "awaiting_user"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_id",
+        "from",
+        "to"
+      ]
+    },
+    "Todo": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "in_progress",
+            "done"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "status"
+      ]
+    },
+    "TodoUpdate": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Todo": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "in_progress",
+                "done"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "title",
+            "status"
+          ]
+        }
+      },
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "todos": {
+          "items": {
+            "$ref": "#/$defs/Todo"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "todos"
+      ]
+    },
+    "Workspace": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id",
+        "node_id",
+        "name",
+        "path",
+        "created_at"
+      ]
+    }
+  },
+  "type": "object"
+}

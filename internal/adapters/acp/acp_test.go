@@ -1,0 +1,751 @@
+package acp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"fleetdeck/internal/adapters"
+	"fleetdeck/internal/protocol"
+)
+
+// ---- recording sink --------------------------------------------------------
+
+type recEvent struct {
+	kind   string
+	text   string
+	todos  []protocol.Todo
+	status protocol.SessionStatus
+	prompt string
+}
+
+type recorder struct {
+	mu     sync.Mutex
+	events []recEvent
+
+	done    chan struct{}
+	doneOne sync.Once
+	errCh   chan string
+	textCh  chan string
+	todoCh  chan []protocol.Todo
+	userCh  chan string
+	stateCh chan protocol.SessionStatus
+}
+
+func newRecorder() *recorder {
+	return &recorder{
+		done:    make(chan struct{}),
+		errCh:   make(chan string, 4),
+		textCh:  make(chan string, 64),
+		todoCh:  make(chan []protocol.Todo, 8),
+		userCh:  make(chan string, 4),
+		stateCh: make(chan protocol.SessionStatus, 64),
+	}
+}
+
+func (r *recorder) record(e recEvent) {
+	r.mu.Lock()
+	r.events = append(r.events, e)
+	r.mu.Unlock()
+}
+
+func (r *recorder) TextDelta(_ context.Context, _ string, text string) {
+	r.record(recEvent{kind: "text_delta", text: text})
+	select {
+	case r.textCh <- text:
+	default:
+	}
+}
+
+func (r *recorder) Message(_ context.Context, _ string, _ protocol.Message) {
+	r.record(recEvent{kind: "message"})
+}
+
+func (r *recorder) TodoUpdate(_ context.Context, _ string, todos []protocol.Todo) {
+	cp := make([]protocol.Todo, len(todos))
+	copy(cp, todos)
+	r.record(recEvent{kind: "todo_update", todos: cp})
+	select {
+	case r.todoCh <- cp:
+	default:
+	}
+}
+
+func (r *recorder) StateChange(_ context.Context, _ string, status protocol.SessionStatus) {
+	r.record(recEvent{kind: "state_change", status: status})
+	select {
+	case r.stateCh <- status:
+	default:
+	}
+}
+
+func (r *recorder) UserInputRequested(_ context.Context, _ string, prompt string) {
+	r.record(recEvent{kind: "user_input", prompt: prompt})
+	select {
+	case r.userCh <- prompt:
+	default:
+	}
+}
+
+func (r *recorder) Done(_ context.Context, _ string) {
+	r.record(recEvent{kind: "done"})
+	r.doneOne.Do(func() { close(r.done) })
+}
+
+func (r *recorder) Error(_ context.Context, _ string, err error) {
+	r.record(recEvent{kind: "error", text: err.Error()})
+	select {
+	case r.errCh <- err.Error():
+	default:
+	}
+}
+
+func (r *recorder) waitDone(t *testing.T) {
+	t.Helper()
+	select {
+	case <-r.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Done")
+	}
+}
+
+func (r *recorder) waitError(t *testing.T) string {
+	t.Helper()
+	select {
+	case e := <-r.errCh:
+		return e
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for Error")
+		return ""
+	}
+}
+
+func (r *recorder) waitUserInput(t *testing.T) string {
+	t.Helper()
+	select {
+	case p := <-r.userCh:
+		return p
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for UserInputRequested")
+		return ""
+	}
+}
+
+func (r *recorder) waitTodos(t *testing.T) []protocol.Todo {
+	t.Helper()
+	select {
+	case todos := <-r.todoCh:
+		return todos
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for TodoUpdate")
+		return nil
+	}
+}
+
+func (r *recorder) waitState(t *testing.T, want protocol.SessionStatus) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case got := <-r.stateCh:
+			if got == want {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for state %q", want)
+		}
+	}
+}
+
+func (r *recorder) waitTextContaining(t *testing.T, substr string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case text := <-r.textCh:
+			if strings.Contains(text, substr) {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for text containing %q", substr)
+		}
+	}
+}
+
+func (r *recorder) texts() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, e := range r.events {
+		if e.kind == "text_delta" {
+			out = append(out, e.text)
+		}
+	}
+	return out
+}
+
+// ---- test harness ----------------------------------------------------------
+
+type adapterOpts struct {
+	scenario  string
+	resume    string
+	grace     time.Duration
+	workspace string // defaults to a fresh temp dir
+}
+
+// testBinary returns the absolute path to this test binary, which the fake
+// agent subprocess re-executes.
+func testBinary(t *testing.T) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	return exe
+}
+
+// startTestAdapter launches the adapter against the in-binary fake ACP agent.
+func startTestAdapter(t *testing.T, opts adapterOpts) (*Adapter, *recorder) {
+	t.Helper()
+	a := New("test")
+	a.cfg = agentConfig{
+		command: testBinary(t),
+		args:    []string{"-test.run=TestFakeACPAgent"},
+		env: []string{
+			"FLEETDECK_FAKE_ACP=1",
+			"FLEETDECK_FAKE_ACP_SCENARIO=" + opts.scenario,
+		},
+	}
+	a.ResumeSessionID = opts.resume
+	a.CancelGrace = opts.grace
+
+	rec := newRecorder()
+	workspace := opts.workspace
+	if workspace == "" {
+		workspace = t.TempDir()
+	}
+	if _, err := a.Start(context.Background(), adapters.StartRequest{
+		SessionID:     "sess-1",
+		TaskID:        "task-1",
+		AgentType:     "test",
+		Prompt:        "do the thing",
+		WorkspacePath: workspace,
+	}, rec); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Cancel(context.Background(), "sess-1") })
+	return a, rec
+}
+
+// ---- tests -----------------------------------------------------------------
+
+func TestTextDeltaMapping(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "deltas"})
+	rec.waitDone(t)
+
+	texts := rec.texts()
+	if len(texts) != 3 {
+		t.Fatalf("TextDelta calls = %d, want 3: %v", len(texts), texts)
+	}
+	if got := strings.Join(texts, ""); got != "Hello, world" {
+		t.Fatalf("concatenated text = %q, want %q", got, "Hello, world")
+	}
+}
+
+func TestTodoMirror(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "todo"})
+	todos := rec.waitTodos(t)
+
+	if len(todos) != 3 {
+		t.Fatalf("todo count = %d, want 3: %+v", len(todos), todos)
+	}
+	want := []struct {
+		title  string
+		status protocol.SubtaskStatus
+	}{
+		{"Research", protocol.SubtaskDone},
+		{"Implement", protocol.SubtaskInProgress},
+		{"Review", protocol.SubtaskPending},
+	}
+	for i, w := range want {
+		if todos[i].Title != w.title || todos[i].Status != w.status {
+			t.Errorf("todo[%d] = {%q,%q}, want {%q,%q}",
+				i, todos[i].Title, todos[i].Status, w.title, w.status)
+		}
+	}
+	rec.waitDone(t)
+}
+
+func TestPermissionFlow(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "permission"})
+	prompt := rec.waitUserInput(t)
+
+	if !strings.Contains(prompt, "[permission_request] options=") {
+		t.Fatalf("prompt missing permission marker: %q", prompt)
+	}
+	if !strings.Contains(prompt, `"id":"allow"`) || !strings.Contains(prompt, `"label":"Allow"`) {
+		t.Fatalf("prompt options not serialized as {id,label}: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Run shell command") {
+		t.Fatalf("prompt missing agent question: %q", prompt)
+	}
+
+	if err := a.SendMessage(context.Background(), "sess-1", `[permission_response] option_id="allow"`); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+
+	// The fake agent echoes the selected option back, proving the adapter
+	// forwarded it as the ACP permission response.
+	rec.waitTextContaining(t, "perm:allow")
+	rec.waitDone(t)
+}
+
+func TestPermissionReplyUnparseableDefaultsToDeny(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "permission"})
+	rec.waitUserInput(t)
+
+	if err := a.SendMessage(context.Background(), "sess-1", "sure, go ahead"); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	// The reject option is the fallback, never the allow option.
+	rec.waitTextContaining(t, "perm:deny")
+	rec.waitDone(t)
+}
+
+func TestPermissionReplyUnknownOptionIDDefaultsToDeny(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "permission"})
+	rec.waitUserInput(t)
+
+	// A well-formed marker naming an option the agent never offered must not
+	// reach the agent.
+	if err := a.SendMessage(context.Background(), "sess-1", `[permission_response] option_id="evil"`); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	rec.waitTextContaining(t, "perm:deny")
+	rec.waitDone(t)
+}
+
+func TestPermissionReplyEmptyOptionIDDefaultsToDeny(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "permission"})
+	rec.waitUserInput(t)
+
+	if err := a.SendMessage(context.Background(), "sess-1", `[permission_response] option_id=""`); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	rec.waitTextContaining(t, "perm:deny")
+	rec.waitDone(t)
+}
+
+func TestCancel(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "wait", grace: 100 * time.Millisecond})
+	rec.waitState(t, protocol.SessionRunning)
+
+	if err := a.Cancel(context.Background(), "sess-1"); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	rec.waitDone(t)
+}
+
+func TestAgentCrash(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "crash"})
+	errText := rec.waitError(t)
+	if !strings.Contains(errText, "agent exited") {
+		t.Fatalf("error = %q, want it to mention agent exit", errText)
+	}
+}
+
+func TestSessionResume(t *testing.T) {
+	a := New("test")
+	a.cfg = agentConfig{
+		command: testBinary(t),
+		args:    []string{"-test.run=TestFakeACPAgent"},
+		env:     []string{"FLEETDECK_FAKE_ACP=1", "FLEETDECK_FAKE_ACP_SCENARIO=default"},
+	}
+	a.ResumeSessionID = "agent-sess-loaded"
+
+	rec := newRecorder()
+	res, err := a.Start(context.Background(), adapters.StartRequest{
+		SessionID:     "sess-1",
+		Prompt:        "continue",
+		WorkspacePath: t.TempDir(),
+	}, rec)
+	if err != nil {
+		t.Fatalf("Start (resume): %v", err)
+	}
+	t.Cleanup(func() { _ = a.Cancel(context.Background(), "sess-1") })
+
+	if res.ExternalSessionID != "agent-sess-loaded" {
+		t.Fatalf("ExternalSessionID = %q, want %q", res.ExternalSessionID, "agent-sess-loaded")
+	}
+	rec.waitDone(t)
+}
+
+func TestBinaryNotFound(t *testing.T) {
+	a := New("codex")
+	a.cfg = agentConfig{command: "definitely-not-a-real-acp-agent-xyz"}
+
+	_, err := a.Start(context.Background(), adapters.StartRequest{SessionID: "sess-1"}, newRecorder())
+	if err == nil {
+		t.Fatal("Start: got nil error, want exec.ErrNotFound")
+	}
+	if !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("error = %v, want it to wrap exec.ErrNotFound", err)
+	}
+	if !strings.Contains(err.Error(), `binary for "codex" not found`) {
+		t.Fatalf("error = %v, want agent-type-specific message", err)
+	}
+}
+
+// TestDefaultRegistryHasACPAgents asserts registry.go wired all four agent
+// types into the process-wide registry.
+func TestDefaultRegistryHasACPAgents(t *testing.T) {
+	for _, agentType := range []string{"codex", "claude", "opencode", "pi"} {
+		ad, ok := adapters.Default.Get(agentType)
+		if !ok {
+			t.Fatalf("adapters.Default has no adapter for %q", agentType)
+		}
+		if _, isACP := ad.(*Adapter); !isACP {
+			t.Fatalf("adapters.Default[%q] = %T, want *acp.Adapter", agentType, ad)
+		}
+	}
+}
+
+// ---- pure parser tests -----------------------------------------------------
+
+func TestParseTodoToolCall(t *testing.T) {
+	tests := []struct {
+		name    string
+		title   string
+		raw     string
+		wantLen int
+		want    []protocol.Todo
+	}{
+		{
+			name:    "claude todo_write object",
+			title:   "TodoWrite",
+			raw:     `{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"in_progress"},{"content":"c","status":"pending"}]}`,
+			wantLen: 3,
+			want: []protocol.Todo{
+				{ID: "1", Title: "a", Status: protocol.SubtaskDone},
+				{ID: "2", Title: "b", Status: protocol.SubtaskInProgress},
+				{ID: "3", Title: "c", Status: protocol.SubtaskPending},
+			},
+		},
+		{
+			name:    "bare array with title field",
+			title:   "update_plan",
+			raw:     `[{"id":"x","title":"one","status":"done"}]`,
+			wantLen: 1,
+			want:    []protocol.Todo{{ID: "x", Title: "one", Status: protocol.SubtaskDone}},
+		},
+		{
+			name:    "non-todo title ignored",
+			title:   "read_file",
+			raw:     `{"todos":[{"content":"a","status":"done"}]}`,
+			wantLen: 0,
+		},
+		{
+			name:    "malformed payload skipped",
+			title:   "todo_write",
+			raw:     `{"todos":"not-an-array"}`,
+			wantLen: 0,
+		},
+		{
+			name:    "empty rawInput skipped",
+			title:   "todo_write",
+			raw:     "",
+			wantLen: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseTodoToolCall(tc.title, json.RawMessage(tc.raw))
+			if len(got) != tc.wantLen {
+				t.Fatalf("got %d todos (%+v), want %d", len(got), got, tc.wantLen)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("todo[%d] = %+v, want %+v", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParsePlan(t *testing.T) {
+	got := parsePlan([]planEntry{
+		{Content: "first", Status: "completed"},
+		{Content: "second", Status: "in_progress"},
+	})
+	if len(got) != 2 {
+		t.Fatalf("parsePlan len = %d, want 2", len(got))
+	}
+	if got[0].Status != protocol.SubtaskDone || got[1].Status != protocol.SubtaskInProgress {
+		t.Fatalf("parsePlan statuses = %+v", got)
+	}
+}
+
+func TestDenyOptionID(t *testing.T) {
+	opts := []permissionOptionRaw{
+		{OptionID: "a", Name: "Allow once", Kind: "allow_once"},
+		{OptionID: "d", Name: "Reject", Kind: "reject_once"},
+	}
+	if got := denyOptionID(opts); got != "d" {
+		t.Fatalf("denyOptionID = %q, want %q", got, "d")
+	}
+
+	// No explicit reject kind: fall back to a label mentioning deny.
+	byLabel := []permissionOptionRaw{
+		{OptionID: "a", Name: "Allow", Kind: "allow_once"},
+		{OptionID: "n", Name: "Deny always", Kind: "allow_always"},
+	}
+	if got := denyOptionID(byLabel); got != "n" {
+		t.Fatalf("denyOptionID(label) = %q, want %q", got, "n")
+	}
+
+	if got := denyOptionID(nil); got != "" {
+		t.Fatalf("denyOptionID(nil) = %q, want empty", got)
+	}
+
+	// No reject-ish option: return "" so the caller cancels — an arbitrary
+	// last option could be an allow one, and permission is never auto-approved.
+	allowOnly := []permissionOptionRaw{
+		{OptionID: "a1", Name: "Allow once", Kind: "allow_once"},
+		{OptionID: "a2", Name: "Allow always", Kind: "allow_always"},
+	}
+	if got := denyOptionID(allowOnly); got != "" {
+		t.Fatalf("denyOptionID(allow-only) = %q, want empty", got)
+	}
+
+	// Options with an empty id can never be selected.
+	emptyIDs := []permissionOptionRaw{
+		{OptionID: "", Name: "Reject", Kind: "reject_once"},
+		{OptionID: "", Name: "Deny always", Kind: ""},
+	}
+	if got := denyOptionID(emptyIDs); got != "" {
+		t.Fatalf("denyOptionID(empty ids) = %q, want empty", got)
+	}
+}
+
+func TestKnownOptionID(t *testing.T) {
+	opts := []permissionOptionRaw{{OptionID: "allow"}, {OptionID: ""}}
+	if !knownOptionID(opts, "allow") {
+		t.Error("knownOptionID(allow) = false, want true")
+	}
+	if knownOptionID(opts, "evil") {
+		t.Error("knownOptionID(evil) = true, want false")
+	}
+	if knownOptionID(opts, "") {
+		t.Error("knownOptionID(\"\") = true, want false")
+	}
+}
+
+func TestParsePermissionReply(t *testing.T) {
+	cases := map[string]string{
+		`[permission_response] option_id="allow"`:      "allow",
+		`  [permission_response]  option_id="deny"`:    "deny",
+		`[permission_response] option_id="allow-once"`: "allow-once",
+		`no marker here`: "",
+		`[permission_request] options=[{"id":"x"}]`: "",
+	}
+	for input, want := range cases {
+		if got := parsePermissionReply(input); got != want {
+			t.Errorf("parsePermissionReply(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+// ---- fake ACP agent (helper process) ---------------------------------------
+
+// TestFakeACPAgent is a no-op in a normal test run. When spawned as a
+// subprocess (FLEETDECK_FAKE_ACP=1) it acts as a scripted ACP agent speaking
+// NDJSON on stdio, so the adapter can be exercised without a real agent.
+func TestFakeACPAgent(t *testing.T) {
+	if os.Getenv("FLEETDECK_FAKE_ACP") != "1" {
+		t.Skip("helper process; only runs as a spawned ACP agent")
+	}
+	runFakeAgent(os.Getenv("FLEETDECK_FAKE_ACP_SCENARIO"))
+	os.Exit(0)
+}
+
+type fakeRPC struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+	Result  json.RawMessage `json:"result"`
+	Error   json.RawMessage `json:"error"`
+}
+
+func runFakeAgent(scenario string) {
+	enc := json.NewEncoder(os.Stdout)
+	dec := json.NewDecoder(os.Stdin)
+
+	for {
+		var msg fakeRPC
+		if err := dec.Decode(&msg); err != nil {
+			return
+		}
+		switch msg.Method {
+		case "initialize":
+			fakeResult(enc, msg.ID, map[string]any{"protocolVersion": 1})
+		case "session/new":
+			fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-1"})
+		case "session/load":
+			fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-loaded"})
+		case "session/prompt":
+			fakePrompt(enc, dec, msg.ID, scenario)
+		case "session/cancel":
+			// Deliberately ignored: the adapter must kill the process.
+		}
+	}
+}
+
+func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenario string) {
+	switch scenario {
+	case "deltas":
+		fakeNotify(enc, "session/update", fakeChunk("m1", "Hello"))
+		fakeNotify(enc, "session/update", fakeChunk("m1", ", "))
+		fakeNotify(enc, "session/update", fakeChunk("m1", "world"))
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "todo":
+		fakeNotify(enc, "session/update", fakeTodoUpdate())
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "permission":
+		fakeNotify(enc, "session/update", fakeChunk("m1", "starting"))
+		fakeRequest(enc, "perm-1", "session/request_permission", fakePermissionParams())
+		for {
+			var msg fakeRPC
+			if err := dec.Decode(&msg); err != nil {
+				os.Exit(1)
+			}
+			if msg.Method != "" || string(msg.ID) != `"perm-1"` {
+				continue
+			}
+			fakeNotify(enc, "session/update", fakeChunk("m2", "perm:"+fakeSelectedOption(msg.Result)))
+			break
+		}
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "crash":
+		os.Exit(1)
+	case "fs":
+		fakeFSTurn(enc, dec, id)
+	case "wait":
+		// Never answer: the adapter must cancel and kill us.
+	default:
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	}
+}
+
+// fakeFSTurn drives one read, one write, and one workspace escape through the
+// adapter's fs/* handlers, reporting each outcome as a message chunk the Go
+// side can assert on.
+func fakeFSTurn(enc *json.Encoder, dec *json.Decoder, id json.RawMessage) {
+	fakeRequest(enc, "fs-read-1", "fs/read_text_file", map[string]any{"sessionId": "agent-sess-1", "path": "hello.txt"})
+	read := fakeWaitResponse(dec, "fs-read-1")
+	var readRes struct {
+		Content string `json:"content"`
+	}
+	if read.Error == nil && json.Unmarshal(read.Result, &readRes) == nil {
+		fakeNotify(enc, "session/update", fakeChunk("m1", "read:"+readRes.Content))
+	} else {
+		fakeNotify(enc, "session/update", fakeChunk("m1", "read:err"))
+	}
+
+	fakeRequest(enc, "fs-write-1", "fs/write_text_file", map[string]any{
+		"sessionId": "agent-sess-1", "path": "out.txt", "content": "written-by-agent",
+	})
+	if fakeWaitResponse(dec, "fs-write-1").Error == nil {
+		fakeNotify(enc, "session/update", fakeChunk("m2", "write:ok"))
+	} else {
+		fakeNotify(enc, "session/update", fakeChunk("m2", "write:err"))
+	}
+
+	fakeRequest(enc, "fs-escape-1", "fs/read_text_file", map[string]any{"sessionId": "agent-sess-1", "path": "../escape.txt"})
+	if fakeWaitResponse(dec, "fs-escape-1").Error != nil {
+		fakeNotify(enc, "session/update", fakeChunk("m3", "escape:refused"))
+	} else {
+		fakeNotify(enc, "session/update", fakeChunk("m3", "escape:leaked"))
+	}
+	fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+}
+
+// fakeWaitResponse reads stdin until the response with the given id arrives.
+func fakeWaitResponse(dec *json.Decoder, wantID string) fakeRPC {
+	for {
+		var msg fakeRPC
+		if err := dec.Decode(&msg); err != nil {
+			os.Exit(1)
+		}
+		if msg.Method == "" && string(msg.ID) == `"`+wantID+`"` {
+			return msg
+		}
+	}
+}
+
+func fakeResult(enc *json.Encoder, id json.RawMessage, result any) {
+	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+}
+
+func fakeRequest(enc *json.Encoder, id, method string, params any) {
+	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+}
+
+func fakeNotify(enc *json.Encoder, method string, params any) {
+	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+func fakeChunk(messageID, text string) map[string]any {
+	return map[string]any{"sessionId": "agent-sess-1", "update": map[string]any{
+		"sessionUpdate": "agent_message_chunk",
+		"messageId":     messageID,
+		"content":       map[string]any{"type": "text", "text": text},
+	}}
+}
+
+func fakeTodoUpdate() map[string]any {
+	return map[string]any{"sessionId": "agent-sess-1", "update": map[string]any{
+		"sessionUpdate": "tool_call",
+		"title":         "todo_write",
+		"kind":          "other",
+		"rawInput": map[string]any{"todos": []map[string]any{
+			{"content": "Research", "status": "completed"},
+			{"content": "Implement", "status": "in_progress"},
+			{"content": "Review", "status": "pending"},
+		}},
+	}}
+}
+
+func fakePermissionParams() map[string]any {
+	return map[string]any{
+		"sessionId": "agent-sess-1",
+		"toolCall":  map[string]any{"title": "Run shell command"},
+		"options": []map[string]any{
+			{"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+			{"optionId": "deny", "name": "Deny", "kind": "reject_once"},
+		},
+	}
+}
+
+func fakeSelectedOption(raw json.RawMessage) string {
+	var r struct {
+		Outcome struct {
+			Outcome  string `json:"outcome"`
+			OptionID string `json:"optionId"`
+		} `json:"outcome"`
+	}
+	if json.Unmarshal(raw, &r) != nil {
+		return ""
+	}
+	if r.Outcome.Outcome != "selected" {
+		return r.Outcome.Outcome
+	}
+	return r.Outcome.OptionID
+}

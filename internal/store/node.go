@@ -1,0 +1,101 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"fleetdeck/internal/protocol"
+	"fleetdeck/internal/store/sqlcgen"
+)
+
+// CreateNodeParams are the fields required to register a new node. LastSeenAt
+// is set to now() by the database.
+type CreateNodeParams struct {
+	Name         string
+	Host         string
+	Status       protocol.NodeStatus
+	Capabilities []string
+	TokenHash    string
+}
+
+// CreateNode inserts a node and returns the stored row.
+func (q *Queries) CreateNode(ctx context.Context, p CreateNodeParams) (protocol.Node, error) {
+	row, err := q.q.CreateNode(ctx, sqlcgen.CreateNodeParams{
+		Name:         p.Name,
+		Host:         p.Host,
+		Status:       string(p.Status),
+		Capabilities: p.Capabilities,
+		TokenHash:    p.TokenHash,
+	})
+	if err != nil {
+		return protocol.Node{}, fmt.Errorf("store: create node: %w", err)
+	}
+	return nodeFromRow(row), nil
+}
+
+// GetNode returns a node by id.
+func (q *Queries) GetNode(ctx context.Context, id string) (protocol.Node, error) {
+	row, err := q.q.GetNode(ctx, id)
+	if err != nil {
+		return protocol.Node{}, fmt.Errorf("store: get node: %w", err)
+	}
+	return nodeFromRow(row), nil
+}
+
+// GetNodeByName returns a node by its unique-ish display name.
+func (q *Queries) GetNodeByName(ctx context.Context, name string) (protocol.Node, error) {
+	row, err := q.q.GetNodeByName(ctx, name)
+	if err != nil {
+		return protocol.Node{}, fmt.Errorf("store: get node by name: %w", err)
+	}
+	return nodeFromRow(row), nil
+}
+
+// ListNodes returns all nodes ordered by name.
+func (q *Queries) ListNodes(ctx context.Context) ([]protocol.Node, error) {
+	rows, err := q.q.ListNodes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: list nodes: %w", err)
+	}
+	return nodesFromRows(rows), nil
+}
+
+// UpdateNodeStatus sets a node's connectivity status and last-seen timestamp.
+func (q *Queries) UpdateNodeStatus(ctx context.Context, id string, status protocol.NodeStatus, lastSeenAt time.Time) error {
+	err := q.q.UpdateNodeStatus(ctx, sqlcgen.UpdateNodeStatusParams{
+		ID:         id,
+		Status:     string(status),
+		LastSeenAt: lastSeenAt,
+	})
+	if err != nil {
+		return fmt.Errorf("store: update node status: %w", err)
+	}
+	return nil
+}
+
+// UpdateNodeTokenHash rotates a node's stored auth token hash.
+func (q *Queries) UpdateNodeTokenHash(ctx context.Context, id, hash string) error {
+	err := q.q.UpdateNodeTokenHash(ctx, sqlcgen.UpdateNodeTokenHashParams{
+		ID:        id,
+		TokenHash: hash,
+	})
+	if err != nil {
+		return fmt.Errorf("store: update node token hash: %w", err)
+	}
+	return nil
+}
+
+// GetNodeByTokenHash resolves the node presenting the given auth token hash.
+//
+// NOTE: This is not the node auth path. node.token_hash stores a salted bcrypt
+// digest, so equal tokens never produce equal hashes and lookup by hash cannot
+// authenticate; registration compares against the hash of a known node instead.
+// Kept for tests and future token revocation.
+func (q *Queries) GetNodeByTokenHash(ctx context.Context, hash string) (protocol.Node, error) {
+	row, err := q.q.GetNodeByTokenHash(ctx, hash)
+	if err != nil {
+		return protocol.Node{}, fmt.Errorf("store: get node by token hash: %w", err)
+	}
+	return nodeFromRow(row), nil
+}

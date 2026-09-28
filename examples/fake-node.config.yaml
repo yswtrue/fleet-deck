@@ -1,0 +1,13 @@
+# FleetDeck node configuration.
+#
+#   go run ./cmd/node --config ./examples/fake-node.config.yaml
+#
+# The fake adapter manufactures a deterministic session (todos, text deltas,
+# done) so the hub and UI can be exercised without a real agent.
+name: fake-node-1
+host: localhost
+capabilities:
+  - fake
+agent_types:
+  - fake
+hub_url: ws://127.0.0.1:7710/ws/node

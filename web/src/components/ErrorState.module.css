@@ -1,0 +1,44 @@
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border: 1px solid var(--status-failed-border);
+  border-radius: var(--radius-lg);
+  background: var(--status-failed-bg);
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--bg);
+  color: var(--status-failed-text);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--heading);
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.description {
+  margin: 0;
+  max-width: 52ch;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.action {
+  margin-top: var(--space-2);
+}

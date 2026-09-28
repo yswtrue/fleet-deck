@@ -1,0 +1,28 @@
+# FleetDeck MCP server (stdio).
+#
+# This binary is launched by the agent as a subprocess and speaks
+# newline-delimited JSON-RPC (MCP) over stdin/stdout. It is NOT a network
+# daemon and the hub does not spawn it. Build it with:
+#
+#   go build -o bin/fleetdeck-mcp ./cmd/fleetdeck-mcp
+#
+# Agents configure their own MCP server list; FleetDeck never injects this into
+# a session. For ACP agents (codex/claude/opencode) pass it in the
+# `session/new` mcpServers array; for pi, configure it in pi's own config
+# (see Phase 4 Lane A.2: pi-acp accepts but does not forward ACP mcpServers).
+#
+# Example ACP `session/new` fragment:
+#
+#   mcpServers:
+#     - name: fleetdeck
+#       command: /absolute/path/to/bin/fleetdeck-mcp
+#       args: []
+#       env:
+#         - name: FLEETDECK_HUB_URL
+#           value: http://127.0.0.1:7710
+
+binary: /absolute/path/to/bin/fleetdeck-mcp
+transport: stdio
+env:
+  # Base URL of the FleetDeck hub REST API. Defaults to http://127.0.0.1:7710.
+  FLEETDECK_HUB_URL: http://127.0.0.1:7710

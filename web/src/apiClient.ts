@@ -1,0 +1,341 @@
+import type { Message, Node, Session, Subtask, Task, Workspace } from './gen/protocol/index.ts'
+
+/**
+ * StoredEvent mirrors the hub's /api/sessions/{id}/events DTO: the persisted
+ * event row, with the JSONB payload exposed raw under `payload` (distinct from
+ * the live WS protocol.Event, whose payload field is `data`).
+ */
+export interface StoredEvent {
+  id: string
+  session_id: string
+  type: string
+  payload: unknown
+  seq: number
+  ts: string
+}
+
+/**
+ * SessionSnapshot is the body of GET /api/sessions/{id}: the session plus its
+ * owning task (null when the task row cannot be resolved).
+ */
+export interface SessionSnapshot {
+  session: Session
+  task: Task | null
+}
+
+export interface CreateNodeInput {
+  name: string
+  host?: string
+  capabilities: string[]
+}
+
+export interface CreateWorkspaceInput {
+  node_id: string
+  name: string
+  path: string
+}
+
+export interface CreateTaskInput {
+  workspace_id: string
+  title: string
+  prompt?: string
+  agent_type: string
+}
+
+export interface PatchTaskInput {
+  status?: Task['status']
+}
+
+// ── Auth (multi-user) ────────────────────────────────────────────────────────
+
+export type UserRole = 'admin' | 'user'
+
+export interface AuthUser {
+  id: string
+  email: string
+  display_name: string
+  role: UserRole
+  created_at: string
+}
+
+/** AuthSession is the body of /api/auth/setup and /api/auth/login. */
+export interface AuthSession {
+  token: string
+  expires_at: string
+  user: AuthUser
+}
+
+/** AuthStatus is the body of GET /api/auth/status (unauthenticated). */
+export interface AuthStatus {
+  needs_setup: boolean
+}
+
+export interface SetupInput {
+  email: string
+  display_name: string
+  password: string
+}
+
+export interface LoginInput {
+  email: string
+  password: string
+}
+
+export interface CreateUserInput {
+  email: string
+  display_name: string
+  password: string
+  role: UserRole
+}
+
+export interface PatchUserInput {
+  display_name?: string
+  role?: UserRole
+  password?: string
+}
+
+declare global {
+  interface Window {
+    /** Runtime hub URL override, set by /config.js (see public/config.js). */
+    __FLEETDECK_HUB_URL__?: string
+  }
+}
+
+/**
+ * Hub base URL resolution, in order:
+ *   1. `window.__FLEETDECK_HUB_URL__` — runtime config for standalone static
+ *      deployments (any host can point at any hub without a rebuild);
+ *   2. `VITE_HUB_URL` — build-time pin (split hosting);
+ *   3. `/` — the page's own origin: the hub serves the SPA itself in the
+ *      default deployment, and the vite dev server proxies /api and /ws.
+ * Trailing slashes are stripped; an absolute http(s) URL enables cross-origin
+ * operation (the hub admits any origin in single-user mode).
+ */
+export const HUB_URL = (
+  (typeof window !== 'undefined' && window.__FLEETDECK_HUB_URL__) ||
+  import.meta.env.VITE_HUB_URL ||
+  '/'
+).replace(/\/$/, '')
+
+/** WebSocket URL derived from {@link HUB_URL}; relative stays same-origin. */
+export const HUB_WS_URL = HUB_URL.replace(/^http/, 'ws') + '/ws/web'
+
+// ── Token persistence ────────────────────────────────────────────────────────
+// The bearer token lives in localStorage so every hub request (including
+// cross-origin ones when `window.__FLEETDECK_HUB_URL__` points elsewhere) can
+// carry it without React involvement. `expires_at` is kept alongside so an
+// expired token is treated as absent before the hub ever sees it.
+
+const TOKEN_KEY = 'fleetdeck.token'
+const EXPIRES_KEY = 'fleetdeck.expires_at'
+
+type TokenListener = (token: string | null) => void
+const tokenListeners = new Set<TokenListener>()
+
+function notifyTokenChange(token: string | null) {
+  for (const listener of [...tokenListeners]) listener(token)
+}
+
+/**
+ * Subscribe to token store changes (login/logout/expiry). Used by
+ * `WebSocketProvider` to reconnect with (or without) the token. Returns the
+ * unsubscribe function.
+ */
+export function onTokenChange(listener: TokenListener): () => void {
+  tokenListeners.add(listener)
+  return () => {
+    tokenListeners.delete(listener)
+  }
+}
+
+/** Current bearer token, or null when absent or expired. */
+export function getStoredToken(): string | null {
+  if (typeof localStorage === 'undefined') return null
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (!token) return null
+  const expiresAt = localStorage.getItem(EXPIRES_KEY)
+  if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
+    clearToken()
+    return null
+  }
+  return token
+}
+
+export function storeToken(token: string, expiresAt: string): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(TOKEN_KEY, token)
+  localStorage.setItem(EXPIRES_KEY, expiresAt)
+  notifyTokenChange(token)
+}
+
+export function clearToken(): void {
+  if (typeof localStorage === 'undefined') return
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(EXPIRES_KEY)
+  notifyTokenChange(null)
+}
+
+/**
+ * The hub WebSocket URL with the current token attached as `?token=` (the hub
+ * accepts the auth token as a query param on /ws/web). Unauthenticated when no
+ * token is stored.
+ */
+export function authenticatedWsUrl(): string {
+  const token = getStoredToken()
+  return token ? `${HUB_WS_URL}?token=${encodeURIComponent(token)}` : HUB_WS_URL
+}
+
+/**
+ * Pure: a 401 must send the user to /login — except when already there, so a
+ * failed sign-in can never loop the redirect.
+ */
+export function shouldRedirectToLogin(pathname: string): boolean {
+  return pathname !== '/login'
+}
+
+/** Clear the token and send the user to /login (never re-redirect from /login). */
+function handleUnauthorized(): void {
+  clearToken()
+  if (typeof window === 'undefined') return
+  if (!shouldRedirectToLogin(window.location.pathname)) return
+  window.location.assign('/login')
+}
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getStoredToken()
+  const res = await fetch(`${HUB_URL}${path}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+  })
+  if (!res.ok) {
+    // Expired/revoked token: drop it and bounce to the login page.
+    if (res.status === 401) handleUnauthorized()
+    // Surface the hub's {"error": "..."} body so callers can show a useful
+    // message (e.g. the 409 "session is not awaiting user input").
+    let detail = res.statusText
+    try {
+      const body = (await res.json()) as { error?: string }
+      if (body?.error) detail = body.error
+    } catch {
+      // keep statusText
+    }
+    throw new Error(`HTTP ${res.status}: ${detail}`)
+  }
+  // 204 and other empty bodies (logout, delete) have no JSON to parse.
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+/**
+ * apiClient is the plain (non-hook) hub REST client. It is the single place the
+ * wire contract lives: every path/query below mirrors a hub endpoint and must
+ * not change without a matching backend change. Consumed by `useHubApi` (thin
+ * hook) and by Refine's `dataProvider`.
+ */
+export const apiClient = {
+  baseUrl: HUB_URL,
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
+  /** GET /api/auth/status needs no token; it selects login vs first-run setup. */
+  authStatus: () => fetchJson<AuthStatus>('/api/auth/status'),
+
+  /** POST /api/auth/setup creates the first admin; 409 once any user exists. */
+  setup: (input: SetupInput) =>
+    fetchJson<AuthSession>('/api/auth/setup', { method: 'POST', body: JSON.stringify(input) }),
+
+  login: (input: LoginInput) =>
+    fetchJson<AuthSession>('/api/auth/login', { method: 'POST', body: JSON.stringify(input) }),
+
+  /** POST /api/auth/logout revokes the token server-side (204). */
+  logout: () => fetchJson<void>('/api/auth/logout', { method: 'POST' }),
+
+  me: () => fetchJson<AuthUser>('/api/auth/me'),
+
+  // ── Users (admin) ─────────────────────────────────────────────────────────
+
+  listUsers: () => fetchJson<AuthUser[]>('/api/users'),
+
+  createUser: (input: CreateUserInput) =>
+    fetchJson<AuthUser>('/api/users', { method: 'POST', body: JSON.stringify(input) }),
+
+  patchUser: (id: string, patch: PatchUserInput) =>
+    fetchJson<AuthUser>(`/api/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  deleteUser: (id: string) => fetchJson<void>(`/api/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  // ── Workspace members ─────────────────────────────────────────────────────
+
+  listWorkspaceMembers: (workspaceId: string) =>
+    fetchJson<AuthUser[]>(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`),
+
+  addWorkspaceMember: (workspaceId: string, userId: string) =>
+    fetchJson<void>(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    }),
+
+  removeWorkspaceMember: (workspaceId: string, userId: string) =>
+    fetchJson<void>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' }
+    ),
+
+  getHealth: () => fetchJson<{ status: string }>('/api/health'),
+
+  listNodes: () => fetchJson<Node[]>('/api/nodes'),
+
+  getNode: (id: string) => fetchJson<Node>(`/api/nodes/${id}`),
+
+  createNode: (node: CreateNodeInput) =>
+    fetchJson<Node>('/api/nodes', { method: 'POST', body: JSON.stringify(node) }),
+
+  listWorkspaces: (nodeId: string) =>
+    fetchJson<Workspace[]>(`/api/workspaces?node_id=${encodeURIComponent(nodeId)}`),
+
+  getWorkspace: (id: string) => fetchJson<Workspace>(`/api/workspaces/${id}`),
+
+  createWorkspace: (workspace: CreateWorkspaceInput) =>
+    fetchJson<Workspace>('/api/workspaces', { method: 'POST', body: JSON.stringify(workspace) }),
+
+  listTasks: (workspaceId: string, q?: string) =>
+    fetchJson<Task[]>(
+      `/api/tasks?workspace_id=${encodeURIComponent(workspaceId)}${q ? `&q=${encodeURIComponent(q)}` : ''}`
+    ),
+
+  /** GET /api/tasks?node_id= spans every workspace on the node in one call. */
+  listTasksByNode: (nodeId: string) => fetchJson<Task[]>(`/api/tasks?node_id=${encodeURIComponent(nodeId)}`),
+
+  createTask: (task: CreateTaskInput) =>
+    fetchJson<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(task) }),
+
+  patchTask: (id: string, patch: PatchTaskInput) =>
+    fetchJson<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  getSession: (id: string) => fetchJson<SessionSnapshot>(`/api/sessions/${id}`),
+
+  getMessages: (sessionId: string, limit = 100) =>
+    fetchJson<Message[]>(`/api/sessions/${sessionId}/messages?limit=${limit}`),
+
+  getEvents: (sessionId: string, afterSeq?: number, limit = 100) =>
+    fetchJson<StoredEvent[]>(
+      `/api/sessions/${sessionId}/events?${afterSeq !== undefined ? `after_seq=${afterSeq}&` : ''}limit=${limit}`
+    ),
+
+  /** GET /api/tasks/{id}/subtasks returns a {"subtasks":[...]} envelope; unwrap it. */
+  listSubtasks: async (taskId: string): Promise<Subtask[]> =>
+    (await fetchJson<{ subtasks: Subtask[] }>(`/api/tasks/${taskId}/subtasks`)).subtasks,
+
+  sendMessage: (sessionId: string, message: string) =>
+    fetchJson<void>(`/api/sessions/${sessionId}/send`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    }),
+}
+
+export type HubApi = typeof apiClient

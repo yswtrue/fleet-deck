@@ -1,0 +1,367 @@
+:root {
+  --text: #6b6375;
+  --text-h: #08060d;
+  --bg: #fff;
+  --border: #e5e4e7;
+  --code-bg: #f4f3ec;
+  --accent: #aa3bff;
+  --accent-bg: rgba(170, 59, 255, 0.1);
+  --accent-border: rgba(170, 59, 255, 0.5);
+  --social-bg: rgba(244, 243, 236, 0.5);
+  --shadow:
+    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+
+  --status-online: #22c55e;
+  --status-online-bg: rgba(34, 197, 94, 0.12);
+  --status-online-text: #15803d;
+  --status-online-border: rgba(34, 197, 94, 0.4);
+
+  --status-offline: #6b7280;
+  --status-offline-bg: rgba(107, 114, 128, 0.12);
+  --status-offline-text: #374151;
+  --status-offline-border: rgba(107, 114, 128, 0.4);
+
+  --status-waiting-bg: rgba(107, 114, 128, 0.1);
+  --status-waiting-text: #4b5563;
+  --status-waiting-border: rgba(107, 114, 128, 0.35);
+
+  --status-running-bg: rgba(59, 130, 246, 0.1);
+  --status-running-text: #1d4ed8;
+  --status-running-border: rgba(59, 130, 246, 0.35);
+
+  --status-done-bg: rgba(34, 197, 94, 0.1);
+  --status-done-text: #15803d;
+  --status-done-border: rgba(34, 197, 94, 0.35);
+
+  --status-awaiting-bg: rgba(245, 158, 11, 0.1);
+  --status-awaiting-text: #b45309;
+  --status-awaiting-border: rgba(245, 158, 11, 0.35);
+
+  --status-failed-bg: rgba(239, 68, 68, 0.08);
+  --status-failed-text: #b91c1c;
+  --status-failed-border: rgba(239, 68, 68, 0.35);
+
+  --status-pending-bg: #e5e7eb;
+
+  /* Design tokens: spacing scale (4px grid). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Design tokens: corner radii. */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Design tokens: elevation. `--shadow` is the resting card shadow. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-lg: rgba(0, 0, 0, 0.12) 0 20px 25px -5px, rgba(0, 0, 0, 0.08) 0 8px 10px -6px;
+
+  /* Translucent app chrome (header bar). */
+  --header-bg: rgba(255, 255, 255, 0.72);
+
+  font: 18px/145% var(--sans);
+  letter-spacing: 0.18px;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  @media (max-width: 1024px) {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #9ca3af;
+    --text-h: #f3f4f6;
+    --bg: #16171d;
+    --border: #2e303a;
+    --code-bg: #1f2028;
+    --accent: #c084fc;
+    --accent-bg: rgba(192, 132, 252, 0.15);
+    --accent-border: rgba(192, 132, 252, 0.5);
+    --social-bg: rgba(47, 48, 58, 0.5);
+    --shadow:
+      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+
+    --status-online: #4ade80;
+    --status-online-bg: rgba(74, 222, 128, 0.15);
+    --status-online-text: #86efac;
+    --status-online-border: rgba(74, 222, 128, 0.4);
+
+    --status-offline: #9ca3af;
+    --status-offline-bg: rgba(156, 163, 175, 0.12);
+    --status-offline-text: #d1d5db;
+    --status-offline-border: rgba(156, 163, 175, 0.4);
+
+    --status-waiting-bg: rgba(156, 163, 175, 0.12);
+    --status-waiting-text: #d1d5db;
+    --status-waiting-border: rgba(156, 163, 175, 0.35);
+
+    --status-running-bg: rgba(96, 165, 250, 0.12);
+    --status-running-text: #93c5fd;
+    --status-running-border: rgba(96, 165, 250, 0.35);
+
+    --status-done-bg: rgba(74, 222, 128, 0.12);
+    --status-done-text: #86efac;
+    --status-done-border: rgba(74, 222, 128, 0.35);
+
+    --status-awaiting-bg: rgba(251, 191, 36, 0.12);
+    --status-awaiting-text: #fcd34d;
+    --status-awaiting-border: rgba(251, 191, 36, 0.35);
+
+    --status-failed-bg: rgba(248, 113, 113, 0.1);
+    --status-failed-text: #fca5a5;
+    --status-failed-border: rgba(248, 113, 113, 0.35);
+
+    --status-pending-bg: #374151;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);
+    --shadow-lg: rgba(0, 0, 0, 0.5) 0 20px 25px -5px, rgba(0, 0, 0, 0.35) 0 8px 10px -6px;
+
+    --header-bg: rgba(22, 23, 29, 0.72);
+  }
+
+  #social .button-icon {
+    filter: invert(1) brightness(2);
+  }
+}
+
+#root {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  text-align: left;
+  border-inline: 1px solid var(--border);
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+h1,
+h2 {
+  font-family: var(--heading);
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+h1 {
+  font-size: 56px;
+  letter-spacing: -1.68px;
+  margin: 32px 0;
+  @media (max-width: 1024px) {
+    font-size: 36px;
+    margin: 20px 0;
+  }
+}
+
+h2 {
+  font-size: 24px;
+  line-height: 118%;
+  letter-spacing: -0.24px;
+  margin: 0 0 8px;
+  @media (max-width: 1024px) {
+    font-size: 20px;
+  }
+}
+
+p {
+  margin: 0;
+}
+
+code,
+.counter {
+  font-family: var(--mono);
+  display: inline-flex;
+  border-radius: 4px;
+  color: var(--text-h);
+}
+
+code {
+  font-size: 15px;
+  line-height: 135%;
+  padding: 4px 8px;
+  background: var(--code-bg);
+}
+
+/* Keyboard focus must always be visible: one ring for every control,
+   interactive card included. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Page scaffolding shared by the overview pages. */
+.fd-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.fd-stack-lg {
+  gap: var(--space-5);
+}
+
+.fd-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fd-page-title {
+  margin: 0;
+  font-family: var(--heading);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  line-height: 120%;
+  color: var(--text-h);
+}
+
+.fd-page-subtitle {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.fd-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.fd-section-title {
+  margin: 0;
+  font-family: var(--heading);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.24px;
+  color: var(--text-h);
+}
+
+.fd-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* Chip groups and inline metadata rows on cards and page headers. */
+.fd-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.fd-chip-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text);
+}
+
+.fd-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.fd-meta code {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+/* Status pill: one shape, colors straight from the locked 5-status palette. */
+.fd-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.fd-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+}
+
+.fd-pill[data-status='online'] {
+  color: var(--status-online-text);
+  background: var(--status-online-bg);
+  border-color: var(--status-online-border);
+}
+
+.fd-pill[data-status='done'] {
+  color: var(--status-done-text);
+  background: var(--status-done-bg);
+  border-color: var(--status-done-border);
+}
+
+.fd-pill[data-status='offline'] {
+  color: var(--status-offline-text);
+  background: var(--status-offline-bg);
+  border-color: var(--status-offline-border);
+}
+
+.fd-pill[data-status='waiting'] {
+  color: var(--status-waiting-text);
+  background: var(--status-waiting-bg);
+  border-color: var(--status-waiting-border);
+}
+
+.fd-pill[data-status='running'] {
+  color: var(--status-running-text);
+  background: var(--status-running-bg);
+  border-color: var(--status-running-border);
+}
+
+.fd-pill[data-status='awaiting_user'] {
+  color: var(--status-awaiting-text);
+  background: var(--status-awaiting-bg);
+  border-color: var(--status-awaiting-border);
+}
+
+.fd-pill[data-status='failed'] {
+  color: var(--status-failed-text);
+  background: var(--status-failed-bg);
+  border-color: var(--status-failed-border);
+}
+
+.fd-pill[data-status='pending'] {
+  color: var(--text);
+  background: var(--status-pending-bg);
+  border-color: var(--border);
+}

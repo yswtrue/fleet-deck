@@ -1,0 +1,290 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { useOne } from '@refinedev/core'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button, Input, Typography, message } from 'antd'
+import { MessageBubble } from './MessageBubble.tsx'
+import { PermissionPicker } from './PermissionPicker.tsx'
+import { useSession } from '../hooks/useSession.ts'
+import { useWebSocket } from '../hooks/useWebSocket.ts'
+import { useHubApi } from '../hooks/useHubApi.ts'
+import { dispatchEvent } from '../hooks/dispatchEvent.ts'
+import { LoadingSkeleton } from './LoadingSkeleton.tsx'
+import { ErrorState } from './ErrorState.tsx'
+import { EmptyState } from './EmptyState.tsx'
+import { statusLabel } from '../util.ts'
+import { formatPermissionReply } from '../permission.ts'
+import styles from './SessionView.module.css'
+import type { SessionSnapshot } from '../apiClient.ts'
+import type { Event as ProtocolEvent } from '../gen/protocol/index.ts'
+import type { Subtask, Task } from '../types.ts'
+
+const SUBTASK_LABELS: Record<Subtask['status'], string> = {
+  pending: 'Pending',
+  in_progress: 'In progress',
+  done: 'Done',
+}
+
+interface SessionViewProps {
+  sessionId: string
+  task?: Task
+}
+
+export function SessionView({ sessionId, task }: SessionViewProps) {
+  const { messages, delta, isLoading, error, sessionStatus, pendingPermission, send } = useSession(sessionId)
+  // The static antd message API renders nothing under React 19; the hook-based
+  // API is the one that actually mounts toasts.
+  const [messageApi, messageHolder] = message.useMessage()
+  const [reply, setReply] = useState('')
+  // Auto-scroll follows the stream only while the reader is pinned to the
+  // bottom; scrolling up pauses it until "Jump to latest".
+  const [atBottom, setAtBottom] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const api = useHubApi()
+  const queryClient = useQueryClient()
+  const taskFromState = (location.state as { task?: Task } | null)?.task
+  // Direct URLs carry no location.state task. Fetch the session snapshot so
+  // the header shows the task title (Refine getOne('sessions') maps to
+  // GET /api/sessions/{id}, which returns the owning task). useOne exposes the
+  // unwrapped record as `result`, not react-query's `data`.
+  const { result: snapshot } = useOne<SessionSnapshot>({ resource: 'sessions', id: sessionId })
+  const resolvedTask = task ?? taskFromState ?? snapshot?.task ?? undefined
+  const session = snapshot?.session
+
+  // Gate the composer on the session's own state — the hub 409s sends outside
+  // awaiting_user. The task status is only a fallback for the first paint,
+  // before the snapshot/WS state is known (it can lag a resumed session).
+  const sessionState = sessionStatus ?? session?.status
+  const isAwaiting = sessionState
+    ? sessionState === 'awaiting_user'
+    : resolvedTask?.status === 'awaiting_user'
+
+  // Sidebar data: the task's mirrored todos (subtasks), kept fresh over WS.
+  const taskId = resolvedTask?.id ?? ''
+  const subtasksQuery = useQuery({
+    queryKey: ['subtasks', taskId],
+    queryFn: () => api.listSubtasks(taskId),
+    enabled: !!taskId,
+  })
+  const handleSubtaskEvent = useCallback(
+    (event: ProtocolEvent) => {
+      const evt = dispatchEvent(event)
+      if (evt?.type === 'subtask.updated' && evt.data.task_id === taskId) {
+        void queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+      }
+    },
+    [taskId, queryClient]
+  )
+  const { connectionState } = useWebSocket(handleSubtaskEvent)
+
+  // Session meta: resolve the node name from the shared nodes list (the hub
+  // has no GET /api/nodes/{id}; `getNode` 404s into the SPA fallback).
+  const nodeId = session?.node_id ?? ''
+  const nodesQuery = useQuery({ queryKey: ['nodes'], queryFn: () => api.listNodes() })
+  const nodeName = nodesQuery.data?.find((n) => n.id === nodeId)?.name
+
+  const currentStatus = sessionStatus ?? session?.status
+  const agentType = session?.agent_type ?? resolvedTask?.agent_type
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !atBottom) return
+    el.scrollTop = el.scrollHeight
+  }, [messages, delta, atBottom])
+
+  useEffect(() => {
+    if (isAwaiting && inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [isAwaiting])
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 48)
+  }
+
+  const jumpToLatest = () => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    setAtBottom(true)
+  }
+
+  const handleSend = async (event?: React.FormEvent) => {
+    event?.preventDefault()
+    if (!reply.trim() || !isAwaiting) return
+    try {
+      await send(reply)
+    } catch (err) {
+      messageApi.warning(err instanceof Error ? `Reply not sent: ${err.message}` : 'Reply not sent')
+      return
+    }
+    setReply('')
+  }
+
+  const goBack = () => {
+    if (resolvedTask) {
+      navigate(`/workspaces/${resolvedTask.workspace_id}`)
+    } else {
+      navigate(-1)
+    }
+  }
+
+  if (isLoading) return <LoadingSkeleton count={2} />
+  if (error) return <ErrorState title="Could not load session">{error.message}</ErrorState>
+
+  return (
+    <div className={styles.page}>
+      {messageHolder}
+      <header className={styles.header}>
+        <Button onClick={goBack}>Back</Button>
+        {resolvedTask ? (
+          <div className={styles.headerTitle}>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              {resolvedTask.title}
+            </Typography.Title>
+            <div className={styles.headerTags}>
+              {currentStatus && (
+                <span className={styles.statusChip} data-status={currentStatus}>
+                  {statusLabel(currentStatus)}
+                </span>
+              )}
+              {agentType && <span className={styles.agentChip}>{agentType}</span>}
+            </div>
+          </div>
+        ) : (
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            Session {sessionId.slice(0, 8)}
+          </Typography.Title>
+        )}
+        {connectionState !== 'open' && (
+          <span className={styles.reconnect} data-state={connectionState} role="status">
+            {connectionState === 'connecting'
+              ? 'Connecting…'
+              : connectionState === 'failed'
+                ? 'Connection failed'
+                : 'Reconnecting…'}
+          </span>
+        )}
+      </header>
+
+      <div className={styles.panes}>
+        <section className={styles.transcriptPane}>
+          <div ref={scrollRef} tabIndex={-1} className={styles.transcript} onScroll={handleScroll}>
+            {messages.length === 0 && !delta ? (
+              <EmptyState title="The agent hasn't said anything yet." />
+            ) : (
+              messages.map((m) => <MessageBubble key={m.id} message={m} />)
+            )}
+            {delta && (
+              <div className={styles.streaming} aria-live="polite">
+                <span className={styles.streamLabel}>Assistant</span>
+                <p className={styles.streamText}>
+                  {delta}
+                  <span className={styles.cursor} aria-hidden="true" />
+                </p>
+              </div>
+            )}
+          </div>
+          {!atBottom && (
+            <div className={styles.jumpWrap}>
+              <Button size="small" onClick={jumpToLatest}>
+                Jump to latest
+              </Button>
+            </div>
+          )}
+          <div className={styles.composer}>
+            {pendingPermission && isAwaiting ? (
+              <PermissionPicker
+                request={pendingPermission}
+                onPick={(optionId) => {
+                  void send(formatPermissionReply(optionId))
+                }}
+              />
+            ) : (
+              <form className={styles.replyForm} onSubmit={handleSend}>
+                <Input.TextArea
+                  ref={inputRef}
+                  value={reply}
+                  onChange={(e) => setReply(e.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault()
+                      void handleSend()
+                    }
+                  }}
+                  placeholder={
+                    isAwaiting
+                      ? 'Reply to the agent… (Enter to send, Shift+Enter for a new line)'
+                      : 'Waiting for the agent to ask a question…'
+                  }
+                  disabled={!isAwaiting}
+                  rows={3}
+                  style={{ flex: 1 }}
+                />
+                <Button type="primary" htmlType="submit" disabled={!isAwaiting || !reply.trim()}>
+                  Send
+                </Button>
+              </form>
+            )}
+          </div>
+        </section>
+
+        <aside className={styles.sidebar}>
+          <section className={styles.panel}>
+            <h3 className={styles.panelTitle}>Task</h3>
+            <p className={styles.taskTitle}>{resolvedTask?.title ?? `Session ${sessionId.slice(0, 8)}`}</p>
+            {resolvedTask?.prompt && <p className={styles.taskPrompt}>{resolvedTask.prompt}</p>}
+          </section>
+          <section className={styles.panel}>
+            <h3 className={styles.panelTitle}>Subtasks &amp; todos</h3>
+            {(subtasksQuery.data ?? []).length === 0 ? (
+              <p className={styles.muted}>No subtasks yet.</p>
+            ) : (
+              <ul className={styles.subtasks}>
+                {(subtasksQuery.data ?? []).map((subtask) => (
+                  <li key={subtask.id} className={styles.subtask}>
+                    <span className={styles.subtaskDot} data-status={subtask.status} aria-hidden="true" />
+                    <span className={styles.subtaskTitle}>{subtask.title}</span>
+                    <span className={styles.subtaskStatus} data-status={subtask.status}>
+                      {SUBTASK_LABELS[subtask.status]}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <section className={styles.panel}>
+            <h3 className={styles.panelTitle}>Session</h3>
+            <dl className={styles.meta}>
+              <div className={styles.metaRow}>
+                <dt>Status</dt>
+                <dd>
+                  {currentStatus ? (
+                    <span className={styles.statusChip} data-status={currentStatus}>
+                      {statusLabel(currentStatus)}
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+              <div className={styles.metaRow}>
+                <dt>Agent</dt>
+                <dd>{agentType ?? '—'}</dd>
+              </div>
+              <div className={styles.metaRow}>
+                <dt>Node</dt>
+                <dd>{nodeName ?? (nodeId ? nodeId.slice(0, 8) : '—')}</dd>
+              </div>
+            </dl>
+          </section>
+        </aside>
+      </div>
+    </div>
+  )
+}

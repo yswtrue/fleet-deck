@@ -1,0 +1,113 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  apiClient,
+  authenticatedWsUrl,
+  clearToken,
+  getStoredToken,
+  shouldRedirectToLogin,
+  storeToken,
+} from './apiClient.ts'
+
+const jsonResponse = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
+function mockFetch(impl: (url: string, init?: RequestInit) => Response | Promise<Response>) {
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+    Promise.resolve(impl(String(input), init))
+  )
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+describe('token store', () => {
+  beforeEach(() => localStorage.clear())
+  afterEach(() => localStorage.clear())
+
+  it('round-trips the token and expiry through localStorage', () => {
+    storeToken('tok-1', '2026-10-28T00:00:00Z')
+    expect(getStoredToken()).toBe('tok-1')
+    expect(localStorage.getItem('fleetdeck.token')).toBe('tok-1')
+    expect(localStorage.getItem('fleetdeck.expires_at')).toBe('2026-10-28T00:00:00Z')
+
+    clearToken()
+    expect(getStoredToken()).toBeNull()
+    expect(localStorage.getItem('fleetdeck.token')).toBeNull()
+    expect(localStorage.getItem('fleetdeck.expires_at')).toBeNull()
+  })
+
+  it('treats an expired token as absent and clears it', () => {
+    storeToken('tok-old', '2020-01-01T00:00:00Z')
+    expect(getStoredToken()).toBeNull()
+    expect(localStorage.getItem('fleetdeck.token')).toBeNull()
+  })
+
+  it('attaches the token to the WebSocket URL and drops it when signed out', () => {
+    clearToken()
+    expect(authenticatedWsUrl()).not.toContain('token=')
+    storeToken('tok/2', '2026-10-28T00:00:00Z')
+    expect(authenticatedWsUrl()).toContain('?token=tok%2F2')
+  })
+})
+
+describe('401 redirect policy', () => {
+  it('redirects to /login except from /login itself (no loop)', () => {
+    expect(shouldRedirectToLogin('/')).toBe(true)
+    expect(shouldRedirectToLogin('/workspaces/w-1')).toBe(true)
+    expect(shouldRedirectToLogin('/login')).toBe(false)
+  })
+})
+
+describe('fetchJson auth behavior', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    // Keep jsdom on /login so the 401 handler never attempts real navigation.
+    window.history.replaceState({}, '', '/login')
+  })
+  afterEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/')
+    vi.unstubAllGlobals()
+  })
+
+  it('sends the bearer token when one is stored', async () => {
+    storeToken('tok-3', '2026-10-28T00:00:00Z')
+    const fetchMock = mockFetch(() => jsonResponse({ id: 'u-1' }))
+
+    await apiClient.me()
+
+    const [url, init] = fetchMock.mock.calls[0]
+    const headers = (init?.headers ?? {}) as Record<string, string>
+    expect(url).toBe('/api/auth/me')
+    expect(headers.Authorization).toBe('Bearer tok-3')
+  })
+
+  it('omits the Authorization header when signed out', async () => {
+    const fetchMock = mockFetch(() => jsonResponse({ status: 'ok' }))
+
+    await apiClient.getHealth()
+
+    const headers = (fetchMock.mock.calls[0][1]?.headers ?? {}) as Record<string, string>
+    expect(headers.Authorization).toBeUndefined()
+  })
+
+  it('clears the token and surfaces the error body on 401', async () => {
+    storeToken('tok-stale', '2026-10-28T00:00:00Z')
+    mockFetch(() => jsonResponse({ error: 'unauthorized' }, 401))
+
+    await expect(apiClient.me()).rejects.toThrow('unauthorized')
+    expect(getStoredToken()).toBeNull()
+  })
+
+  it('surfaces backend guard messages (409) for the UI to toast', async () => {
+    mockFetch(() => jsonResponse({ error: 'cannot remove the last admin' }, 409))
+
+    await expect(apiClient.deleteUser('u-9')).rejects.toThrow('cannot remove the last admin')
+  })
+
+  it('resolves empty-body responses (204) without JSON parsing', async () => {
+    storeToken('tok-4', '2026-10-28T00:00:00Z')
+    mockFetch(() => new Response(null, { status: 204 }))
+
+    await expect(apiClient.logout()).resolves.toBeUndefined()
+  })
+})

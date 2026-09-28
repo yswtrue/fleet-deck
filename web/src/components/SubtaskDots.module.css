@@ -1,0 +1,36 @@
+.wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.dots {
+  display: flex;
+  gap: 4px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-pending-bg);
+}
+
+.dot[data-status='in_progress'] {
+  background: var(--status-running-bg);
+}
+
+.dot[data-status='done'] {
+  background: var(--status-done-bg);
+}
+
+.more {
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.label {
+  font-size: 0.8rem;
+  color: var(--text);
+}

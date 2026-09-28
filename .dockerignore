@@ -1,0 +1,17 @@
+# Build contexts: only sources the Dockerfile needs.
+.git
+.slim
+.devenv
+node_modules
+web/node_modules
+web/dist
+dist
+**/*.test.*
+scripts
+docs
+README.md
+README.zh-CN.md
+ROADMAP.md
+docker-compose.yml
+Dockerfile
+.dockerignore

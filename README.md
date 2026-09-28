@@ -1,0 +1,128 @@
+# FleetDeck
+
+**English** | [简体中文](README.zh-CN.md)
+
+> A web control plane for AI agent sessions across machines. Hub (Go) ↔ local Node daemons (Go) ↔ Web UI (React + antd + Refine), backed by Postgres.
+
+## The problem
+
+Running AI coding agents (OpenCode, Codex, Claude, pi…) today means one
+terminal per session, scattered across machines:
+
+1. **Invisible** — plans (todos), streaming output, and blockers live inside
+   each terminal; step away from the machine and you are blind.
+2. **Stalled** — when an agent needs a permission (run a command, edit a file)
+   or asks a question, the session just waits until someone is back at that
+   terminal.
+3. **Ungovernable** — batch work, cross-machine scheduling, and post-mortems
+   all mean SSH-ing around and scrolling through history.
+
+FleetDeck pulls these sessions into one control plane:
+
+- **Board view** — node (machine) → workspace (board) → task (one agent
+  session, 4 states) → subtasks (live mirror of the agent's todos); see the
+  global picture without being at a terminal.
+- **Session view** — click any task for a chat-style session: streamed output,
+  full history, reply at any time.
+- **No stalls** — permission requests become **structured Allow/Deny pickers**
+  in the web UI; questions get the same treatment. Replies flow back through
+  the hub and the session continues.
+- **One integration, many agents** — OpenCode / Codex / Claude / pi share a
+  single ACP adapter; adding an agent means registering a launch config.
+- **Agent self-service** — a built-in MCP server (`fleetdeck_*` tools) lets
+  agents inspect their own tasks/sessions or resume an awaiting session.
+
+## Architecture
+
+```
+             ┌──────────────────────────────┐
+             │  Web UI (React + Vite)        │  board / session / permission picker
+             └──────────────┬───────────────┘
+                            │ HTTP + WebSocket (live push + gap-fill)
+             ┌──────────────▼───────────────┐
+             │  Hub (Go)                     │  control plane: sole DB writer
+             │  ├─ REST API + WS broadcast   │
+             │  ├─ node WS (register/cmds)   │
+             │  └─ Postgres                  │
+             └──────┬───────────────┬────────┘
+                    │ WS (outbound) │ WS (outbound)
+          ┌─────────▼────┐   ┌──────▼─────────┐
+          │ Node (local) │   │ Node (local)   │   …on each target machine
+          │ + ACP adapter│   │ + fake adapter │   (agents installed locally)
+          └──────────────┘   └────────────────┘
+```
+
+- **Hub-and-spoke**: the web talks only to the hub; nodes are thin daemons on
+  target machines that dial *out* — no inbound ports on node machines.
+- **Single source of truth for the wire**: Go structs in `internal/protocol/`
+  generate the JSON Schema and the web-side TS types.
+- **Event stream**: output, todo mirrors, and state transitions are pushed over
+  WS and persisted for reconnect gap-fill.
+
+## Highlights
+
+| Capability | Notes |
+|---|---|
+| 4-state board | waiting / running / done / awaiting_user; subtasks mirror agent todos |
+| Realtime session | streaming output, history, reply whenever the agent asks |
+| Permission picker | structured options, exact `option_id` wire format, never auto-approved |
+| Fuzzy title search | pg_trgm trigram matching, typo tolerant, relevance-ranked |
+| Multi-machine | node registration, online status, offline cascade |
+| MCP self-introspection | `fleetdeck_session_status` / `task_list` / `subtask_list` / `message_tail` / `event_tail` / `session_send_message` |
+| Sandboxed ACP fs | agents read/write only inside their workspace |
+
+## Quick start
+
+### Control plane (Docker Compose)
+
+```sh
+docker compose up -d --build
+# Everything on one port (the hub serves the embedded UI + API + WS):
+#   http://localhost:7710
+
+# Optional Traefik ingress on :80/:443 (label-discovered routes):
+docker compose --profile traefik up -d
+```
+
+### Nodes (local, on each machine that runs agents)
+
+```sh
+go build -o fleetdeck-node ./cmd/node
+./fleetdeck-node --config node.config.yaml   # template: deploy/node.config.example.yaml
+```
+
+### Development (devenv)
+
+```sh
+devenv shell
+devenv up              # hub + node + web against local Postgres
+devenv up fake-node    # optional: deterministic fake agent node
+```
+
+Full walkthrough: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+## Development
+
+```sh
+# Backend
+go build ./... && go vet ./...
+gofmt -l cmd/ internal/        # must be empty
+go test -race ./...            # 78 passed / 15 packages (live Postgres)
+
+# Frontend (cd web)
+pnpm tsc --noEmit && pnpm lint
+pnpm test                      # vitest
+pnpm build
+```
+
+## Roadmap
+
+What is shipped and what is deliberately waiting — with the trigger for each:
+**[ROADMAP.md](ROADMAP.md)**.
+
+## Docs
+
+- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — production deployment guide
+- **[docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)** — design source of truth
+  (data model, protocol, adapter abstraction)
+- **[AGENTS.md](AGENTS.md)** — toolchain, verification, invariants, gotchas

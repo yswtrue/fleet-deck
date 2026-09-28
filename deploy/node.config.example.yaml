@@ -1,0 +1,18 @@
+# FleetDeck node daemon configuration (template for a LOCAL node).
+#
+# Nodes run on the machines where the agent CLIs live and dial OUT to the hub —
+# no inbound port is needed on the node machine:
+#
+#   go build -o fleetdeck-node ./cmd/node     # or `go run ./cmd/node`
+#   ./fleetdeck-node --config node.config.yaml
+#
+# See docs/DEPLOYMENT.md for the full walkthrough.
+name: my-machine            # unique per node; shown in the web UI
+host: my-machine.example.com
+capabilities:
+  - opencode
+agent_types:
+  - opencode                 # any of: fake, opencode, codex, claude, pi
+default_adapter: opencode
+hub_url: ws://localhost:7710/ws/node        # or wss://hub.example.com/ws/node
+token_file: ./node-token    # created on first registration; keep it secret
