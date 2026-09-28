@@ -24,6 +24,8 @@ export interface ProtocolSchema {
   Task?: Task;
   TaskCreated?: TaskCreated;
   TaskStartCommand?: TaskStartCommand;
+  TaskStats?: TaskStats;
+  TaskStatsStatusCount?: TaskStatsStatusCount;
   TaskStatusChanged?: TaskStatusChanged;
   Todo?: Todo;
   TodoUpdate?: TodoUpdate;
@@ -143,6 +145,15 @@ export interface TaskStartCommand {
   agent_type: string;
   prompt: string;
   workspace_path: string;
+}
+export interface TaskStats {
+  created: number;
+  completed: number;
+  by_status: TaskStatsStatusCount[];
+}
+export interface TaskStatsStatusCount {
+  status: "waiting" | "running" | "done" | "awaiting_user";
+  count: number;
 }
 export interface TaskStatusChanged {
   task_id: string;

@@ -64,6 +64,7 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/send", h.requireAuth(h.handleSendMessage))
 
 	mux.HandleFunc("GET /api/stats/tokens", h.requireAuth(h.handleStatsTokens))
+	mux.HandleFunc("GET /api/stats/tasks", h.requireAuth(h.handleStatsTasks))
 
 	mux.HandleFunc("GET /ws/web", h.handleWebWS)
 	mux.HandleFunc("GET /ws/node", h.handleNodeWS)
@@ -944,6 +945,67 @@ func (h *Hub) handleStatsTokens(w http.ResponseWriter, r *http.Request) {
 		stats.Total.PromptTokens += row.PromptTokens
 		stats.Total.CompletionTokens += row.CompletionTokens
 		stats.Total.TotalTokens += row.TotalTokens
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+// ---- task stats ------------------------------------------------------------
+
+// handleStatsTasks serves GET /api/stats/tasks: task counts over the visible
+// subtree with optional filters workspace_id, node_id, from, to (RFC3339).
+// Visibility and error semantics mirror handleStatsTokens: an explicit id
+// filter that is invisible or missing renders 404 (no existence leak), an
+// unfiltered read covers everything for admins and only bound subtrees for
+// everyone else.
+func (h *Hub) handleStatsTasks(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := userOf(r)
+
+	filter := store.TaskStatsFilter{
+		WorkspaceID: r.URL.Query().Get("workspace_id"),
+		NodeID:      r.URL.Query().Get("node_id"),
+	}
+	if filter.WorkspaceID != "" {
+		if ok, err := h.canReadWorkspace(ctx, user, filter.WorkspaceID); err != nil || !ok {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+	}
+	if filter.NodeID != "" {
+		if ok, err := h.canReadNode(ctx, user, filter.NodeID); err != nil || !ok {
+			writeError(w, http.StatusNotFound, "node not found")
+			return
+		}
+	}
+	fromRaw := r.URL.Query().Get("from")
+	if fromRaw != "" {
+		t, err := time.Parse(time.RFC3339, fromRaw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "from must be an RFC3339 timestamp")
+			return
+		}
+		filter.From = &t
+	}
+	toRaw := r.URL.Query().Get("to")
+	if toRaw != "" {
+		t, err := time.Parse(time.RFC3339, toRaw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "to must be an RFC3339 timestamp")
+			return
+		}
+		filter.To = &t
+	}
+	if user.Role != "admin" {
+		filter.MemberUserID = user.ID
+	}
+
+	stats, err := h.store.Queries().AggregateTaskStats(ctx, filter)
+	if err != nil {
+		h.serverError(w, "aggregate task stats", err)
+		return
+	}
+	if stats.ByStatus == nil {
+		stats.ByStatus = []protocol.TaskStatsStatusCount{}
 	}
 	writeJSON(w, http.StatusOK, stats)
 }

@@ -641,6 +641,77 @@
         "workspace_path"
       ]
     },
+    "TaskStats": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "TaskStatsStatusCount": {
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "waiting",
+                "running",
+                "done",
+                "awaiting_user"
+              ]
+            },
+            "count": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "status",
+            "count"
+          ]
+        }
+      },
+      "properties": {
+        "created": {
+          "type": "integer"
+        },
+        "completed": {
+          "type": "integer"
+        },
+        "by_status": {
+          "items": {
+            "$ref": "#/$defs/TaskStatsStatusCount"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "created",
+        "completed",
+        "by_status"
+      ]
+    },
+    "TaskStatsStatusCount": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "done",
+            "awaiting_user"
+          ]
+        },
+        "count": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "status",
+        "count"
+      ]
+    },
     "TaskStatusChanged": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

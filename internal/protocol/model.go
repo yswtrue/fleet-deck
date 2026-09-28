@@ -152,3 +152,22 @@ type TokenUsageStats struct {
 	Total   TokenUsageTotals    `json:"total"`
 	ByModel []TokenUsageByModel `json:"by_model"`
 }
+
+// ---- Task stats (GET /api/stats/tasks) -------------------------------------
+
+// TaskStatsStatusCount buckets the tasks created in the reporting window by
+// their current status.
+type TaskStatsStatusCount struct {
+	Status TaskStatus `json:"status" jsonschema:"enum=waiting,enum=running,enum=done,enum=awaiting_user"`
+	Count  int64      `json:"count"`
+}
+
+// TaskStats is the GET /api/stats/tasks response over the query filters:
+// Created counts tasks opened in the window, ByStatus splits those tasks by
+// their current status, and Completed counts tasks that reached `done` with a
+// last update inside the window (a later reopen moves them out again).
+type TaskStats struct {
+	Created   int64                  `json:"created"`
+	Completed int64                  `json:"completed"`
+	ByStatus  []TaskStatsStatusCount `json:"by_status"`
+}

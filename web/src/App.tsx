@@ -1,7 +1,8 @@
 import { lazy, Suspense } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { Header } from './components/Header.tsx'
+import { AppLayout } from './components/AppLayout.tsx'
+import { Dashboard } from './pages/Dashboard.tsx'
 import { Home } from './pages/Home.tsx'
 import { Login } from './pages/Login.tsx'
 import { Users } from './pages/Users.tsx'
@@ -61,70 +62,78 @@ function TaskNotificationBridge() {
 
 function App() {
   const location = useLocation()
-  // The login page is a bare full-screen card — no app chrome above it.
+  // The login page is a bare full-screen card — no app chrome around it.
   const showChrome = location.pathname !== '/login'
+  const routes = (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <Dashboard />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/nodes"
+        element={
+          <RequireAuth>
+            <Home />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/nodes/:nodeId"
+        element={
+          <RequireAuth>
+            <NodeDetail />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/workspaces/:workspaceId"
+        element={
+          <RequireAuth>
+            <Workspace />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/usage"
+        element={
+          <RequireAuth>
+            <Usage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/sessions/:sessionId"
+        element={
+          <RequireAuth>
+            <Suspense fallback={<LoadingSkeleton count={2} />}>
+              <Session />
+            </Suspense>
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/users"
+        element={
+          <RequireAuth>
+            <RequireAdmin>
+              <Users />
+            </RequireAdmin>
+          </RequireAuth>
+        }
+      />
+    </Routes>
+  )
   return (
     <AntdProvider>
       <RefineProvider>
-        {showChrome && <Header />}
         <TaskNotificationBridge />
-        <main className="appMain">
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/"
-              element={
-                <RequireAuth>
-                  <Home />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/nodes/:nodeId"
-              element={
-                <RequireAuth>
-                  <NodeDetail />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/workspaces/:workspaceId"
-              element={
-                <RequireAuth>
-                  <Workspace />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/usage"
-              element={
-                <RequireAuth>
-                  <Usage />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/sessions/:sessionId"
-              element={
-                <RequireAuth>
-                  <Suspense fallback={<LoadingSkeleton count={2} />}>
-                    <Session />
-                  </Suspense>
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/users"
-              element={
-                <RequireAuth>
-                  <RequireAdmin>
-                    <Users />
-                  </RequireAdmin>
-                </RequireAuth>
-              }
-            />
-          </Routes>
-        </main>
+        {showChrome ? <AppLayout>{routes}</AppLayout> : routes}
       </RefineProvider>
     </AntdProvider>
   )

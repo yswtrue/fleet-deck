@@ -211,3 +211,62 @@ func (q *Queries) UpdateTaskArchivedAt(ctx context.Context, id string, archivedA
 	}
 	return taskFromRow(row), nil
 }
+
+// TaskStatsFilter narrows AggregateTaskStats. Empty ids and nil times mean
+// "no restriction"; MemberUserID, when set, keeps only tasks whose workspace
+// lives on a node the user is bound to (non-admin visibility).
+type TaskStatsFilter struct {
+	WorkspaceID  string
+	NodeID       string
+	From         *time.Time
+	To           *time.Time
+	MemberUserID string
+}
+
+// AggregateTaskStats counts the tasks created in the window (split by their
+// current status) and the tasks that reached `done` with a last update inside
+// the window. Archived tasks count like any other row.
+func (q *Queries) AggregateTaskStats(ctx context.Context, f TaskStatsFilter) (protocol.TaskStats, error) {
+	totals := sqlcgen.AggregateTaskStatsParams{
+		From: f.From,
+		To:   f.To,
+	}
+	byStatusParams := sqlcgen.AggregateTaskStatsByStatusParams{
+		From: f.From,
+		To:   f.To,
+	}
+	if f.WorkspaceID != "" {
+		totals.WorkspaceID = &f.WorkspaceID
+		byStatusParams.WorkspaceID = &f.WorkspaceID
+	}
+	if f.NodeID != "" {
+		totals.NodeID = &f.NodeID
+		byStatusParams.NodeID = &f.NodeID
+	}
+	if f.MemberUserID != "" {
+		totals.MemberUserID = &f.MemberUserID
+		byStatusParams.MemberUserID = &f.MemberUserID
+	}
+
+	row, err := q.q.AggregateTaskStats(ctx, totals)
+	if err != nil {
+		return protocol.TaskStats{}, fmt.Errorf("store: aggregate task stats: %w", err)
+	}
+	rows, err := q.q.AggregateTaskStatsByStatus(ctx, byStatusParams)
+	if err != nil {
+		return protocol.TaskStats{}, fmt.Errorf("store: aggregate task stats by status: %w", err)
+	}
+
+	out := protocol.TaskStats{
+		Created:   row.Created,
+		Completed: row.Completed,
+		ByStatus:  make([]protocol.TaskStatsStatusCount, 0, len(rows)),
+	}
+	for _, r := range rows {
+		out.ByStatus = append(out.ByStatus, protocol.TaskStatsStatusCount{
+			Status: protocol.TaskStatus(r.Status),
+			Count:  r.TaskCount,
+		})
+	}
+	return out, nil
+}

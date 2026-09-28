@@ -1,4 +1,18 @@
 {
+  "dashboard": {
+    "title": "仪表盘",
+    "subtitle": "今日的任务与 Token 使用概览。",
+    "loadError": "无法加载今日统计",
+    "tasks": {
+      "title": "今日任务",
+      "created": "新增",
+      "completed": "完成",
+      "byStatus": "今日任务按状态分布"
+    },
+    "tokens": {
+      "title": "今日 Token 用量"
+    }
+  },
   "home": {
     "title": "节点",
     "subtitle": "已注册到此中枢的机器。打开任意一台以管理其工作区和任务。",

@@ -13,5 +13,11 @@
   "languageChinese": "中文",
   "sessionCrumb": "会话 {{id}}",
   "brandHome": "FleetDeck 主页",
-  "usage": "用量统计"
+  "usage": "用量统计",
+  "dashboard": "仪表盘",
+  "nodes": "节点",
+  "users": "用户",
+  "openNav": "打开导航",
+  "collapseNav": "收起导航",
+  "expandNav": "展开导航"
 }

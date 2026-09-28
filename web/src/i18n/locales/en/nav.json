@@ -13,5 +13,11 @@
   "languageChinese": "中文",
   "sessionCrumb": "Session {{id}}",
   "brandHome": "FleetDeck home",
-  "usage": "Usage"
+  "usage": "Usage",
+  "dashboard": "Dashboard",
+  "nodes": "Nodes",
+  "users": "Users",
+  "openNav": "Open navigation",
+  "collapseNav": "Collapse navigation",
+  "expandNav": "Expand navigation"
 }

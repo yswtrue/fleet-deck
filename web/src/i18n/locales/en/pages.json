@@ -1,4 +1,18 @@
 {
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Today's task and token activity across your fleet.",
+    "loadError": "Could not load today's stats",
+    "tasks": {
+      "title": "Tasks today",
+      "created": "Created",
+      "completed": "Completed",
+      "byStatus": "Today's tasks by status"
+    },
+    "tokens": {
+      "title": "Token usage today"
+    }
+  },
   "home": {
     "title": "Nodes",
     "subtitle": "Machines registered with this hub. Open one to manage its workspaces and tasks.",

@@ -100,8 +100,10 @@ function LogoMark() {
  * Sticky app chrome: wordmark, route breadcrumb (Home -> node -> workspace,
  * names resolved from the shared query cache), hub + live-socket indicator,
  * and the user menu in the `headerActions` slot (renders null when signed out).
+ * `onMenuClick` renders a hamburger that opens the small-screen nav drawer
+ * (AppLayout passes it only below the sidebar breakpoint).
  */
-export function Header() {
+export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { t } = useTranslation('nav')
   const api = useHubApi()
   const queryClient = useQueryClient()
@@ -176,6 +178,26 @@ export function Header() {
   return (
     <Layout.Header className={styles.header}>
       <div className={styles.left}>
+        {onMenuClick && (
+          <button
+            type="button"
+            className={styles.menuButton}
+            onClick={onMenuClick}
+            aria-label={t('openNav')}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            >
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+        )}
         <NavLink to="/" className={styles.brand} aria-label={t('brandHome')}>
           <LogoMark />
           <span className={styles.wordmark}>FleetDeck</span>

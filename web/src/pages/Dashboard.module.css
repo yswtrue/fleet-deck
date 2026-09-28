@@ -1,0 +1,25 @@
+.statusRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.statusItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 72px;
+}
+
+.statusLabel {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.statusCount {
+  font-family: var(--heading);
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-h);
+}

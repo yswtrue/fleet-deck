@@ -6,6 +6,11 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  /* antd's Layout.Header pins height/line-height at 64px; let the bar grow
+     instead of letting a wrapped row overflow onto the page content. */
+  height: auto;
+  min-height: 64px;
+  line-height: 1.5;
   padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--border);
   background: var(--header-bg);
@@ -122,6 +127,31 @@
   .breadcrumb {
     display: none;
   }
+}
+
+.menuButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.menuButton:hover {
+  border-color: var(--border);
+  color: var(--text-h);
+}
+
+.menuButton svg {
+  width: 20px;
+  height: 20px;
 }
 
 @media (max-width: 768px) {

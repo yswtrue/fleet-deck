@@ -93,6 +93,35 @@ export interface StatsTokens {
   by_model: StatsModelUsage[]
 }
 
+/**
+ * Filters for {@link apiClient.getStatsTasks}. Every field is optional; an
+ * unfiltered call aggregates every task the caller can see. `from`/`to` are
+ * RFC3339 timestamps bounding the reporting window.
+ */
+export interface StatsTasksFilters {
+  workspace_id?: string
+  node_id?: string
+  from?: string
+  to?: string
+}
+
+/** One status bucket of {@link StatsTasks}: the window's tasks by current status. */
+export interface StatsTaskStatusCount {
+  status: Task['status']
+  count: number
+}
+
+/**
+ * Body of GET /api/stats/tasks: `created` counts tasks opened in the window,
+ * `by_status` splits those tasks by their current status, and `completed`
+ * counts tasks that finished (reached `done`) inside the window.
+ */
+export interface StatsTasks {
+  created: number
+  completed: number
+  by_status: StatsTaskStatusCount[]
+}
+
 // ── Auth (multi-user) ────────────────────────────────────────────────────────
 
 export type UserRole = 'admin' | 'user'
@@ -409,6 +438,25 @@ export const apiClient = {
     }
     const query = params.toString()
     return fetchJson<StatsTokens>(`/api/stats/tokens${query ? `?${query}` : ''}`)
+  },
+
+  /**
+   * GET /api/stats/tasks aggregates task counts over the optional filters
+   * (workspace, node, RFC3339 time window); absent filters are left out of the
+   * query string so the hub counts everything visible.
+   */
+  getStatsTasks: (filters?: StatsTasksFilters) => {
+    const params = new URLSearchParams()
+    for (const [key, value] of [
+      ['workspace_id', filters?.workspace_id],
+      ['node_id', filters?.node_id],
+      ['from', filters?.from],
+      ['to', filters?.to],
+    ] as const) {
+      if (value) params.set(key, value)
+    }
+    const query = params.toString()
+    return fetchJson<StatsTasks>(`/api/stats/tasks${query ? `?${query}` : ''}`)
   },
 
   sendMessage: (sessionId: string, message: string) =>

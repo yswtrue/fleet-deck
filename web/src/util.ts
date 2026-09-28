@@ -1,6 +1,28 @@
 import { i18n } from './i18n/index.ts'
 
 /**
+ * Compact number display ("12.4k") for stat tiles; the exact value rides
+ * along as a tooltip in SummaryCard.
+ */
+export function formatCompact(value: number): string {
+  if (value < 1000) return String(value)
+  const units = ['k', 'M', 'B'] as const
+  let scaled = value / 1000
+  let unit = 0
+  while (scaled >= 1000 && unit < units.length - 1) {
+    scaled /= 1000
+    unit += 1
+  }
+  let text = scaled.toFixed(1)
+  if (text === '1000.0' && unit < units.length - 1) {
+    // 999 999 rounds past the unit: promote ("1M", never "1000.0k").
+    text = (scaled / 1000).toFixed(1)
+    unit += 1
+  }
+  return `${text.replace(/\.0$/, '')}${units[unit]}`
+}
+
+/**
  * Compact relative age ("5m ago") localized through the `common.time` keys,
  * falling back to a locale-aware date for anything older than a month.
  */

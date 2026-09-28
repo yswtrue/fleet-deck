@@ -78,3 +78,38 @@ UPDATE task
 SET archived_at = sqlc.narg('archived_at'), updated_at = now()
 WHERE id = $1
 RETURNING *;
+
+-- name: AggregateTaskStats :one
+SELECT
+    COUNT(*) FILTER (
+        WHERE (sqlc.narg('from')::timestamptz IS NULL OR t.created_at >= sqlc.narg('from'))
+          AND (sqlc.narg('to')::timestamptz IS NULL OR t.created_at <= sqlc.narg('to'))
+    )::bigint AS created,
+    COUNT(*) FILTER (
+        WHERE t.status = 'done'
+          AND (sqlc.narg('from')::timestamptz IS NULL OR t.updated_at >= sqlc.narg('from'))
+          AND (sqlc.narg('to')::timestamptz IS NULL OR t.updated_at <= sqlc.narg('to'))
+    )::bigint AS completed
+FROM task t
+JOIN workspace w ON w.id = t.workspace_id
+WHERE (sqlc.narg('workspace_id')::uuid IS NULL OR t.workspace_id = sqlc.narg('workspace_id'))
+  AND (sqlc.narg('node_id')::uuid IS NULL OR w.node_id = sqlc.narg('node_id'))
+  AND (sqlc.narg('member_user_id')::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM node_members nm
+        WHERE nm.user_id = sqlc.narg('member_user_id') AND nm.node_id = w.node_id));
+
+-- name: AggregateTaskStatsByStatus :many
+SELECT
+    t.status,
+    COUNT(*)::bigint AS task_count
+FROM task t
+JOIN workspace w ON w.id = t.workspace_id
+WHERE (sqlc.narg('from')::timestamptz IS NULL OR t.created_at >= sqlc.narg('from'))
+  AND (sqlc.narg('to')::timestamptz IS NULL OR t.created_at <= sqlc.narg('to'))
+  AND (sqlc.narg('workspace_id')::uuid IS NULL OR t.workspace_id = sqlc.narg('workspace_id'))
+  AND (sqlc.narg('node_id')::uuid IS NULL OR w.node_id = sqlc.narg('node_id'))
+  AND (sqlc.narg('member_user_id')::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM node_members nm
+        WHERE nm.user_id = sqlc.narg('member_user_id') AND nm.node_id = w.node_id))
+GROUP BY t.status
+ORDER BY t.status;

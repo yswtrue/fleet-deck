@@ -92,6 +92,8 @@ func schemaCmd(args []string) {
 		"TokenUsageStats":           protocol.TokenUsageStats{},
 		"TokenUsageTotals":          protocol.TokenUsageTotals{},
 		"TokenUsageByModel":         protocol.TokenUsageByModel{},
+		"TaskStats":                 protocol.TaskStats{},
+		"TaskStatsStatusCount":      protocol.TaskStatsStatusCount{},
 		"RegisterRequest":           protocol.RegisterRequest{},
 		"RegisterResponse":          protocol.RegisterResponse{},
 		"TaskStartCommand":          protocol.TaskStartCommand{},

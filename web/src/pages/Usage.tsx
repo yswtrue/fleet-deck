@@ -1,44 +1,14 @@
 import { useState } from 'react'
-import { Card, DatePicker, Select, Statistic, Table } from 'antd'
+import { DatePicker, Select, Table } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { apiClient } from '../apiClient.ts'
 import type { StatsModelUsage, StatsTokensFilters } from '../apiClient.ts'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
+import { SummaryCard } from '../components/SummaryCard.tsx'
+import { formatCompact } from '../util.ts'
 import { useTranslation } from '../i18n/index.ts'
-
-/** "12.4k"-style display value; the exact number rides along as a tooltip. */
-function formatCompact(value: number): string {
-  if (value < 1000) return String(value)
-  const units = ['k', 'M', 'B'] as const
-  let scaled = value / 1000
-  let unit = 0
-  while (scaled >= 1000 && unit < units.length - 1) {
-    scaled /= 1000
-    unit += 1
-  }
-  let text = scaled.toFixed(1)
-  if (text === '1000.0' && unit < units.length - 1) {
-    // 999 999 rounds past the unit: promote ("1M", never "1000.0k").
-    text = (scaled / 1000).toFixed(1)
-    unit += 1
-  }
-  return `${text.replace(/\.0$/, '')}${units[unit]}`
-}
-
-/** Summary tile: compact count on display, exact value in the tooltip. */
-function SummaryCard({ label, value }: { label: string; value: number }) {
-  return (
-    <Card size="small">
-      <Statistic
-        title={label}
-        value={value}
-        formatter={() => <span title={String(value)}>{formatCompact(value)}</span>}
-      />
-    </Card>
-  )
-}
 
 interface DateRange {
   from?: string

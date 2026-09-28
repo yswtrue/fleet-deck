@@ -174,6 +174,8 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 ### 3.11 Token 统计 / 移动端 / 通知
 
 - **Token 统计**:adapter 每轮上报 `EventSink.Usage`(ACP `session/prompt` 结果的 `usage` 字段:inputTokens/outputTokens/totalTokens;model 取 `session/new` configOptions 的 `model` 当前值,缺省回落 `agent_type`,无 usage 则不落行)→ `EvSessionUsage` → `token_usage` 表;`GET /api/stats/tokens` 出分模型与汇总(按节点绑定裁剪可见性),用量页 + 会话侧栏展示。
+- **任务统计 / 仪表盘**:`GET /api/stats/tasks` 按窗口统计 `created`/`completed` 及当日任务的 `by_status` 分布(过滤/可见性与 `GET /api/stats/tokens` 同契约)。`/` 为仪表盘(今日任务 + Token 统计),节点列表在 `/nodes`。
+- **管理后台布局**:`web/src/components/AppLayout.tsx` 提供左侧菜单栏(可折叠为图标栏;<768px 收为顶部汉堡 + 抽屉菜单)。菜单图标必须转发 antd 注入的 `className`/`style`(`cloneElement` 会加 `ant-menu-item-icon`,折叠态靠 `ant-menu-item-icon + span` 隐藏文字)。
 - **移动端**:<768px 单列布局(看板列纵向堆叠、会话侧栏下沉、弹窗收缩、粗指针触控目标 ≥36px),320px 起可用。
 - **通知**:`TaskNotificationBridge` 订阅 WS 的 `task.created`/`task.status_changed` → 浏览器通知(权限 + `localStorage('fleetdeck.notify')==='on'` 双门控,按任务 tag 合并,点击聚焦标签页)。
 

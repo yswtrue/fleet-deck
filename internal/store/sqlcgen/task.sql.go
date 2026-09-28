@@ -12,6 +12,108 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const aggregateTaskStats = `-- name: AggregateTaskStats :one
+SELECT
+    COUNT(*) FILTER (
+        WHERE ($1::timestamptz IS NULL OR t.created_at >= $1)
+          AND ($2::timestamptz IS NULL OR t.created_at <= $2)
+    )::bigint AS created,
+    COUNT(*) FILTER (
+        WHERE t.status = 'done'
+          AND ($1::timestamptz IS NULL OR t.updated_at >= $1)
+          AND ($2::timestamptz IS NULL OR t.updated_at <= $2)
+    )::bigint AS completed
+FROM task t
+JOIN workspace w ON w.id = t.workspace_id
+WHERE ($3::uuid IS NULL OR t.workspace_id = $3)
+  AND ($4::uuid IS NULL OR w.node_id = $4)
+  AND ($5::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM node_members nm
+        WHERE nm.user_id = $5 AND nm.node_id = w.node_id))
+`
+
+type AggregateTaskStatsParams struct {
+	From         *time.Time
+	To           *time.Time
+	WorkspaceID  *string
+	NodeID       *string
+	MemberUserID *string
+}
+
+type AggregateTaskStatsRow struct {
+	Created   int64
+	Completed int64
+}
+
+func (q *Queries) AggregateTaskStats(ctx context.Context, arg AggregateTaskStatsParams) (AggregateTaskStatsRow, error) {
+	row := q.db.QueryRow(ctx, aggregateTaskStats,
+		arg.From,
+		arg.To,
+		arg.WorkspaceID,
+		arg.NodeID,
+		arg.MemberUserID,
+	)
+	var i AggregateTaskStatsRow
+	err := row.Scan(&i.Created, &i.Completed)
+	return i, err
+}
+
+const aggregateTaskStatsByStatus = `-- name: AggregateTaskStatsByStatus :many
+SELECT
+    t.status,
+    COUNT(*)::bigint AS task_count
+FROM task t
+JOIN workspace w ON w.id = t.workspace_id
+WHERE ($1::timestamptz IS NULL OR t.created_at >= $1)
+  AND ($2::timestamptz IS NULL OR t.created_at <= $2)
+  AND ($3::uuid IS NULL OR t.workspace_id = $3)
+  AND ($4::uuid IS NULL OR w.node_id = $4)
+  AND ($5::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM node_members nm
+        WHERE nm.user_id = $5 AND nm.node_id = w.node_id))
+GROUP BY t.status
+ORDER BY t.status
+`
+
+type AggregateTaskStatsByStatusParams struct {
+	From         *time.Time
+	To           *time.Time
+	WorkspaceID  *string
+	NodeID       *string
+	MemberUserID *string
+}
+
+type AggregateTaskStatsByStatusRow struct {
+	Status    string
+	TaskCount int64
+}
+
+func (q *Queries) AggregateTaskStatsByStatus(ctx context.Context, arg AggregateTaskStatsByStatusParams) ([]AggregateTaskStatsByStatusRow, error) {
+	rows, err := q.db.Query(ctx, aggregateTaskStatsByStatus,
+		arg.From,
+		arg.To,
+		arg.WorkspaceID,
+		arg.NodeID,
+		arg.MemberUserID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AggregateTaskStatsByStatusRow
+	for rows.Next() {
+		var i AggregateTaskStatsByStatusRow
+		if err := rows.Scan(&i.Status, &i.TaskCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createTask = `-- name: CreateTask :one
 INSERT INTO task (workspace_id, title, prompt, status, agent_type, sort_order, auto_start)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
