@@ -139,12 +139,15 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
 }
 
 /**
- * TASK_STATUS_TRANSITIONS lists the hub-legal task status moves. `done` is
- * terminal, so a finished task exposes no actions at all.
+ * TASK_STATUS_TRANSITIONS lists the hub-legal manual task status moves. The
+ * move menu is a narrow window: `waiting` cards are start + archive only
+ * (dispatch owns waiting -> running), `awaiting_user` is entered only by the
+ * agent's session derivation, and `done` is terminal — finished tasks expose
+ * no move actions at all.
  */
 export const TASK_STATUS_TRANSITIONS: Record<Task['status'], Task['status'][]> = {
-  waiting: ['running', 'awaiting_user', 'done'],
-  running: ['awaiting_user', 'done'],
+  waiting: [],
+  running: ['waiting', 'done'],
   awaiting_user: ['running', 'done'],
   done: [],
 }

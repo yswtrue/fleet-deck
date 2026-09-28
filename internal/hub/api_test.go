@@ -948,8 +948,11 @@ func TestSearchTasksByTitle(t *testing.T) {
 
 // ---- PATCH /api/tasks/{id} transitions --------------------------------------
 
-// TestPatchTaskTransitionValidation pins the manual transition table: done is
-// terminal, same-status is idempotent, illegal moves are 409.
+// TestPatchTaskTransitionValidation pins the manual transition table: waiting
+// is start+archive only (dispatch owns waiting -> running), running may pause
+// back to waiting or be marked done, awaiting_user is agent-triggered to enter
+// but may resume or finish manually, done is terminal, same-status is
+// idempotent, and illegal moves are 409.
 func TestPatchTaskTransitionValidation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
@@ -958,6 +961,7 @@ func TestPatchTaskTransitionValidation(t *testing.T) {
 	_, st, ts, auth := newTestHub(t)
 	c, nodeID := dialNode(t, ts, st, uniqueName("hub-it-patch"))
 	defer func() { _ = c.Close() }()
+	ctx := context.Background()
 
 	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
 	patchStatus := func(id, status string) (*http.Response, []byte) {
@@ -984,8 +988,30 @@ func TestPatchTaskTransitionValidation(t *testing.T) {
 	task2 := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
 		"workspace_id": offWS.ID, "title": uniqueName("it-task"), "prompt": "p", "agent_type": "fake",
 	})
-	if resp, raw := patchStatus(task2.ID, "awaiting_user"); resp.StatusCode != http.StatusOK {
-		t.Fatalf("waiting -> awaiting_user status = %d, want 200; body=%s", resp.StatusCode, raw)
+	if resp, raw := patchStatus(task2.ID, "running"); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("waiting -> running status = %d, want 409 (dispatch owns it); body=%s", resp.StatusCode, raw)
+	}
+	if resp, raw := patchStatus(task2.ID, "awaiting_user"); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("waiting -> awaiting_user status = %d, want 409 (agent-triggered only); body=%s", resp.StatusCode, raw)
+	}
+	if resp, raw := patchStatus(task2.ID, "done"); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("waiting -> done status = %d, want 409; body=%s", resp.StatusCode, raw)
+	}
+
+	// Seed non-waiting states through the store: the manual table is the
+	// system under test, not the dispatcher or the session derivation.
+	if _, err := st.Queries().UpdateTaskStatus(ctx, task2.ID, protocol.TaskRunning); err != nil {
+		t.Fatalf("seed task running: %v", err)
+	}
+	if resp, raw := patchStatus(task2.ID, "awaiting_user"); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("running -> awaiting_user status = %d, want 409 (agent-triggered only); body=%s", resp.StatusCode, raw)
+	}
+	if resp, raw := patchStatus(task2.ID, "waiting"); resp.StatusCode != http.StatusOK {
+		t.Fatalf("running -> waiting (pause) status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+
+	if _, err := st.Queries().UpdateTaskStatus(ctx, task2.ID, protocol.TaskAwaitingUser); err != nil {
+		t.Fatalf("seed task awaiting_user: %v", err)
 	}
 	if resp, raw := patchStatus(task2.ID, "running"); resp.StatusCode != http.StatusOK {
 		t.Fatalf("awaiting_user -> running status = %d, want 200; body=%s", resp.StatusCode, raw)
@@ -1728,9 +1754,11 @@ func TestStartTaskConflicts(t *testing.T) {
 	}
 }
 
-// TestTaskArchiveFlow asserts archive semantics: archiving a non-done task is
-// 409, archiving a done task hides it from every default list/search path,
-// ?archived=1 returns only archived rows, and unarchiving restores it.
+// TestTaskArchiveFlow asserts archive semantics: in-flight (running) tasks
+// cannot be archived — they must be resolved first — while waiting (shelved)
+// and done (finished) tasks can, archiving hides the task from every default
+// list/search path, ?archived=1 returns only archived rows, and unarchiving
+// restores it.
 func TestTaskArchiveFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
@@ -1757,8 +1785,21 @@ func TestTaskArchiveFlow(t *testing.T) {
 	if err := json.Unmarshal(raw, &errBody); err != nil {
 		t.Fatalf("decode 409 body: %v (%s)", err, raw)
 	}
-	if errBody.Error != "only finished tasks can be archived" {
-		t.Fatalf("409 body = %+v, want only-finished error", errBody)
+	if errBody.Error != "only waiting or finished tasks can be archived" {
+		t.Fatalf("409 body = %+v, want only-waiting-or-finished error", errBody)
+	}
+
+	// Pausing (running -> waiting) unlocks archiving: shelved work can be put
+	// away without finishing it. Unarchive afterwards so the task can be
+	// finished below.
+	if resp, raw := patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"status": "waiting"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("running -> waiting (pause): status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	if resp, raw := patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"archived": true}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("archive waiting task: status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	if resp, raw := patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"archived": false}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("unarchive waiting task: status = %d, want 200; body=%s", resp.StatusCode, raw)
 	}
 
 	// Finish the task, then archive.

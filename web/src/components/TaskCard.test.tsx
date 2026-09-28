@@ -42,25 +42,39 @@ function renderCard(cardTask: Task = task) {
 }
 
 /** Mirrors the board: the toast holder lives outside the (remount-prone) card. */
-function HostHarness({ showCard }: { showCard: boolean }) {
+function HostHarness({ showCard, cardTask = task }: { showCard: boolean; cardTask?: Task }) {
   const [messageApi, messageHolder] = message.useMessage()
   return (
     <div>
       {messageHolder}
-      {showCard ? <TaskCard task={task} messageApi={messageApi} /> : null}
+      {showCard ? <TaskCard task={cardTask} messageApi={messageApi} /> : null}
     </div>
   )
 }
 
 describe('TaskCard', () => {
-  it('offers only hub-legal transitions; done is terminal', async () => {
-    const first = renderCard()
+  it('a waiting card acts through Start and Archive only — no move menu', () => {
+    renderCard({ ...task, session_id: '' })
+    expect(screen.queryByRole('button', { name: 'Change status of Fix the flaky test' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Start Fix the flaky test' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Archive Fix the flaky test' })).toBeTruthy()
+  })
+
+  it('offers only hub-legal transitions; awaiting_user is agent-triggered; done is terminal', async () => {
+    const first = renderCard({ ...task, status: 'running' })
+    fireEvent.click(screen.getByRole('button', { name: 'Change status of Fix the flaky test' }))
+    await waitFor(() => expect(screen.getByText('Move to Waiting')).toBeTruthy())
+    expect(screen.getByText('Move to Done')).toBeTruthy()
+    // The agent alone parks a task in awaiting_user: it is never a manual target.
+    expect(screen.queryByText('Move to Awaiting you')).toBeNull()
+    first.unmount()
+
+    const second = renderCard({ ...task, status: 'awaiting_user' })
     fireEvent.click(screen.getByRole('button', { name: 'Change status of Fix the flaky test' }))
     await waitFor(() => expect(screen.getByText('Move to Running')).toBeTruthy())
-    expect(screen.getByText('Move to Awaiting you')).toBeTruthy()
     expect(screen.getByText('Move to Done')).toBeTruthy()
     expect(screen.queryByText('Move to Waiting')).toBeNull()
-    first.unmount()
+    second.unmount()
 
     renderCard({ ...task, status: 'done' })
     expect(screen.queryByRole('button', { name: 'Change status of Fix the flaky test' })).toBeNull()
@@ -73,7 +87,7 @@ describe('TaskCard', () => {
         headers: { 'Content-Type': 'application/json' },
       })
     )
-    renderCard()
+    renderCard({ ...task, status: 'running' })
     fireEvent.click(screen.getByRole('button', { name: 'Change status of Fix the flaky test' }))
     fireEvent.click(await screen.findByText('Move to Done'))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
@@ -94,7 +108,7 @@ describe('TaskCard', () => {
         headers: { 'Content-Type': 'application/json' },
       })
     )
-    renderCard()
+    renderCard({ ...task, status: 'awaiting_user' })
     fireEvent.click(screen.getByRole('button', { name: 'Change status of Fix the flaky test' }))
     fireEvent.click(await screen.findByText('Move to Running'))
     await waitFor(() =>
@@ -125,7 +139,7 @@ describe('TaskCard', () => {
     const ui = (showCard: boolean) => (
       <QueryClientProvider client={client}>
         <MemoryRouter>
-          <HostHarness showCard={showCard} />
+          <HostHarness showCard={showCard} cardTask={{ ...task, status: 'running' }} />
         </MemoryRouter>
       </QueryClientProvider>
     )
@@ -172,6 +186,26 @@ describe('TaskCard', () => {
     await waitFor(() =>
       expect(document.body.textContent).toContain('HTTP 409: task is not waiting')
     )
+  })
+
+  it('a waiting card archives via PATCH {archived:true} (shelve without finishing)', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ ...task, status: 'waiting', archived_at: '2026-09-28T01:00:00Z' }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    )
+    renderCard({ ...task, session_id: '' })
+    fireEvent.click(screen.getByRole('button', { name: 'Archive Fix the flaky test' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ archived: true }),
+    })
+    await waitFor(() => expect(document.body.textContent).toContain('archived'))
   })
 
   it('a done card offers Archive; an archived card offers Unarchive instead', async () => {

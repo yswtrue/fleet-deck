@@ -43,6 +43,10 @@ export function TaskCard({
   const transitions = TASK_STATUS_TRANSITIONS[task.status]
   const isBacklog = task.status === 'waiting' && !task.auto_start
   const isArchived = !!task.archived_at
+  // Waiting tasks act through Start (dispatch) and Archive (shelve); the hub
+  // rejects any manual status move from waiting.
+  const canStart = task.status === 'waiting' && !task.session_id
+  const canArchive = (task.status === 'done' || task.status === 'waiting') && !isArchived
 
   const openSession = () => {
     if (task.session_id) {
@@ -158,7 +162,7 @@ export function TaskCard({
             {t('card.backlog')}
           </span>
         )}
-        {isBacklog && (
+        {canStart && (
           <Button
             size="small"
             type="text"
@@ -170,7 +174,7 @@ export function TaskCard({
             {t('card.startButton')}
           </Button>
         )}
-        {task.status === 'done' && !isArchived && (
+        {canArchive && (
           <Button
             size="small"
             type="text"

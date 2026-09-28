@@ -498,12 +498,12 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Archived != nil {
-		// Archiving hides a finished task from the default board view;
-		// unarchiving is always allowed. Only finished tasks may be
-		// archived: reopening a done task goes through the session resume
-		// path, never through here.
-		if *req.Archived && task.Status != protocol.TaskDone {
-			writeError(w, http.StatusConflict, "only finished tasks can be archived")
+		// Archiving hides a task from the default board view; unarchiving is
+		// always allowed. Only shelved (waiting) or finished (done) tasks may
+		// be archived — in-flight states must be resolved first. Reopening a
+		// done task goes through the session resume path, never through here.
+		if *req.Archived && task.Status != protocol.TaskDone && task.Status != protocol.TaskWaiting {
+			writeError(w, http.StatusConflict, "only waiting or finished tasks can be archived")
 			return
 		}
 		var archivedAt *time.Time
@@ -540,19 +540,20 @@ func validTaskStatus(s protocol.TaskStatus) bool {
 	}
 }
 
-// canTransitionTask is the manual (PATCH) transition table for the 4-state
-// machine: done is terminal, same-status writes are idempotent, and everything
-// else follows the lifecycle. Internal session->task derivation (moveTaskTo)
-// owns its own mapping and does not go through here.
+// canTransitionTask is the manual (PATCH) transition table. Manual moves are a
+// narrow window: running may pause back to waiting or be marked done, and an
+// awaiting_user task may resume or be marked done. `waiting` is reserved for
+// dispatch (POST .../start owns waiting -> running), `awaiting_user` is entered
+// only by the agent's session derivation, and `done` is terminal. Same-status
+// writes are idempotent. Internal session->task derivation (moveTaskTo)
+// bypasses this table.
 func canTransitionTask(from, to protocol.TaskStatus) bool {
 	if from == to {
 		return true
 	}
 	switch from {
-	case protocol.TaskWaiting:
-		return to == protocol.TaskRunning || to == protocol.TaskAwaitingUser || to == protocol.TaskDone
 	case protocol.TaskRunning:
-		return to == protocol.TaskAwaitingUser || to == protocol.TaskDone
+		return to == protocol.TaskWaiting || to == protocol.TaskDone
 	case protocol.TaskAwaitingUser:
 		return to == protocol.TaskRunning || to == protocol.TaskDone
 	default:
