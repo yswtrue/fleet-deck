@@ -126,7 +126,13 @@ export function WorkspaceMembers({ workspaceId }: { workspaceId: string }) {
                           okButtonProps={{ danger: true }}
                           onConfirm={() => removeMember.mutate(member)}
                         >
-                          <Button danger size="small" loading={removeMember.isPending && removeMember.variables?.id === member.id}>
+                          <Button
+                            danger
+                            size="small"
+                            loading={
+                              removeMember.isPending && removeMember.variables?.id === member.id
+                            }
+                          >
                             Remove
                           </Button>
                         </Popconfirm>,

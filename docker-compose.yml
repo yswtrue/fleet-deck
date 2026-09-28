@@ -21,7 +21,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fleetdeck -d fleetdeck"]
+      test: ['CMD-SHELL', 'pg_isready -U fleetdeck -d fleetdeck']
       interval: 3s
       timeout: 3s
       retries: 20
@@ -29,32 +29,32 @@ services:
 
   migrate:
     build: { context: ., target: runtime }
-    command: ["goose", "-dir", "/app/migrations", "postgres", *hub-dsn, "up"]
+    command: ['goose', '-dir', '/app/migrations', 'postgres', *hub-dsn, 'up']
     depends_on:
       postgres:
         condition: service_healthy
-    restart: "no"
+    restart: 'no'
 
   hub:
     build: { context: ., target: runtime }
-    command: ["/usr/local/bin/hub"]
+    command: ['/usr/local/bin/hub']
     environment:
-      FLEETDECK_HUB_ADDR: ":7710"
+      FLEETDECK_HUB_ADDR: ':7710'
       FLEETDECK_DATABASE_URL: *hub-dsn
     ports:
       # UI + API + WS on one port (the hub serves the embedded SPA). Also the
       # endpoint node daemons dial (ws://host:7710/ws/node).
-      - "7710:7710"
+      - '7710:7710'
     labels:
-      traefik.enable: "true"
-      traefik.http.routers.hub.rule: "PathPrefix(`/`)"
-      traefik.http.routers.hub.entrypoints: "web"
-      traefik.http.routers.hub.service: "hub"
-      traefik.http.routers.hub-secure.rule: "PathPrefix(`/`)"
-      traefik.http.routers.hub-secure.entrypoints: "websecure"
-      traefik.http.routers.hub-secure.tls: "true"
-      traefik.http.routers.hub-secure.service: "hub"
-      traefik.http.services.hub.loadbalancer.server.port: "7710"
+      traefik.enable: 'true'
+      traefik.http.routers.hub.rule: 'PathPrefix(`/`)'
+      traefik.http.routers.hub.entrypoints: 'web'
+      traefik.http.routers.hub.service: 'hub'
+      traefik.http.routers.hub-secure.rule: 'PathPrefix(`/`)'
+      traefik.http.routers.hub-secure.entrypoints: 'websecure'
+      traefik.http.routers.hub-secure.tls: 'true'
+      traefik.http.routers.hub-secure.service: 'hub'
+      traefik.http.services.hub.loadbalancer.server.port: '7710'
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -63,7 +63,7 @@ services:
   traefik:
     # Opt-in ingress: `docker compose --profile traefik up -d`. Routes are
     # discovered from container labels; entrypoints are :80 and :443.
-    profiles: ["traefik"]
+    profiles: ['traefik']
     # v3.7+ negotiates the Docker API version; older clients (API 1.24) are
     # rejected by modern daemons and the label provider silently sees nothing.
     image: traefik:v3.7.13
@@ -73,8 +73,8 @@ services:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
     ports:
-      - "80:80"
-      - "443:443"
+      - '80:80'
+      - '443:443'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:

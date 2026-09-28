@@ -23,7 +23,9 @@ function useCachedNode(nodeId: string): HubNode | undefined {
   const queryClient = useQueryClient()
   const snapshot = useCallback(() => {
     if (!nodeId) return undefined
-    for (const [, data] of queryClient.getQueriesData<HubNode | HubNode[]>({ queryKey: ['nodes'] })) {
+    for (const [, data] of queryClient.getQueriesData<HubNode | HubNode[]>({
+      queryKey: ['nodes'],
+    })) {
       if (Array.isArray(data)) {
         const match = data.find((node) => node.id === nodeId)
         if (match) return match
@@ -52,7 +54,9 @@ function useCachedWorkspace(workspaceId: string): HubWorkspace | undefined {
     if (!workspaceId) return undefined
     const single = queryClient.getQueryData<HubWorkspace>(['workspace', workspaceId])
     if (single) return single
-    for (const [, data] of queryClient.getQueriesData<HubWorkspace[]>({ queryKey: ['workspaces'] })) {
+    for (const [, data] of queryClient.getQueriesData<HubWorkspace[]>({
+      queryKey: ['workspaces'],
+    })) {
       const match = data?.find((workspace) => workspace.id === workspaceId)
       if (match) return match
     }
@@ -68,8 +72,21 @@ function useCachedWorkspace(workspaceId: string): HubWorkspace | undefined {
 function LogoMark() {
   return (
     <svg className={styles.mark} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect x="1.5" y="1.5" width="21" height="21" rx="6" fill="var(--accent-bg)" stroke="var(--accent-border)" />
-      <path d="M8.6 11.2 15 7.8M8.6 12.8 15 16.2" stroke="var(--accent)" strokeWidth="1.4" strokeLinecap="round" />
+      <rect
+        x="1.5"
+        y="1.5"
+        width="21"
+        height="21"
+        rx="6"
+        fill="var(--accent-bg)"
+        stroke="var(--accent-border)"
+      />
+      <path
+        d="M8.6 11.2 15 7.8M8.6 12.8 15 16.2"
+        stroke="var(--accent)"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
       <circle cx="7" cy="12" r="2.1" fill="var(--accent)" />
       <circle cx="16.4" cy="7.4" r="2.1" fill="var(--accent)" />
       <circle cx="16.4" cy="16.6" r="2.1" fill="var(--accent)" />
@@ -116,7 +133,11 @@ export function Header() {
     if (workspace) {
       crumbs.push({
         key: 'node',
-        title: <NavLink to={`/nodes/${workspace.node_id}`}>{node?.name ?? shortId(workspace.node_id)}</NavLink>,
+        title: (
+          <NavLink to={`/nodes/${workspace.node_id}`}>
+            {node?.name ?? shortId(workspace.node_id)}
+          </NavLink>
+        ),
       })
     }
     crumbs.push({
@@ -138,7 +159,14 @@ export function Header() {
         : ws.connectionState === 'connecting'
           ? 'Connecting'
           : 'Offline'
-  const wsState = ws == null ? 'down' : ws.connected ? 'ok' : ws.connectionState === 'connecting' ? 'pending' : 'down'
+  const wsState =
+    ws == null
+      ? 'down'
+      : ws.connected
+        ? 'ok'
+        : ws.connectionState === 'connecting'
+          ? 'pending'
+          : 'down'
 
   return (
     <Layout.Header className={styles.header}>

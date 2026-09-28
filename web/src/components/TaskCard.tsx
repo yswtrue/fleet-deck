@@ -58,7 +58,9 @@ export function TaskCard({
       .mutateAsync({ id: task.id, status })
       .then(() => messageApi.success(`“${task.title}” moved to ${statusLabel(status)}`))
       .catch((err: unknown) =>
-        messageApi.error(err instanceof Error ? `Could not move task: ${err.message}` : 'Could not move task')
+        messageApi.error(
+          err instanceof Error ? `Could not move task: ${err.message}` : 'Could not move task'
+        )
       )
   }
 

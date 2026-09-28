@@ -37,7 +37,16 @@ function DefaultIcon() {
 function CopyIcon() {
   return (
     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
-      <rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+      <rect
+        x="8"
+        y="8"
+        width="12"
+        height="12"
+        rx="2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
       <path
         d="M16 5.5A1.5 1.5 0 0 0 14.5 4H5.5A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16"
         fill="none"

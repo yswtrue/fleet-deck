@@ -73,7 +73,11 @@ export function dispatchEvent(evt: ProtocolEvent): DispatchedEvent | null {
       return { type: 'task.status_changed', data: data as unknown as TaskStatusChanged }
 
     case 'subtask.updated':
-      if (!hasString(data, 'task_id') || !hasRecord(data, 'subtask') || !hasString(data.subtask as Record<string, unknown>, 'id')) {
+      if (
+        !hasString(data, 'task_id') ||
+        !hasRecord(data, 'subtask') ||
+        !hasString(data.subtask as Record<string, unknown>, 'id')
+      ) {
         return malformed(evt.type)
       }
       return { type: 'subtask.updated', data: data as unknown as SubtaskUpdated }
@@ -83,7 +87,11 @@ export function dispatchEvent(evt: ProtocolEvent): DispatchedEvent | null {
       return { type: 'session.delta', data: data as unknown as SessionDelta }
 
     case 'session.message':
-      if (!hasString(data, 'session_id') || !hasRecord(data, 'message') || !hasString(data.message as Record<string, unknown>, 'id')) {
+      if (
+        !hasString(data, 'session_id') ||
+        !hasRecord(data, 'message') ||
+        !hasString(data.message as Record<string, unknown>, 'id')
+      ) {
         return malformed(evt.type)
       }
       return { type: 'session.message', data: data as unknown as SessionMessage }
@@ -94,7 +102,10 @@ export function dispatchEvent(evt: ProtocolEvent): DispatchedEvent | null {
 
     case 'session.user_input_requested':
       if (!hasString(data, 'session_id') || !hasString(data, 'prompt')) return malformed(evt.type)
-      return { type: 'session.user_input_requested', data: data as unknown as SessionUserInputRequested }
+      return {
+        type: 'session.user_input_requested',
+        data: data as unknown as SessionUserInputRequested,
+      }
 
     default:
       return null

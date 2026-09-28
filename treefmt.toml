@@ -1,0 +1,19 @@
+# numtide/treefmt — one formatter per language; the pre-commit hook runs
+# `treefmt --fail-on-change --no-cache` (see devenv.nix git-hooks.hooks).
+# Keep web/src/gen/** (generated protocol types/schema) and pnpm-lock.yaml
+# out of prettier's reach so `gen`/`pnpm install` output stays byte-stable.
+
+[formatter.nix]
+command = "nixfmt"
+includes = ["*.nix"]
+
+[formatter.go]
+command = "goimports"
+options = ["-w"]
+includes = ["*.go"]
+
+[formatter.prettier]
+command = "prettier"
+options = ["--write"]
+includes = ["*.js", "*.jsx", "*.mjs", "*.cjs", "*.ts", "*.tsx", "*.css", "*.json", "*.yaml", "*.yml", "*.md"]
+excludes = ["web/src/gen/**", "web/pnpm-lock.yaml"]

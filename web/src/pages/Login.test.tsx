@@ -40,7 +40,9 @@ describe('Login', () => {
     mockStatus(true)
     renderLogin()
 
-    expect(await screen.findByText('Create the first admin account to set up this hub.')).toBeTruthy()
+    expect(
+      await screen.findByText('Create the first admin account to set up this hub.')
+    ).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Create admin account' })).toBeTruthy()
     expect(screen.getByText('Display name')).toBeTruthy()
     expect(screen.getByText('Confirm password')).toBeTruthy()

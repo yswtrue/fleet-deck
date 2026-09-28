@@ -33,6 +33,8 @@ describe('PermissionPicker', () => {
   it('marks deny-ish options with the danger styling', () => {
     render(<PermissionPicker request={request} onPick={() => {}} />)
     expect(screen.getByRole('button', { name: 'Deny' }).className).toContain('ant-btn-dangerous')
-    expect(screen.getByRole('button', { name: 'Allow' }).className).not.toContain('ant-btn-dangerous')
+    expect(screen.getByRole('button', { name: 'Allow' }).className).not.toContain(
+      'ant-btn-dangerous'
+    )
   })
 })

@@ -1,42 +1,42 @@
-version: "2"
+version: '2'
 sql:
-  - engine: "postgresql"
+  - engine: 'postgresql'
     # Reuse the goose migrations as the schema source of truth. sqlc understands
     # the -- +goose Up / -- +goose Down annotations and only reads the Up section.
-    schema: "../../migrations"
-    queries: "queries"
+    schema: '../../migrations'
+    queries: 'queries'
     gen:
       go:
         # Generated into a subpackage so the public `store` package can own the
         # `New(ctx, dsn)` constructor without colliding with sqlc's generated
         # `New(DBTX)`. The public API never exposes these generated types.
-        package: "sqlcgen"
-        out: "sqlcgen"
-        sql_package: "pgx/v5"
-        output_db_file_name: "sqlc_db.go"
-        output_models_file_name: "models.go"
+        package: 'sqlcgen'
+        out: 'sqlcgen'
+        sql_package: 'pgx/v5'
+        output_db_file_name: 'sqlc_db.go'
+        output_models_file_name: 'models.go'
         # Map Postgres types onto Go-native types at the sqlc boundary so the
         # public store API deals in string / time.Time rather than pgtype.*.
         # Nullable columns become pointers.
         overrides:
-          - db_type: "uuid"
-            go_type: "string"
-          - db_type: "uuid"
+          - db_type: 'uuid'
+            go_type: 'string'
+          - db_type: 'uuid'
             nullable: true
             go_type:
-              type: "string"
+              type: 'string'
               pointer: true
-          - db_type: "timestamptz"
-            go_type: "time.Time"
-          - db_type: "timestamptz"
+          - db_type: 'timestamptz'
+            go_type: 'time.Time'
+          - db_type: 'timestamptz'
             nullable: true
             go_type:
-              type: "time.Time"
+              type: 'time.Time'
               pointer: true
-          - db_type: "pg_catalog.timestamptz"
-            go_type: "time.Time"
-          - db_type: "pg_catalog.timestamptz"
+          - db_type: 'pg_catalog.timestamptz'
+            go_type: 'time.Time'
+          - db_type: 'pg_catalog.timestamptz'
             nullable: true
             go_type:
-              type: "time.Time"
+              type: 'time.Time'
               pointer: true

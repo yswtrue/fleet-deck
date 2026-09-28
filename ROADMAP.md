@@ -7,6 +7,7 @@ that would move them forward.
 ## ✅ Shipped
 
 ### Core platform
+
 - **Hub-and-spoke control plane** — Go hub as the sole DB writer; thin node
   daemons dial out over WS; React + antd + Refine web UI (dark-first)
 - **Single wire contract** — `internal/protocol` Go structs → JSON Schema →
@@ -25,6 +26,7 @@ that would move them forward.
   cascade (running sessions fail visibly)
 
 ### Agent integrations
+
 - **Shared ACP adapter** — OpenCode, Codex, Claude, pi (via `pi-acp`) behind
   one adapter; process lifecycle, cancel grace, resume via `session/load`
 - **Permission picker** — agent permission requests render as structured
@@ -37,6 +39,7 @@ that would move them forward.
   resuming awaiting sessions
 
 ### Product polish
+
 - **Task title fuzzy search** — pg_trgm trigram matching (typo tolerant,
   relevance-ranked) with a board search box
 - **Task transition state machine** — PATCH enforces the 4-state table
@@ -53,14 +56,14 @@ that would move them forward.
 
 ## 🗓 Later (known gaps, with triggers)
 
-| Item | What it is | Trigger to build it |
-|---|---|---|
-| Node offline event buffering | persist outbound events while the hub is unreachable and replay them (`FLEETDECK_EVENT_BUFFER_DIR` reserved) | long-running (>30 min) real agent tasks, or rolling hub upgrades |
-| Subtask reverse-writeback | edits on the board flow back into the agent's plan | product decision on semantics (there is no standard ACP method for this) |
-| ACP `terminal/*` / elicitation | host-managed terminals and structured forms for agents | an agent that cannot work without host terminals; needs a sandbox threat model first |
-| `task.cancelled_at` audit column | audit trail for cancellations | compliance/audit need (4-state model does not require it) |
-| Broader web test coverage | component/hook tests beyond the current 4 files | as the UI surface grows — infra (Vitest + jsdom + RTL) is in place |
-| Multi-hub / HA | replicated control plane | single-hub is fine for the current scale |
+| Item                             | What it is                                                                                                   | Trigger to build it                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Node offline event buffering     | persist outbound events while the hub is unreachable and replay them (`FLEETDECK_EVENT_BUFFER_DIR` reserved) | long-running (>30 min) real agent tasks, or rolling hub upgrades                     |
+| Subtask reverse-writeback        | edits on the board flow back into the agent's plan                                                           | product decision on semantics (there is no standard ACP method for this)             |
+| ACP `terminal/*` / elicitation   | host-managed terminals and structured forms for agents                                                       | an agent that cannot work without host terminals; needs a sandbox threat model first |
+| `task.cancelled_at` audit column | audit trail for cancellations                                                                                | compliance/audit need (4-state model does not require it)                            |
+| Broader web test coverage        | component/hook tests beyond the current 4 files                                                              | as the UI surface grows — infra (Vitest + jsdom + RTL) is in place                   |
+| Multi-hub / HA                   | replicated control plane                                                                                     | single-hub is fine for the current scale                                             |
 
 ## ❌ Non-goals (for now)
 

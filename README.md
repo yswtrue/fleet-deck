@@ -53,7 +53,7 @@ FleetDeck pulls these sessions into one control plane:
 ```
 
 - **Hub-and-spoke**: the web talks only to the hub; nodes are thin daemons on
-  target machines that dial *out* — no inbound ports on node machines.
+  target machines that dial _out_ — no inbound ports on node machines.
 - **Single source of truth for the wire**: Go structs in `internal/protocol/`
   generate the JSON Schema and the web-side TS types.
 - **Event stream**: output, todo mirrors, and state transitions are pushed over
@@ -61,15 +61,15 @@ FleetDeck pulls these sessions into one control plane:
 
 ## Highlights
 
-| Capability | Notes |
-|---|---|
-| 4-state board | waiting / running / done / awaiting_user; subtasks mirror agent todos |
-| Realtime session | streaming output, history, reply whenever the agent asks |
-| Permission picker | structured options, exact `option_id` wire format, never auto-approved |
-| Fuzzy title search | pg_trgm trigram matching, typo tolerant, relevance-ranked |
-| Multi-machine | node registration, online status, offline cascade |
+| Capability             | Notes                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| 4-state board          | waiting / running / done / awaiting_user; subtasks mirror agent todos                                              |
+| Realtime session       | streaming output, history, reply whenever the agent asks                                                           |
+| Permission picker      | structured options, exact `option_id` wire format, never auto-approved                                             |
+| Fuzzy title search     | pg_trgm trigram matching, typo tolerant, relevance-ranked                                                          |
+| Multi-machine          | node registration, online status, offline cascade                                                                  |
 | MCP self-introspection | `fleetdeck_session_status` / `task_list` / `subtask_list` / `message_tail` / `event_tail` / `session_send_message` |
-| Sandboxed ACP fs | agents read/write only inside their workspace |
+| Sandboxed ACP fs       | agents read/write only inside their workspace                                                                      |
 
 ## Quick start
 

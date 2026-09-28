@@ -42,7 +42,11 @@ export function WorkspaceList({ nodeId }: { nodeId: string }) {
   return (
     <div className="fd-grid">
       {workspaces.map((workspace) => (
-        <WorkspaceCard key={workspace.id} workspace={workspace} statusCounts={statusCounts[workspace.id] ?? {}} />
+        <WorkspaceCard
+          key={workspace.id}
+          workspace={workspace}
+          statusCounts={statusCounts[workspace.id] ?? {}}
+        />
       ))}
     </div>
   )

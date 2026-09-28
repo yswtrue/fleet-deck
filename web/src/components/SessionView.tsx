@@ -31,7 +31,8 @@ interface SessionViewProps {
 }
 
 export function SessionView({ sessionId, task }: SessionViewProps) {
-  const { messages, delta, isLoading, error, sessionStatus, pendingPermission, send } = useSession(sessionId)
+  const { messages, delta, isLoading, error, sessionStatus, pendingPermission, send } =
+    useSession(sessionId)
   // The static antd message API renders nothing under React 19; the hook-based
   // API is the one that actually mounts toasts.
   const [messageApi, messageHolder] = message.useMessage()
@@ -237,7 +238,9 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
         <aside className={styles.sidebar}>
           <section className={styles.panel}>
             <h3 className={styles.panelTitle}>Task</h3>
-            <p className={styles.taskTitle}>{resolvedTask?.title ?? `Session ${sessionId.slice(0, 8)}`}</p>
+            <p className={styles.taskTitle}>
+              {resolvedTask?.title ?? `Session ${sessionId.slice(0, 8)}`}
+            </p>
             {resolvedTask?.prompt && <p className={styles.taskPrompt}>{resolvedTask.prompt}</p>}
           </section>
           <section className={styles.panel}>
@@ -248,7 +251,11 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
               <ul className={styles.subtasks}>
                 {(subtasksQuery.data ?? []).map((subtask) => (
                   <li key={subtask.id} className={styles.subtask}>
-                    <span className={styles.subtaskDot} data-status={subtask.status} aria-hidden="true" />
+                    <span
+                      className={styles.subtaskDot}
+                      data-status={subtask.status}
+                      aria-hidden="true"
+                    />
                     <span className={styles.subtaskTitle}>{subtask.title}</span>
                     <span className={styles.subtaskStatus} data-status={subtask.status}>
                       {SUBTASK_LABELS[subtask.status]}

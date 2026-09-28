@@ -30,9 +30,7 @@ const root = {
   ...schema,
   $defs: defs,
   definitions: defs,
-  properties: Object.fromEntries(
-    names.map((name) => [name, { $ref: `#/$defs/${name}` }]),
-  ),
+  properties: Object.fromEntries(names.map((name) => [name, { $ref: `#/$defs/${name}` }])),
 }
 
 const ts = await compile(root, 'ProtocolSchema', {

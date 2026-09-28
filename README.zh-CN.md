@@ -46,15 +46,15 @@ FleetDeck 把这些会话收拢到一个 Web 控制面:
 
 ## 核心能力速览
 
-| 能力 | 说明 |
-|---|---|
-| 4 状态看板 | waiting / running / done / awaiting_user,子任务 = agent todo 单向镜像 |
-| 实时会话 | 流式输出、消息历史、`awaiting_user` 时直接回复 |
-| 权限选择器 | 结构化选项、精确的 `option_id` wire 格式,永不自动批准 |
-| 标题模糊搜索 | pg_trgm 三元相似度,容错打字错误,按匹配度排序 |
-| 多机管理 | node 注册/在线状态、离线级联 |
-| MCP 自查询 | `fleetdeck_session_status` / `task_list` / `subtask_list` / `message_tail` / `event_tail` / `session_send_message` |
-| ACP 文件沙箱 | agent 只能读写自己工作空间内的文件 |
+| 能力         | 说明                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| 4 状态看板   | waiting / running / done / awaiting_user,子任务 = agent todo 单向镜像                                              |
+| 实时会话     | 流式输出、消息历史、`awaiting_user` 时直接回复                                                                     |
+| 权限选择器   | 结构化选项、精确的 `option_id` wire 格式,永不自动批准                                                              |
+| 标题模糊搜索 | pg_trgm 三元相似度,容错打字错误,按匹配度排序                                                                       |
+| 多机管理     | node 注册/在线状态、离线级联                                                                                       |
+| MCP 自查询   | `fleetdeck_session_status` / `task_list` / `subtask_list` / `message_tail` / `event_tail` / `session_send_message` |
+| ACP 文件沙箱 | agent 只能读写自己工作空间内的文件                                                                                 |
 
 ## 快速开始
 

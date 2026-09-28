@@ -265,9 +265,13 @@ export const apiClient = {
     fetchJson<AuthUser>('/api/users', { method: 'POST', body: JSON.stringify(input) }),
 
   patchUser: (id: string, patch: PatchUserInput) =>
-    fetchJson<AuthUser>(`/api/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+    fetchJson<AuthUser>(`/api/users/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
 
-  deleteUser: (id: string) => fetchJson<void>(`/api/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteUser: (id: string) =>
+    fetchJson<void>(`/api/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   // ── Workspace members ─────────────────────────────────────────────────────
 
@@ -309,7 +313,8 @@ export const apiClient = {
     ),
 
   /** GET /api/tasks?node_id= spans every workspace on the node in one call. */
-  listTasksByNode: (nodeId: string) => fetchJson<Task[]>(`/api/tasks?node_id=${encodeURIComponent(nodeId)}`),
+  listTasksByNode: (nodeId: string) =>
+    fetchJson<Task[]>(`/api/tasks?node_id=${encodeURIComponent(nodeId)}`),
 
   createTask: (task: CreateTaskInput) =>
     fetchJson<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(task) }),

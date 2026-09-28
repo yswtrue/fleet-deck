@@ -77,7 +77,10 @@ describe('TaskCard', () => {
     fireEvent.click(await screen.findByText('Move to Done'))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/t-1')
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PATCH', body: JSON.stringify({ status: 'done' }) })
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'done' }),
+    })
     // The toast is the user-visible confirmation; it must actually mount
     // (the antd static message API renders nothing under React 19).
     await waitFor(() => expect(document.body.textContent).toContain('moved to Done'))
@@ -93,7 +96,9 @@ describe('TaskCard', () => {
     renderCard()
     fireEvent.click(screen.getByRole('button', { name: 'Change status of Fix the flaky test' }))
     fireEvent.click(await screen.findByText('Move to Running'))
-    await waitFor(() => expect(document.body.textContent).toContain('HTTP 409: illegal status transition'))
+    await waitFor(() =>
+      expect(document.body.textContent).toContain('HTTP 409: illegal status transition')
+    )
   })
 
   it('toast survives the card unmounting before the PATCH settles (column move)', async () => {
@@ -118,6 +123,8 @@ describe('TaskCard', () => {
     // it synchronously — before the PATCH continuation runs — and the
     // confirmation must still reach the host holder.
     rerender(ui(false))
-    await waitFor(() => expect(document.body.textContent).toContain('moved to Done'), { timeout: 3000 })
+    await waitFor(() => expect(document.body.textContent).toContain('moved to Done'), {
+      timeout: 3000,
+    })
   })
 })

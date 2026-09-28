@@ -94,7 +94,9 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
                 validator: (_rule, value: string) => {
                   const path = (value ?? '').trim()
                   if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return Promise.resolve()
-                  return Promise.reject(new Error('Path must be absolute (start with / or a drive letter)'))
+                  return Promise.reject(
+                    new Error('Path must be absolute (start with / or a drive letter)')
+                  )
                 },
               },
             ]}

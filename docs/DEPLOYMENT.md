@@ -2,12 +2,12 @@
 
 FleetDeck has two moving parts with very different deployment models:
 
-| Part | Where it runs | In `docker-compose.yml`? |
-|---|---|---|
-| **Control plane** (Postgres, hub, web UI, Traefik) | one host / VM | yes |
-| **Node daemons** (run the agent CLIs) | **locally on each target machine** | **no — by design** |
+| Part                                               | Where it runs                      | In `docker-compose.yml`? |
+| -------------------------------------------------- | ---------------------------------- | ------------------------ |
+| **Control plane** (Postgres, hub, web UI, Traefik) | one host / VM                      | yes                      |
+| **Node daemons** (run the agent CLIs)              | **locally on each target machine** | **no — by design**       |
 
-Nodes dial *out* to the hub over WebSocket, so a node machine needs no inbound
+Nodes dial _out_ to the hub over WebSocket, so a node machine needs no inbound
 port and nothing containerized: it only needs the agent CLIs (OpenCode, Codex,
 Claude, pi) installed locally. The compose stack is purely the control plane.
 
@@ -39,12 +39,12 @@ start a task.
 
 ## Services
 
-| Service | Image / target | Role |
-|---|---|---|
-| `postgres` | `postgres:17-alpine` | storage (internal only; volume `pgdata`) |
-| `migrate` | `Dockerfile` target `runtime` | runs `goose up` once per deploy |
-| `hub` | `Dockerfile` target `runtime` | everything user-facing: embedded web UI + REST + WS, sole DB writer |
-| `traefik` | `traefik:v3.7.13` (profile `traefik`, **opt-in**) | ingress on :80/:443; routes discovered from container labels |
+| Service    | Image / target                                    | Role                                                                |
+| ---------- | ------------------------------------------------- | ------------------------------------------------------------------- |
+| `postgres` | `postgres:17-alpine`                              | storage (internal only; volume `pgdata`)                            |
+| `migrate`  | `Dockerfile` target `runtime`                     | runs `goose up` once per deploy                                     |
+| `hub`      | `Dockerfile` target `runtime`                     | everything user-facing: embedded web UI + REST + WS, sole DB writer |
+| `traefik`  | `traefik:v3.7.13` (profile `traefik`, **opt-in**) | ingress on :80/:443; routes discovered from container labels        |
 
 ### Routing
 
@@ -137,7 +137,7 @@ injection). See `examples/fleetdeck-mcp.config.yaml`.
 - Migrations run automatically via the `migrate` service (one-shot, runs before
   the hub starts). To migrate manually: `docker compose run --rm migrate`.
 - Data lives in the `pgdata` volume. Backup: `docker compose exec postgres
-  pg_dump -U fleetdeck fleetdeck > backup.sql`.
+pg_dump -U fleetdeck fleetdeck > backup.sql`.
 - `docker compose down` keeps data; `docker compose down -v` destroys it.
 
 ## Upgrades
@@ -168,11 +168,11 @@ End-to-end scripts (from a checkout): `scripts/smoke_send_message.sh`,
 
 ## Troubleshooting
 
-| Symptom | Likely cause |
-|---|---|
+| Symptom                          | Likely cause                                                                                                                                                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | UI loads but shows "Hub offline" | `/api`/`/ws` not reachable — with the `traefik` profile check label routing (`docker compose --profile traefik logs traefik`); behind your own proxy make sure `/ws` passes the `Upgrade` header |
-| Blank page / "web UI not built" | the hub was built without the bundle — rebuild the image (the Dockerfile embeds `web/dist`) |
-| Node stuck "offline" in UI | wrong `hub_url`, or the hub port (7710) is not reachable from the node machine |
-| Task stays `waiting` | its workspace belongs to an offline node |
-| Session fails right after start | agent CLI missing/not authenticated **on the node machine** — check the node's logs (`stderr` of the agent is not captured; run the CLI manually to diagnose) |
-| 409 on reply | the session is not awaiting input (double reply) — the UI rolls the message back and warns |
+| Blank page / "web UI not built"  | the hub was built without the bundle — rebuild the image (the Dockerfile embeds `web/dist`)                                                                                                      |
+| Node stuck "offline" in UI       | wrong `hub_url`, or the hub port (7710) is not reachable from the node machine                                                                                                                   |
+| Task stays `waiting`             | its workspace belongs to an offline node                                                                                                                                                         |
+| Session fails right after start  | agent CLI missing/not authenticated **on the node machine** — check the node's logs (`stderr` of the agent is not captured; run the CLI manually to diagnose)                                    |
+| 409 on reply                     | the session is not awaiting input (double reply) — the UI rolls the message back and warns                                                                                                       |

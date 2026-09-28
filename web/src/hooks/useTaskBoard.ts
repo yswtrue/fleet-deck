@@ -74,7 +74,9 @@ export function useTaskBoard(workspaceId: string, q = '') {
               return { ...prev, [task_id]: list.filter((s) => s.id !== subtask.id) }
             }
             const exists = list.some((s) => s.id === subtask.id)
-            const next = exists ? list.map((s) => (s.id === subtask.id ? subtask : s)) : [...list, subtask]
+            const next = exists
+              ? list.map((s) => (s.id === subtask.id ? subtask : s))
+              : [...list, subtask]
             return { ...prev, [task_id]: next }
           })
           break
@@ -86,7 +88,9 @@ export function useTaskBoard(workspaceId: string, q = '') {
             if (!task) return prev
             const nextStatus = mapSessionStatus(sessionStatus)
             return prev.map((t) =>
-              t.id === task.id ? { ...t, status: nextStatus, updated_at: new Date().toISOString() } : t
+              t.id === task.id
+                ? { ...t, status: nextStatus, updated_at: new Date().toISOString() }
+                : t
             )
           })
           break
@@ -97,7 +101,9 @@ export function useTaskBoard(workspaceId: string, q = '') {
             const task = prev.find((t) => t.session_id === session_id)
             if (!task) return prev
             return prev.map((t) =>
-              t.id === task.id ? { ...t, status: 'awaiting_user' as const, updated_at: new Date().toISOString() } : t
+              t.id === task.id
+                ? { ...t, status: 'awaiting_user' as const, updated_at: new Date().toISOString() }
+                : t
             )
           })
           break
@@ -147,12 +153,17 @@ export function useTaskStatusMutation() {
   const api = useHubApi()
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, status }: { id: string; status: Task['status'] }) => api.patchTask(id, { status }),
+    mutationFn: ({ id, status }: { id: string; status: Task['status'] }) =>
+      api.patchTask(id, { status }),
     onMutate: async ({ id, status }) => {
       await queryClient.cancelQueries({ queryKey: ['tasks'] })
       const previous = queryClient.getQueriesData<Task[]>({ queryKey: ['tasks'] })
       queryClient.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (prev) =>
-        prev ? prev.map((t) => (t.id === id ? { ...t, status, updated_at: new Date().toISOString() } : t)) : prev
+        prev
+          ? prev.map((t) =>
+              t.id === id ? { ...t, status, updated_at: new Date().toISOString() } : t
+            )
+          : prev
       )
       return { previous }
     },

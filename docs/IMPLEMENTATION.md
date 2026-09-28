@@ -49,14 +49,14 @@
 
 ### 3.1 技术栈
 
-| 层 | 选择 | 说明 |
-|---|---|---|
-| 后端 | Go 1.27 | hub + node 都是 Go |
-| 前端 | React + TypeScript + Vite | 看板 UI |
-| 数据库 | Postgres | goose 迁移,sqlc 生成查询 |
-| 实时 | WebSocket | hub↔web、hub↔node 两条 WS 通道 |
-| 协议 | Go struct 单一真源 | 导出 JSON Schema → web 生成 TS 类型 |
-| 进程管理 | devenv + process-compose | `devenv up` 起 hub/node/web |
+| 层       | 选择                      | 说明                                |
+| -------- | ------------------------- | ----------------------------------- |
+| 后端     | Go 1.27                   | hub + node 都是 Go                  |
+| 前端     | React + TypeScript + Vite | 看板 UI                             |
+| 数据库   | Postgres                  | goose 迁移,sqlc 生成查询            |
+| 实时     | WebSocket                 | hub↔web、hub↔node 两条 WS 通道      |
+| 协议     | Go struct 单一真源        | 导出 JSON Schema → web 生成 TS 类型 |
+| 进程管理 | devenv + process-compose  | `devenv up` 起 hub/node/web         |
 
 ### 3.2 数据模型
 

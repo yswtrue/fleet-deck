@@ -1,5 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
+import {
+  Button,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
+  message,
+} from 'antd'
 import type { TableColumnsType } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../apiClient.ts'
@@ -23,7 +35,9 @@ const ROLE_OPTIONS = [
 ]
 
 function RoleTag({ role }: { role: UserRole }) {
-  return <Tag color={role === 'admin' ? 'blue' : 'default'}>{role === 'admin' ? 'Admin' : 'User'}</Tag>
+  return (
+    <Tag color={role === 'admin' ? 'blue' : 'default'}>{role === 'admin' ? 'Admin' : 'User'}</Tag>
+  )
 }
 
 /**
@@ -95,12 +109,7 @@ function UserFormModal({
       destroyOnHidden
     >
       {messageHolder}
-      <Form
-        form={form}
-        layout="vertical"
-        requiredMark={false}
-        onFinish={() => saveUser.mutate()}
-      >
+      <Form form={form} layout="vertical" requiredMark={false} onFinish={() => saveUser.mutate()}>
         <Form.Item
           label="Email"
           name="email"
@@ -133,7 +142,11 @@ function UserFormModal({
         >
           <Input.Password autoComplete="new-password" placeholder="At least 8 characters" />
         </Form.Item>
-        <Form.Item label="Role" name="role" rules={[{ required: true, message: 'Role is required' }]}>
+        <Form.Item
+          label="Role"
+          name="role"
+          rules={[{ required: true, message: 'Role is required' }]}
+        >
           <Select options={ROLE_OPTIONS} />
         </Form.Item>
       </Form>
@@ -206,7 +219,11 @@ export function Users() {
               onConfirm={() => deleteUser.mutate(user)}
               disabled={isSelf}
             >
-              <Button danger disabled={isSelf} title={isSelf ? 'You cannot delete your own account' : undefined}>
+              <Button
+                danger
+                disabled={isSelf}
+                title={isSelf ? 'You cannot delete your own account' : undefined}
+              >
                 Delete
               </Button>
             </Popconfirm>
@@ -247,7 +264,9 @@ export function Users() {
         columns={columns}
         dataSource={users.data ?? []}
         pagination={false}
-        locale={{ emptyText: <EmptyState title="No users yet">Create the first user above.</EmptyState> }}
+        locale={{
+          emptyText: <EmptyState title="No users yet">Create the first user above.</EmptyState>,
+        }}
       />
       <UserFormModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} />
     </div>

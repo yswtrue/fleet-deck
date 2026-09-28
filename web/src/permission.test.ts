@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { formatPermissionReply, parsePermissionRequest, permissionReplyOptionID } from './permission.ts'
+import {
+  formatPermissionReply,
+  parsePermissionRequest,
+  permissionReplyOptionID,
+} from './permission.ts'
 
 // The permission wire convention is shared with the ACP adapter
 // (internal/adapters/acp/permission.go): these tests pin the web side of the

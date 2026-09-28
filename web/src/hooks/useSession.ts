@@ -5,7 +5,12 @@ import { useHubApi } from './useHubApi.ts'
 import { dispatchEvent } from './dispatchEvent.ts'
 import { parsePermissionRequest } from '../permission.ts'
 import type { PermissionRequest } from '../permission.ts'
-import type { Event as ProtocolEvent, Message, SessionStateChanged, Task } from '../gen/protocol/index.ts'
+import type {
+  Event as ProtocolEvent,
+  Message,
+  SessionStateChanged,
+  Task,
+} from '../gen/protocol/index.ts'
 
 /**
  * mergeMessage appends a message to a session's list, deduping two ways:
@@ -214,5 +219,13 @@ export function useSession(sessionId: string) {
     [sessionId, api, queryClient]
   )
 
-  return { messages: messages ?? [], delta, isLoading, error, sessionStatus, pendingPermission, send }
+  return {
+    messages: messages ?? [],
+    delta,
+    isLoading,
+    error,
+    sessionStatus,
+    pendingPermission,
+    send,
+  }
 }

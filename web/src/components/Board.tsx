@@ -14,7 +14,10 @@ const COLUMNS: Task['status'][] = ['waiting', 'running', 'awaiting_user', 'done'
 export function Board({ workspaceId }: { workspaceId: string }) {
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
-  const { tasks, subtasksByTask, isLoading, isFetching, error } = useTaskBoard(workspaceId, debouncedQuery)
+  const { tasks, subtasksByTask, isLoading, isFetching, error } = useTaskBoard(
+    workspaceId,
+    debouncedQuery
+  )
   const [showForm, setShowForm] = useState(false)
   // Status-move toasts live here, not on the card: a move relocates the card
   // across columns (unmount/remount), and a card-owned holder would take the
@@ -67,7 +70,9 @@ export function Board({ workspaceId }: { workspaceId: string }) {
       </div>
       {tasks.length === 0 ? (
         debouncedQuery ? (
-          <EmptyState title={`No tasks match “${debouncedQuery}”.`}>Try a different search.</EmptyState>
+          <EmptyState title={`No tasks match “${debouncedQuery}”.`}>
+            Try a different search.
+          </EmptyState>
         ) : (
           <EmptyState title="No tasks yet">Start one above.</EmptyState>
         )

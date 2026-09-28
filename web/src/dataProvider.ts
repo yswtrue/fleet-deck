@@ -23,7 +23,8 @@ import type {
 const asString = (value: unknown): string =>
   typeof value === 'string' ? value : value == null ? '' : String(value)
 
-const asNumber = (value: unknown): number | undefined => (typeof value === 'number' ? value : undefined)
+const asNumber = (value: unknown): number | undefined =>
+  typeof value === 'number' ? value : undefined
 
 /**
  * Refine dataProvider over the FleetDeck hub REST API. Refine's REST
@@ -47,7 +48,10 @@ const provider: DataProvider = {
         data = await apiClient.listWorkspaces(asString(meta?.node_id))
         break
       case 'tasks':
-        data = await apiClient.listTasks(asString(meta?.workspace_id), asString(meta?.q) || undefined)
+        data = await apiClient.listTasks(
+          asString(meta?.workspace_id),
+          asString(meta?.q) || undefined
+        )
         break
       case 'messages':
         data = await apiClient.getMessages(asString(meta?.session_id), asNumber(meta?.limit))
@@ -81,13 +85,23 @@ const provider: DataProvider = {
   }: CreateParams<TVariables>): Promise<CreateResponse<TData>> => {
     switch (resource) {
       case 'nodes':
-        return { data: (await apiClient.createNode(variables as unknown as CreateNodeInput)) as unknown as TData }
+        return {
+          data: (await apiClient.createNode(
+            variables as unknown as CreateNodeInput
+          )) as unknown as TData,
+        }
       case 'workspaces':
         return {
-          data: (await apiClient.createWorkspace(variables as unknown as CreateWorkspaceInput)) as unknown as TData,
+          data: (await apiClient.createWorkspace(
+            variables as unknown as CreateWorkspaceInput
+          )) as unknown as TData,
         }
       case 'tasks':
-        return { data: (await apiClient.createTask(variables as unknown as CreateTaskInput)) as unknown as TData }
+        return {
+          data: (await apiClient.createTask(
+            variables as unknown as CreateTaskInput
+          )) as unknown as TData,
+        }
       default:
         throw new Error(`dataProvider.create: unsupported resource "${resource}"`)
     }
@@ -101,7 +115,10 @@ const provider: DataProvider = {
     switch (resource) {
       case 'tasks':
         return {
-          data: (await apiClient.patchTask(asString(id), variables as unknown as PatchTaskInput)) as unknown as TData,
+          data: (await apiClient.patchTask(
+            asString(id),
+            variables as unknown as PatchTaskInput
+          )) as unknown as TData,
         }
       default:
         throw new Error(`dataProvider.update: unsupported resource "${resource}"`)

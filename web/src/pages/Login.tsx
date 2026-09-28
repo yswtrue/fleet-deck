@@ -91,7 +91,13 @@ export function Login() {
           </p>
         </div>
         {submitError && (
-          <Alert className={styles.error} type="error" showIcon message={submitError} role="alert" />
+          <Alert
+            className={styles.error}
+            type="error"
+            showIcon
+            message={submitError}
+            role="alert"
+          />
         )}
         <Form
           form={form}

@@ -7,7 +7,7 @@
 - **Go 1.27** (`go.mod`), **Node 22** + **pnpm**, **devenv** for local dev shell + Postgres
 - Go deps: `pgx/v5`, `gorilla/websocket`, `invopop/jsonschema`, `modelcontextprotocol/go-sdk v1.8.0`, `golang.org/x/crypto` (bcrypt)
 - Web deps: `react 19`, `react-router-dom 7`, `antd 5.29.3`, `@refinedev/{core,antd,react-router}`, `@tanstack/react-query 5`
-- Lint/format: `gofmt`, `goimports`, `golangci-lint`, `oxlint`, `prettier`, `nixfmt-rfc-style`
+- Lint/format: `gofmt`, `goimports`, `golangci-lint`, `oxlint`, `prettier`, `nixfmt-rfc-style`; `treefmt.toml` wires goimports/prettier/nixfmt for `treefmt` (the pre-commit hook runs `treefmt --fail-on-change --no-cache`, style in `.prettierrc.json`)
 
 ## Local dev (devenv)
 
@@ -25,12 +25,12 @@ probe-adapters       # which agent CLIs (pi / codex / npx) are present
 
 Local URLs (fixed by `devenv.nix`):
 
-| service  | address                          |
-|----------|----------------------------------|
+| service  | address                                                            |
+| -------- | ------------------------------------------------------------------ |
 | Postgres | `127.0.0.1:55432`, db `fleetdeck`, user/pass `fleetdeck/fleetdeck` |
-| hub      | `http://127.0.0.1:7710` (HTTP + WS) |
+| hub      | `http://127.0.0.1:7710` (HTTP + WS)                                |
 | MCP      | stdio only — `cmd/fleetdeck-mcp` is launched by the agent; no port |
-| web      | `http://127.0.0.1:7711`            |
+| web      | `http://127.0.0.1:7711`                                            |
 
 Env vars (set by `devenv.nix`): `FLEETDECK_DATABASE_URL`, `FLEETDECK_HUB_ADDR`, `FLEETDECK_NODE_TOKEN_FILE`, `FLEETDECK_SCHEMA_OUT`.
 

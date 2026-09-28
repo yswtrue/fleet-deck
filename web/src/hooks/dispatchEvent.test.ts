@@ -8,7 +8,11 @@ import type { Event as ProtocolEvent } from '../gen/protocol/index.ts'
 // and payloads missing their required fields must be dropped instead of
 // crashing a handler or silently corrupting state.
 
-const evt = (type: string, data: unknown): ProtocolEvent => ({ type, data: data as never, ts: '2026-09-28T00:00:00Z' })
+const evt = (type: string, data: unknown): ProtocolEvent => ({
+  type,
+  data: data as never,
+  ts: '2026-09-28T00:00:00Z',
+})
 
 const valid: Array<[string, unknown, string]> = [
   ['node.status_changed', { node_id: 'n-1', status: 'online' }, 'node_id'],
@@ -26,7 +30,9 @@ describe('dispatchEvent', () => {
     const got = dispatchEvent(evt(type, data))
     expect(got).not.toBeNull()
     expect(got!.type).toBe(type)
-    expect((got!.data as unknown as Record<string, unknown>)[markerKey]).toBe((data as Record<string, unknown>)[markerKey])
+    expect((got!.data as unknown as Record<string, unknown>)[markerKey]).toBe(
+      (data as Record<string, unknown>)[markerKey]
+    )
   })
 
   const malformed: Array<[string, unknown]> = [
