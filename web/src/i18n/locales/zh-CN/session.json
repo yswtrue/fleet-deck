@@ -1,0 +1,48 @@
+{
+  "error": {
+    "load": "无法加载会话"
+  },
+  "invalid": "无效的会话",
+  "sessionTitle": "会话 {{id}}",
+  "connection": {
+    "connecting": "连接中…",
+    "reconnecting": "重连中…",
+    "failed": "连接失败"
+  },
+  "transcript": {
+    "empty": "智能体还没有发言。",
+    "jumpToLatest": "跳到最新"
+  },
+  "role": {
+    "user": "你",
+    "assistant": "助手",
+    "system": "系统"
+  },
+  "permission": {
+    "tag": "权限",
+    "required": "需要授权"
+  },
+  "composer": {
+    "placeholder": "回复智能体…（Enter 发送，Shift+Enter 换行）",
+    "waiting": "等待智能体提问…",
+    "send": "发送",
+    "sendError": "回复未发送",
+    "sendErrorDetail": "回复未发送：{{message}}"
+  },
+  "panel": {
+    "task": "任务",
+    "subtasks": "子任务与待办",
+    "session": "会话"
+  },
+  "subtask": {
+    "pending": "待处理",
+    "inProgress": "进行中",
+    "done": "已完成",
+    "empty": "暂无子任务。"
+  },
+  "meta": {
+    "status": "状态",
+    "agent": "Agent",
+    "node": "节点"
+  }
+}

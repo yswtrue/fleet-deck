@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { Card, Typography } from 'antd'
 import { statusLabel } from '../util.ts'
+import { useTranslation } from '../i18n/index.ts'
 import type { TaskStatus, Workspace } from '../types.ts'
 import styles from './WorkspaceCard.module.css'
 
@@ -15,6 +16,7 @@ export function WorkspaceCard({
   statusCounts: Partial<Record<TaskStatus, number>>
 }) {
   const navigate = useNavigate()
+  const { t } = useTranslation('pages')
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -31,7 +33,7 @@ export function WorkspaceCard({
       role="button"
       onClick={() => navigate(`/workspaces/${workspace.id}`)}
       onKeyDown={handleKeyDown}
-      aria-label={`Workspace ${workspace.name}`}
+      aria-label={t('workspace.cardAria', { name: workspace.name })}
     >
       <Typography.Title level={5} className={styles.name} ellipsis={{ tooltip: workspace.name }}>
         {workspace.name}
@@ -47,7 +49,7 @@ export function WorkspaceCard({
             </span>
           ))
         ) : (
-          <span className={styles.muted}>No tasks yet</span>
+          <span className={styles.muted}>{t('workspace.noTasksYet')}</span>
         )}
       </div>
     </Card>

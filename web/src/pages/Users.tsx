@@ -21,6 +21,7 @@ import { useAuth } from '../hooks/useAuth.ts'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
+import { useTranslation } from '../i18n/index.ts'
 import styles from './Users.module.css'
 
 interface UserFormValues {
@@ -36,14 +37,12 @@ function nodeLabel(node: Node): string {
   return node.host ? `${node.name} — ${node.host}` : node.name
 }
 
-const ROLE_OPTIONS = [
-  { value: 'user', label: 'User' },
-  { value: 'admin', label: 'Admin' },
-]
-
 function RoleTag({ role }: { role: UserRole }) {
+  const { t } = useTranslation('auth')
   return (
-    <Tag color={role === 'admin' ? 'blue' : 'default'}>{role === 'admin' ? 'Admin' : 'User'}</Tag>
+    <Tag color={role === 'admin' ? 'blue' : 'default'}>
+      {role === 'admin' ? t('role.admin') : t('role.user')}
+    </Tag>
   )
 }
 
@@ -62,6 +61,12 @@ function UserFormModal({
 }) {
   const [form] = Form.useForm<UserFormValues>()
   const queryClient = useQueryClient()
+  const { t } = useTranslation('auth')
+  // Labels are translated, so the options are built per render.
+  const roleOptions = [
+    { value: 'user', label: t('role.user') },
+    { value: 'admin', label: t('role.admin') },
+  ]
   // antd's static message API does not render under React 19; useMessage does.
   const [messageApi, messageHolder] = message.useMessage()
 
@@ -115,7 +120,7 @@ function UserFormModal({
       return user
     },
     onSuccess: () => {
-      messageApi.success(editing ? 'User updated' : 'User created')
+      messageApi.success(editing ? t('users.updated') : t('users.created'))
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['user-nodes'] })
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
@@ -130,8 +135,8 @@ function UserFormModal({
   return (
     <Modal
       open={open}
-      title={editing ? 'Edit user' : 'New user'}
-      okText={editing ? 'Save' : 'Create'}
+      title={editing ? t('users.editTitle') : t('users.new')}
+      okText={editing ? t('common:actions.save') : t('common:actions.create')}
       confirmLoading={saveUser.isPending}
       onOk={() => void form.submit()}
       onCancel={onClose}
@@ -140,56 +145,59 @@ function UserFormModal({
       {messageHolder}
       <Form form={form} layout="vertical" requiredMark={false} onFinish={() => saveUser.mutate()}>
         <Form.Item
-          label="Email"
+          label={t('fields.email')}
           name="email"
           rules={[
-            { required: true, message: 'Email is required' },
-            { type: 'email', message: 'Enter a valid email address' },
+            { required: true, message: t('validation.emailRequired') },
+            { type: 'email', message: t('validation.emailInvalid') },
           ]}
         >
-          <Input autoComplete="off" placeholder="you@example.com" disabled={editing !== null} />
+          <Input
+            autoComplete="off"
+            placeholder={t('fields.emailPlaceholder')}
+            disabled={editing !== null}
+          />
         </Form.Item>
         <Form.Item
-          label="Display name"
+          label={t('fields.displayName')}
           name="display_name"
-          rules={[{ required: true, message: 'Display name is required' }]}
+          rules={[{ required: true, message: t('validation.displayNameRequired') }]}
         >
-          <Input autoComplete="off" placeholder="Ada Lovelace" />
+          <Input autoComplete="off" placeholder={t('fields.namePlaceholder')} />
         </Form.Item>
         <Form.Item
-          label={editing ? 'Reset password' : 'Password'}
+          label={editing ? t('fields.resetPassword') : t('fields.password')}
           name="password"
           rules={
             editing
-              ? [{ min: 8, message: 'Password must be at least 8 characters' }]
+              ? [{ min: 8, message: t('validation.passwordMin') }]
               : [
-                  { required: true, message: 'Password is required' },
-                  { min: 8, message: 'Password must be at least 8 characters' },
+                  { required: true, message: t('validation.passwordRequired') },
+                  { min: 8, message: t('validation.passwordMin') },
                 ]
           }
-          extra={editing ? 'Leave empty to keep the current password.' : undefined}
+          extra={editing ? t('fields.passwordKeepHint') : undefined}
         >
-          <Input.Password autoComplete="new-password" placeholder="At least 8 characters" />
+          <Input.Password
+            autoComplete="new-password"
+            placeholder={t('fields.passwordPlaceholder')}
+          />
         </Form.Item>
         <Form.Item
-          label="Role"
+          label={t('fields.role')}
           name="role"
-          rules={[{ required: true, message: 'Role is required' }]}
+          rules={[{ required: true, message: t('validation.roleRequired') }]}
         >
-          <Select options={ROLE_OPTIONS} />
+          <Select options={roleOptions} />
         </Form.Item>
-        <Form.Item
-          label="Bound nodes"
-          name="node_ids"
-          extra="Access to a node covers everything beneath it: workspaces, tasks and sessions."
-        >
+        <Form.Item label={t('fields.boundNodes')} name="node_ids" extra={t('fields.nodesHint')}>
           <Select
             mode="multiple"
-            placeholder="Select the nodes this user can access"
+            placeholder={t('fields.nodesPlaceholder')}
             options={(nodes.data ?? []).map((node) => ({ value: node.id, label: nodeLabel(node) }))}
             optionFilterProp="label"
             loading={nodes.isPending}
-            notFoundContent={nodes.isPending ? 'Loading nodes…' : 'No nodes registered yet'}
+            notFoundContent={nodes.isPending ? t('fields.nodesLoading') : t('fields.nodesEmpty')}
             allowClear
           />
         </Form.Item>
@@ -203,13 +211,15 @@ function UserFormModal({
  * the `user-nodes` query cache shared with the edit modal).
  */
 function UserNodeChips({ userId }: { userId: string }) {
+  const { t } = useTranslation('auth')
   const boundNodes = useQuery({
     queryKey: ['user-nodes', userId],
     queryFn: () => apiClient.listUserNodes(userId),
   })
   if (boundNodes.isPending) return <Typography.Text type="secondary">…</Typography.Text>
   const nodes = boundNodes.data ?? []
-  if (nodes.length === 0) return <Typography.Text type="secondary">None</Typography.Text>
+  if (nodes.length === 0)
+    return <Typography.Text type="secondary">{t('common:misc.none')}</Typography.Text>
   return (
     <Space size={[4, 4]} wrap>
       {nodes.map((node) => (
@@ -227,6 +237,7 @@ function UserNodeChips({ userId }: { userId: string }) {
 export function Users() {
   const { user: currentUser } = useAuth()
   const queryClient = useQueryClient()
+  const { t } = useTranslation('auth')
   const [messageApi, messageHolder] = message.useMessage()
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<AuthUser | null>(null)
@@ -239,7 +250,7 @@ export function Users() {
   const deleteUser = useMutation<void, Error, AuthUser>({
     mutationFn: (user) => apiClient.deleteUser(user.id),
     onSuccess: (_res, user) => {
-      messageApi.success(`Deleted ${user.email}`)
+      messageApi.success(t('users.deletedToast', { email: user.email }))
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['user-nodes'] })
     },
@@ -249,20 +260,20 @@ export function Users() {
   })
 
   const columns: TableColumnsType<AuthUser> = [
-    { title: 'Email', dataIndex: 'email', key: 'email' },
-    { title: 'Display name', dataIndex: 'display_name', key: 'display_name' },
+    { title: t('fields.email'), dataIndex: 'email', key: 'email' },
+    { title: t('fields.displayName'), dataIndex: 'display_name', key: 'display_name' },
     {
-      title: 'Role',
+      title: t('fields.role'),
       key: 'role',
       render: (_: unknown, user: AuthUser) => <RoleTag role={user.role} />,
     },
     {
-      title: 'Bound nodes',
+      title: t('fields.boundNodes'),
       key: 'nodes',
       render: (_: unknown, user: AuthUser) => <UserNodeChips userId={user.id} />,
     },
     {
-      title: 'Created',
+      title: t('fields.created'),
       key: 'created_at',
       render: (_: unknown, user: AuthUser) => new Date(user.created_at).toLocaleDateString(),
     },
@@ -279,12 +290,12 @@ export function Users() {
                 setModalOpen(true)
               }}
             >
-              Edit
+              {t('common:actions.edit')}
             </Button>
             <Popconfirm
-              title={`Delete ${user.email}?`}
-              description="This removes their access immediately."
-              okText="Delete"
+              title={t('users.deleteConfirmTitle', { email: user.email })}
+              description={t('users.deleteConfirmBody')}
+              okText={t('common:actions.delete')}
               okButtonProps={{ danger: true }}
               onConfirm={() => deleteUser.mutate(user)}
               disabled={isSelf}
@@ -292,9 +303,9 @@ export function Users() {
               <Button
                 danger
                 disabled={isSelf}
-                title={isSelf ? 'You cannot delete your own account' : undefined}
+                title={isSelf ? t('users.cannotDeleteSelf') : undefined}
               >
-                Delete
+                {t('common:actions.delete')}
               </Button>
             </Popconfirm>
           </Space>
@@ -306,7 +317,7 @@ export function Users() {
   if (users.isLoading) return <LoadingSkeleton />
   if (users.error) {
     return (
-      <ErrorState title="Could not load users" onRetry={() => void users.refetch()}>
+      <ErrorState title={t('users.loadError')} onRetry={() => void users.refetch()}>
         {users.error.message}
       </ErrorState>
     )
@@ -317,7 +328,7 @@ export function Users() {
       {messageHolder}
       <div className={styles.toolbar}>
         <Typography.Title level={2} style={{ margin: 0 }}>
-          Users
+          {t('users.title')}
         </Typography.Title>
         <Button
           type="primary"
@@ -326,7 +337,7 @@ export function Users() {
             setModalOpen(true)
           }}
         >
-          New user
+          {t('users.new')}
         </Button>
       </div>
       <Table<AuthUser>
@@ -335,7 +346,7 @@ export function Users() {
         dataSource={users.data ?? []}
         pagination={false}
         locale={{
-          emptyText: <EmptyState title="No users yet">Create the first user above.</EmptyState>,
+          emptyText: <EmptyState title={t('users.emptyTitle')}>{t('users.emptyBody')}</EmptyState>,
         }}
       />
       <UserFormModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} />

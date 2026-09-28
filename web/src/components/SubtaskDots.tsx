@@ -1,3 +1,4 @@
+import { useTranslation } from '../i18n/index.ts'
 import styles from './SubtaskDots.module.css'
 import type { Subtask } from '../types.ts'
 
@@ -7,12 +8,16 @@ interface SubtaskDotsProps {
 }
 
 export function SubtaskDots({ subtasks, max = 8 }: SubtaskDotsProps) {
+  const { t } = useTranslation('board')
   if (subtasks.length === 0) return null
   const done = subtasks.filter((s) => s.status === 'done').length
   const total = Math.min(subtasks.length, max)
 
   return (
-    <div className={styles.wrap} aria-label={`${done} of ${subtasks.length} subtasks done`}>
+    <div
+      className={styles.wrap}
+      aria-label={t('subtask.progress', { done, total: subtasks.length })}
+    >
       <div className={styles.dots}>
         {Array.from({ length: total }).map((_, i) => {
           const status = subtasks[i]?.status
@@ -21,7 +26,7 @@ export function SubtaskDots({ subtasks, max = 8 }: SubtaskDotsProps) {
       </div>
       {subtasks.length > max && <span className={styles.more}>+{subtasks.length - max}</span>}
       <span className={styles.label}>
-        {done}/{subtasks.length} done
+        {t('subtask.progressShort', { done, total: subtasks.length })}
       </span>
     </div>
   )

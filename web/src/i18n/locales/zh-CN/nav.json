@@ -1,0 +1,16 @@
+{
+  "brand": "FleetDeck",
+  "home": "主页",
+  "hubOnline": "Hub 在线",
+  "hubOffline": "Hub 离线",
+  "refreshStatus": "刷新 Hub 与实时连接状态",
+  "live": "实时",
+  "connecting": "连接中…",
+  "reconnecting": "重连中…",
+  "connectionFailed": "连接失败",
+  "language": "语言",
+  "languageEnglish": "English",
+  "languageChinese": "中文",
+  "sessionCrumb": "会话 {{id}}",
+  "brandHome": "FleetDeck 主页"
+}

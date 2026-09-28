@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useHubApi } from '../hooks/useHubApi.ts'
+import { useTranslation } from '../i18n/index.ts'
 import { WorkspaceCard } from './WorkspaceCard.tsx'
 import { LoadingSkeleton } from './LoadingSkeleton.tsx'
 import { EmptyState } from './EmptyState.tsx'
@@ -8,6 +9,7 @@ import type { TaskStatus } from '../types.ts'
 
 export function WorkspaceList({ nodeId }: { nodeId: string }) {
   const api = useHubApi()
+  const { t } = useTranslation('pages')
   const workspacesQuery = useQuery({
     queryKey: ['workspaces', nodeId],
     queryFn: () => api.listWorkspaces(nodeId),
@@ -32,12 +34,12 @@ export function WorkspaceList({ nodeId }: { nodeId: string }) {
   if (workspacesQuery.isLoading) return <LoadingSkeleton count={4} />
   if (workspacesQuery.error)
     return (
-      <ErrorState title="Could not load workspaces" onRetry={() => void workspacesQuery.refetch()}>
+      <ErrorState title={t('workspace.loadError')} onRetry={() => void workspacesQuery.refetch()}>
         {workspacesQuery.error.message}
       </ErrorState>
     )
   if (workspaces.length === 0)
-    return <EmptyState title="No workspaces yet">Use “New workspace” above to add one.</EmptyState>
+    return <EmptyState title={t('workspace.emptyTitle')}>{t('workspace.emptyBody')}</EmptyState>
 
   return (
     <div className="fd-grid">

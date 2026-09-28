@@ -5,7 +5,9 @@ import { useNavigate } from 'react-router-dom'
 import { apiClient } from '../apiClient.ts'
 import { useAuth } from '../hooks/useAuth.ts'
 import { ErrorState } from '../components/ErrorState.tsx'
+import { LanguageSwitcher } from '../components/LanguageSwitcher.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
+import { useTranslation } from '../i18n/index.ts'
 import styles from './Login.module.css'
 
 interface LoginValues {
@@ -25,6 +27,7 @@ export function Login() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const navigate = useNavigate()
   const { login, setup } = useAuth()
+  const { t } = useTranslation('auth')
 
   const statusQuery = useQuery({
     queryKey: ['auth', 'status'],
@@ -36,8 +39,8 @@ export function Login() {
   if (statusQuery.isError) {
     return (
       <div className={styles.wrap}>
-        <ErrorState title="Cannot reach the hub" onRetry={() => void statusQuery.refetch()}>
-          The login service did not respond. Try again in a moment.
+        <ErrorState title={t('login.hubUnreachable')} onRetry={() => void statusQuery.refetch()}>
+          {t('login.hubUnreachableBody')}
         </ErrorState>
       </div>
     )
@@ -73,8 +76,8 @@ export function Login() {
         needsSetup
           ? err instanceof Error
             ? err.message
-            : 'Account setup failed. Try again.'
-          : 'Sign-in failed. Check your email and password and try again.'
+            : t('login.setupFailed')
+          : t('login.signInFailed')
       )
     }
   }
@@ -82,12 +85,13 @@ export function Login() {
   return (
     <div className={styles.wrap}>
       <Card className={styles.card}>
+        <div className={styles.langRow}>
+          <LanguageSwitcher />
+        </div>
         <div className={styles.brand}>
           <div className={styles.wordmark}>FleetDeck</div>
           <p className={styles.tagline}>
-            {needsSetup
-              ? 'Create the first admin account to set up this hub.'
-              : 'Sign in to your FleetDeck account.'}
+            {needsSetup ? t('login.setupTagline') : t('login.signInTagline')}
           </p>
         </div>
         {submitError && (
@@ -106,59 +110,62 @@ export function Login() {
           onFinish={(values) => void handleSubmit(values)}
         >
           <Form.Item
-            label="Email"
+            label={t('fields.email')}
             name="email"
             rules={[
-              { required: true, message: 'Email is required' },
-              { type: 'email', message: 'Enter a valid email address' },
+              { required: true, message: t('validation.emailRequired') },
+              { type: 'email', message: t('validation.emailInvalid') },
             ]}
           >
-            <Input autoFocus autoComplete="email" placeholder="you@example.com" />
+            <Input autoFocus autoComplete="email" placeholder={t('fields.emailPlaceholder')} />
           </Form.Item>
           {needsSetup && (
             <Form.Item
-              label="Display name"
+              label={t('fields.displayName')}
               name="display_name"
-              rules={[{ required: true, message: 'Display name is required' }]}
+              rules={[{ required: true, message: t('validation.displayNameRequired') }]}
             >
-              <Input autoComplete="name" placeholder="Ada Lovelace" />
+              <Input autoComplete="name" placeholder={t('fields.namePlaceholder')} />
             </Form.Item>
           )}
           <Form.Item
-            label="Password"
+            label={t('fields.password')}
             name="password"
             rules={
               needsSetup
                 ? [
-                    { required: true, message: 'Password is required' },
-                    { min: 8, message: 'Password must be at least 8 characters' },
+                    { required: true, message: t('validation.passwordRequired') },
+                    { min: 8, message: t('validation.passwordMin') },
                   ]
-                : [{ required: true, message: 'Password is required' }]
+                : [{ required: true, message: t('validation.passwordRequired') }]
             }
           >
             <Input.Password
               autoComplete={needsSetup ? 'new-password' : 'current-password'}
-              placeholder="At least 8 characters"
+              placeholder={t('fields.passwordPlaceholder')}
             />
           </Form.Item>
           {needsSetup && (
             <Form.Item
-              label="Confirm password"
+              label={t('login.confirmPassword')}
               name="confirm"
               dependencies={['password']}
               rules={[
-                { required: true, message: 'Please confirm your password' },
+                { required: true, message: t('login.confirmRequired') },
                 {
                   // Matches the password field; empty values left to the
                   // required rule so only one message shows at a time.
                   validator: (_, value) => {
                     if (!value || form.getFieldValue('password') === value) return Promise.resolve()
-                    return Promise.reject(new Error('Passwords do not match'))
+                    return Promise.reject(new Error(t('login.passwordMismatch')))
                   },
                 },
               ]}
             >
-              <Input.Password autoComplete="new-password" placeholder="Repeat your password" />
+              <Input.Password
+                autoComplete="new-password"
+                placeholder={t('login.confirmPlaceholder')}
+              />
             </Form.Item>
           )}
           <Button
@@ -168,7 +175,7 @@ export function Login() {
             block
             loading={submitting}
           >
-            {needsSetup ? 'Create admin account' : 'Sign in'}
+            {needsSetup ? t('login.createAdmin') : t('login.signIn')}
           </Button>
         </Form>
       </Card>

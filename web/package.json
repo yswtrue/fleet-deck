@@ -18,8 +18,10 @@
     "@refinedev/react-router": "2.0.4",
     "@tanstack/react-query": "^5.0.0",
     "antd": "5.29.3",
+    "i18next": "^26.4.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-i18next": "^17.0.15",
     "react-router-dom": "^7.0.0"
   },
   "devDependencies": {

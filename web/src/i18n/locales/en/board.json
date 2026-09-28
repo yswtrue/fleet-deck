@@ -1,0 +1,59 @@
+{
+  "error": {
+    "load": "Could not load board"
+  },
+  "toolbar": {
+    "newTask": "New task"
+  },
+  "search": {
+    "placeholder": "Search task titles…",
+    "label": "Search task titles",
+    "clear": "Clear"
+  },
+  "empty": {
+    "noMatchTitle": "No tasks match “{{query}}”.",
+    "noMatchBody": "Try a different search.",
+    "noTasksTitle": "No tasks yet",
+    "noTasksBody": "Start one above."
+  },
+  "column": {
+    "region": "{{status}} tasks",
+    "count": "{{count}} tasks",
+    "empty": "Nothing here yet"
+  },
+  "card": {
+    "aria": "Task {{title}}, status {{status}}",
+    "noSession": "No session yet",
+    "noSessionHint": "This task has not been dispatched to a node yet",
+    "noSessionToast": "Task has no session yet — not dispatched (node offline?)",
+    "moveButton": "Move…",
+    "moveTitle": "Move to…",
+    "moveAria": "Change status of {{title}}",
+    "moveTo": "Move to {{status}}",
+    "movedTo": "“{{title}}” moved to {{status}}",
+    "moveError": "Could not move task",
+    "moveErrorDetail": "Could not move task: {{message}}",
+    "updated": "Updated {{time}}"
+  },
+  "form": {
+    "title": "New task",
+    "titleLabel": "Title",
+    "titlePlaceholder": "What should the agent do?",
+    "titleRequired": "Please enter a title",
+    "promptLabel": "Prompt",
+    "promptPlaceholder": "Describe the task in detail (optional)...",
+    "agentLabel": "Agent type",
+    "agentPlaceholder": "Which agent should run this?",
+    "agentRequired": "Please enter an agent type",
+    "agentHelp": "Known agents: fake, opencode, codex, claude, pi"
+  },
+  "subtask": {
+    "progress": "{{done}} of {{total}} subtasks done",
+    "progressShort": "{{done}}/{{total}} done"
+  },
+  "workspace": {
+    "invalid": "Invalid workspace",
+    "notFound": "Workspace not found",
+    "notFoundBody": "It may have been deleted, or your account may not have access to it."
+  }
+}

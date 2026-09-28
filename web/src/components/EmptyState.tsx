@@ -1,4 +1,5 @@
 import { Button, message } from 'antd'
+import { useTranslation } from '../i18n/index.ts'
 import styles from './EmptyState.module.css'
 
 export interface EmptyStateProps {
@@ -59,6 +60,7 @@ function CopyIcon() {
 }
 
 export function EmptyState({ icon, title, children, action, snippet }: EmptyStateProps) {
+  const { t } = useTranslation('pages')
   // `message.useMessage()` (not the static `message` API): antd v5's static
   // holders go through the legacy ReactDOM render, which React 19 removed.
   const [messageApi, messageHolder] = message.useMessage()
@@ -67,9 +69,9 @@ export function EmptyState({ icon, title, children, action, snippet }: EmptyStat
     if (!snippet) return
     try {
       await navigator.clipboard.writeText(snippet)
-      messageApi.success('Command copied')
+      messageApi.success(t('empty.copySuccess'))
     } catch {
-      messageApi.error('Could not copy the command')
+      messageApi.error(t('empty.copyError'))
     }
   }
 
@@ -85,7 +87,7 @@ export function EmptyState({ icon, title, children, action, snippet }: EmptyStat
             {snippet}
           </code>
           <Button size="small" className={styles.copy} onClick={copySnippet} icon={<CopyIcon />}>
-            Copy
+            {t('empty.copy')}
           </Button>
         </div>
       )}

@@ -4,7 +4,7 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 10 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、MCP 自查询工具(6 个)、无障碍(键盘可达 + 双主题)、Docker Compose 部署(含 Traefik)、测试 101 Go + 53 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 10 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、MCP 自查询工具(6 个)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 101 Go + 54 web。
 
 **未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation、`task.cancelled_at` 取消审计列;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
@@ -157,6 +157,12 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 - **接入**:`FLEETDECK_REDIS_URL` 未设置 → Noop 缓存(直连 DB);Redis 故障一律按 miss 处理,请求永不因缓存失败。devenv(`services.redis`,:56379)与 docker-compose(`redis:7-alpine`)各带一个 Redis。
 - **缓存面**(cache-aside,`internal/cache`):①token→user 鉴权解析(TTL 60s,logout 显式删除,TTL 封顶批量吊销窗口)②工作区任务列表 `tasks:ws:<id>`(TTL 30s;create/patch/dispatch/会话推导/离线级联全部经 `invalidateTasks` 显式失效)。模糊搜索与 node 级列表(带成员过滤)刻意不缓存。
 - **测试**:miniredis 提供真实 Redis 语义;`newTestHub` 默认挂缓存,整套 hub 测试都穿过缓存层(失效回归 + 登出吊销 + 故障降级)。
+
+### 3.9 Web 多语言
+
+- **框架**:react-i18next,语言 `en` / `zh-CN`;按界面分命名空间 `common`(状态/动作/相对时间等共享原子)、`nav`、`auth`、`pages`、`board`、`session`。组件用 `useTranslation('<ns>')`,非组件代码用 `i18n.t('<ns>:key')`。
+- **约定**:英文文案为规范值(测试与截图按其固定),新增键必须同时补两种语言;`util.ts` 的 `statusLabel`/`formatRelative` 已本地化,直接复用。
+- **切换**:Header 与登录卡内置 `LanguageSwitcher`,持久化 `localStorage('fleetdeck.lang')`,首访按 `navigator.language`;`<html lang>` 同步;antd 内置文案经 `AntdProvider` 的 locale 包切换。
 
 ## 4. 阶段计划(✅ 已全部完成)
 

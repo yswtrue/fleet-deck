@@ -7,10 +7,12 @@ import { WorkspaceForm } from '../components/WorkspaceForm.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
 import { formatRelative } from '../util.ts'
+import { useTranslation } from '../i18n/index.ts'
 
 export function NodeDetail() {
   const { nodeId } = useParams<{ nodeId: string }>()
   const api = useHubApi()
+  const { t } = useTranslation('pages')
 
   const nodeQuery = useQuery({
     queryKey: ['nodes', nodeId],
@@ -26,13 +28,13 @@ export function NodeDetail() {
     enabled: !!nodeId,
   })
 
-  if (!nodeId) return <ErrorState title="Invalid node" />
+  if (!nodeId) return <ErrorState title={t('node.invalid')} />
   // An invisible or deleted node is a dead end: do not render the workspaces
   // section (and its create button) below for a node the user cannot see.
   if (nodeQuery.isError)
     return (
-      <ErrorState title="Node not found" onRetry={() => void nodeQuery.refetch()}>
-        It may have been deleted, or your account may not have access to it.
+      <ErrorState title={t('node.notFound')} onRetry={() => void nodeQuery.refetch()}>
+        {t('node.notFoundBody')}
       </ErrorState>
     )
 
@@ -53,29 +55,29 @@ export function NodeDetail() {
           <div className="fd-section-header">
             <h1 className="fd-page-title">{node.name}</h1>
             <span className="fd-pill" data-status={node.status}>
-              {node.status === 'online' ? 'Online' : 'Offline'}
+              {node.status === 'online' ? t('common:status.online') : t('common:status.offline')}
             </span>
           </div>
           <div className="fd-meta">
             <span>
-              Host: <code>{node.host || 'No host set'}</code>
+              {t('node.host')} <code>{node.host || t('node.noHost')}</code>
             </span>
             {node.last_seen_at && (
               <span title={new Date(node.last_seen_at).toLocaleString()}>
-                Last seen {formatRelative(node.last_seen_at)}
+                {t('node.lastSeen', { time: formatRelative(node.last_seen_at) })}
               </span>
             )}
           </div>
           <div className="fd-chips">
-            <span className="fd-chip-label">Capabilities</span>
+            <span className="fd-chip-label">{t('node.capabilities')}</span>
             {capabilities.length > 0 ? (
               capabilities.map((capability) => <Tag key={capability}>{capability}</Tag>)
             ) : (
-              <span>none</span>
+              <span>{t('node.none')}</span>
             )}
           </div>
           <div className="fd-chips">
-            <span className="fd-chip-label">Agents</span>
+            <span className="fd-chip-label">{t('node.agents')}</span>
             {agentTypes.length > 0 ? (
               agentTypes.map((agentType) => (
                 <Tag key={agentType} color="blue">
@@ -83,14 +85,14 @@ export function NodeDetail() {
                 </Tag>
               ))
             ) : (
-              <span>none yet</span>
+              <span>{t('common:misc.noneYet')}</span>
             )}
           </div>
         </header>
       ) : null}
       <section className="fd-stack">
         <div className="fd-section-header">
-          <h2 className="fd-section-title">Workspaces</h2>
+          <h2 className="fd-section-title">{t('node.workspaces')}</h2>
           {/* Anyone who can see this page is bound to the node (or is an
               admin), so workspace creation is always permitted here. */}
           <WorkspaceForm nodeId={nodeId} />

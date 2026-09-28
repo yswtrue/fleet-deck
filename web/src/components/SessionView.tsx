@@ -13,16 +13,17 @@ import { LoadingSkeleton } from './LoadingSkeleton.tsx'
 import { ErrorState } from './ErrorState.tsx'
 import { EmptyState } from './EmptyState.tsx'
 import { statusLabel } from '../util.ts'
+import { useTranslation } from '../i18n/index.ts'
 import { formatPermissionReply } from '../permission.ts'
 import styles from './SessionView.module.css'
 import type { SessionSnapshot } from '../apiClient.ts'
 import type { Event as ProtocolEvent } from '../gen/protocol/index.ts'
 import type { Subtask, Task } from '../types.ts'
 
-const SUBTASK_LABELS: Record<Subtask['status'], string> = {
-  pending: 'Pending',
-  in_progress: 'In progress',
-  done: 'Done',
+const SUBTASK_LABEL_KEYS: Record<Subtask['status'], string> = {
+  pending: 'subtask.pending',
+  in_progress: 'subtask.inProgress',
+  done: 'subtask.done',
 }
 
 interface SessionViewProps {
@@ -31,6 +32,7 @@ interface SessionViewProps {
 }
 
 export function SessionView({ sessionId, task }: SessionViewProps) {
+  const { t } = useTranslation('session')
   const { messages, delta, isLoading, error, sessionStatus, pendingPermission, send } =
     useSession(sessionId)
   // The static antd message API renders nothing under React 19; the hook-based
@@ -121,7 +123,11 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     try {
       await send(reply)
     } catch (err) {
-      messageApi.warning(err instanceof Error ? `Reply not sent: ${err.message}` : 'Reply not sent')
+      messageApi.warning(
+        err instanceof Error
+          ? t('composer.sendErrorDetail', { message: err.message })
+          : t('composer.sendError')
+      )
       return
     }
     setReply('')
@@ -136,13 +142,13 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   }
 
   if (isLoading) return <LoadingSkeleton count={2} />
-  if (error) return <ErrorState title="Could not load session">{error.message}</ErrorState>
+  if (error) return <ErrorState title={t('error.load')}>{error.message}</ErrorState>
 
   return (
     <div className={styles.page}>
       {messageHolder}
       <header className={styles.header}>
-        <Button onClick={goBack}>Back</Button>
+        <Button onClick={goBack}>{t('common:actions.back')}</Button>
         {resolvedTask ? (
           <div className={styles.headerTitle}>
             <Typography.Title level={4} style={{ margin: 0 }}>
@@ -159,16 +165,16 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
           </div>
         ) : (
           <Typography.Title level={4} style={{ margin: 0 }}>
-            Session {sessionId.slice(0, 8)}
+            {t('sessionTitle', { id: sessionId.slice(0, 8) })}
           </Typography.Title>
         )}
         {connectionState !== 'open' && (
           <span className={styles.reconnect} data-state={connectionState} role="status">
             {connectionState === 'connecting'
-              ? 'Connecting…'
+              ? t('connection.connecting')
               : connectionState === 'failed'
-                ? 'Connection failed'
-                : 'Reconnecting…'}
+                ? t('connection.failed')
+                : t('connection.reconnecting')}
           </span>
         )}
       </header>
@@ -177,13 +183,13 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
         <section className={styles.transcriptPane}>
           <div ref={scrollRef} tabIndex={-1} className={styles.transcript} onScroll={handleScroll}>
             {messages.length === 0 && !delta ? (
-              <EmptyState title="The agent hasn't said anything yet." />
+              <EmptyState title={t('transcript.empty')} />
             ) : (
               messages.map((m) => <MessageBubble key={m.id} message={m} />)
             )}
             {delta && (
               <div className={styles.streaming} aria-live="polite">
-                <span className={styles.streamLabel}>Assistant</span>
+                <span className={styles.streamLabel}>{t('role.assistant')}</span>
                 <p className={styles.streamText}>
                   {delta}
                   <span className={styles.cursor} aria-hidden="true" />
@@ -194,7 +200,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
           {!atBottom && (
             <div className={styles.jumpWrap}>
               <Button size="small" onClick={jumpToLatest}>
-                Jump to latest
+                {t('transcript.jumpToLatest')}
               </Button>
             </div>
           )}
@@ -218,17 +224,13 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                       void handleSend()
                     }
                   }}
-                  placeholder={
-                    isAwaiting
-                      ? 'Reply to the agent… (Enter to send, Shift+Enter for a new line)'
-                      : 'Waiting for the agent to ask a question…'
-                  }
+                  placeholder={isAwaiting ? t('composer.placeholder') : t('composer.waiting')}
                   disabled={!isAwaiting}
                   rows={3}
                   style={{ flex: 1 }}
                 />
                 <Button type="primary" htmlType="submit" disabled={!isAwaiting || !reply.trim()}>
-                  Send
+                  {t('composer.send')}
                 </Button>
               </form>
             )}
@@ -237,16 +239,16 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
 
         <aside className={styles.sidebar}>
           <section className={styles.panel}>
-            <h3 className={styles.panelTitle}>Task</h3>
+            <h3 className={styles.panelTitle}>{t('panel.task')}</h3>
             <p className={styles.taskTitle}>
-              {resolvedTask?.title ?? `Session ${sessionId.slice(0, 8)}`}
+              {resolvedTask?.title ?? t('sessionTitle', { id: sessionId.slice(0, 8) })}
             </p>
             {resolvedTask?.prompt && <p className={styles.taskPrompt}>{resolvedTask.prompt}</p>}
           </section>
           <section className={styles.panel}>
-            <h3 className={styles.panelTitle}>Subtasks &amp; todos</h3>
+            <h3 className={styles.panelTitle}>{t('panel.subtasks')}</h3>
             {(subtasksQuery.data ?? []).length === 0 ? (
-              <p className={styles.muted}>No subtasks yet.</p>
+              <p className={styles.muted}>{t('subtask.empty')}</p>
             ) : (
               <ul className={styles.subtasks}>
                 {(subtasksQuery.data ?? []).map((subtask) => (
@@ -258,7 +260,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                     />
                     <span className={styles.subtaskTitle}>{subtask.title}</span>
                     <span className={styles.subtaskStatus} data-status={subtask.status}>
-                      {SUBTASK_LABELS[subtask.status]}
+                      {t(SUBTASK_LABEL_KEYS[subtask.status])}
                     </span>
                   </li>
                 ))}
@@ -266,10 +268,10 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
             )}
           </section>
           <section className={styles.panel}>
-            <h3 className={styles.panelTitle}>Session</h3>
+            <h3 className={styles.panelTitle}>{t('panel.session')}</h3>
             <dl className={styles.meta}>
               <div className={styles.metaRow}>
-                <dt>Status</dt>
+                <dt>{t('meta.status')}</dt>
                 <dd>
                   {currentStatus ? (
                     <span className={styles.statusChip} data-status={currentStatus}>
@@ -281,11 +283,11 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                 </dd>
               </div>
               <div className={styles.metaRow}>
-                <dt>Agent</dt>
+                <dt>{t('meta.agent')}</dt>
                 <dd>{agentType ?? '—'}</dd>
               </div>
               <div className={styles.metaRow}>
-                <dt>Node</dt>
+                <dt>{t('meta.node')}</dt>
                 <dd>{nodeName ?? (nodeId ? nodeId.slice(0, 8) : '—')}</dd>
               </div>
             </dl>

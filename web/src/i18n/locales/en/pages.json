@@ -1,0 +1,55 @@
+{
+  "home": {
+    "title": "Nodes",
+    "subtitle": "Machines registered with this hub. Open one to manage its workspaces and tasks.",
+    "loadError": "Could not load nodes",
+    "emptyTitle": "No nodes yet",
+    "emptyBody": "Start a node on any machine and it will register itself here:"
+  },
+  "node": {
+    "invalid": "Invalid node",
+    "notFound": "Node not found",
+    "notFoundBody": "It may have been deleted, or your account may not have access to it.",
+    "host": "Host:",
+    "noHost": "No host set",
+    "lastSeen": "Last seen {{time}}",
+    "capabilities": "Capabilities",
+    "agents": "Agents",
+    "none": "none",
+    "workspaces": "Workspaces"
+  },
+  "nodeCard": {
+    "ariaLabel": "Node {{name}}",
+    "workspaces_one": "{{count}} workspace",
+    "workspaces_other": "{{count}} workspaces",
+    "activeTasks_one": "{{count}} active task",
+    "activeTasks_other": "{{count}} active tasks"
+  },
+  "workspace": {
+    "new": "New workspace",
+    "created": "Workspace “{{name}}” created",
+    "createFailed": "Could not create workspace: {{message}}",
+    "loadError": "Could not load workspaces",
+    "emptyTitle": "No workspaces yet",
+    "emptyBody": "Use “New workspace” above to add one.",
+    "cardAria": "Workspace {{name}}",
+    "noTasksYet": "No tasks yet",
+    "name": "Name",
+    "namePlaceholder": "my-project",
+    "nameRequired": "Enter a workspace name",
+    "nameTooLong": "Keep the name under 100 characters",
+    "path": "Absolute path",
+    "pathHelp": "Checked out on the node, e.g. /home/you/code/my-project",
+    "pathRequired": "Enter the workspace path",
+    "pathAbsolute": "Path must be absolute (start with / or a drive letter)",
+    "pathPlaceholder": "/home/you/code/my-project"
+  },
+  "empty": {
+    "copy": "Copy",
+    "copySuccess": "Command copied",
+    "copyError": "Could not copy the command"
+  },
+  "loading": {
+    "label": "Loading"
+  }
+}

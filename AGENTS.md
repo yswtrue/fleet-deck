@@ -50,7 +50,7 @@ go test -short ./...           # skip live-DB tests
 # Frontend (cd web)
 pnpm exec tsc -b               # real typecheck (bare `tsc --noEmit` is a no-op on the solution tsconfig; `pnpm build` also runs it)
 pnpm lint
-pnpm test                      # vitest (53 tests: dispatchEvent contract, auth, binding UI, components)
+pnpm test                      # vitest (54 tests: dispatchEvent contract, auth, i18n, binding UI, components)
 pnpm build
 ```
 
@@ -99,6 +99,7 @@ internal/mcp/                            # MCP server package
 migrations/                              # goose SQL, -- +goose Up/Down
 web/src/{pages,components,hooks}/        # React UI (antd + Refine)
 web/src/{gen/protocol/,apiClient.ts,dataProvider.ts,providers/}
+web/src/i18n/                           # react-i18next bootstrap + locales/{en,zh-CN}/*.json
 web/src/hooks/{useWebSocket,dispatchEvent}.ts  # locked Lane C code
 integrations/pi/                         # (deferred) pi bridge
 scripts/                                 # smoke scripts
@@ -125,11 +126,21 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - `web/src/hooks/useTaskBoard.ts` cache key is `['tasks', workspaceId]` (an active search extends it with the query). Code that creates tasks must invalidate **both** that prefix and `['tasks-by-workspace']` (the `WorkspaceList` task-count key) — see `NewTaskForm.tsx`.
 - Go tests in `internal/store/store_test.go` and `internal/hub/{hub,api}_test.go` use `127.0.0.1:55432`. They skip with `-short`.
 - **`internal/hub/static/` is the web UI embed root.** `go build` works with just the committed `.keep`, but a hub that serves the UI needs `web/dist` copied there first (the Dockerfile does this). The SPA also reads `web/public/config.js` at runtime for a custom hub URL (standalone static deploys).
-- Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts, no-session feedback), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), `Users` (node-binding UI), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
+- Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts, no-session feedback), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), `Users` (node-binding UI), `LanguageSwitcher` (language switch + persistence), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
 - **react-query v5 drops per-`mutate` callbacks when the caller unmounts** (`hasListeners()` gate). Use `mutateAsync().then()/.catch()` when the outcome must survive unmount (e.g. toast + navigate after a board-column move).
 - **Node offline event buffering** (`FLEETDECK_EVENT_BUFFER_DIR`, `internal/node/buffer.go`): when set, every outbound envelope is persisted first (one JSON file per event, atomic tmp+rename) and the writer replays the queue in sequence order across reconnects — FIFO, at-least-once, files deleted only after a successful write. When unset, events are dropped while the hub is unreachable (the old behavior). Sessions survive hub restarts either way (adapter ctx is process-level).
 - **Read-through cache** (`FLEETDECK_REDIS_URL`, `internal/cache`): auth token→user resolution (60s TTL) and per-workspace task lists (30s TTL) are cached in Redis; logout and every task mutation delete their entries (`invalidateTasks`), TTLs bound any missed invalidation. An unset URL is a Noop cache and cache errors always degrade to a database read — never make the cache a request-failure source. Fuzzy search and node-scoped lists (binding-filtered) are deliberately uncached.
+
+## Web copy / i18n
+
+All user-visible UI copy goes through react-i18next (`web/src/i18n/`). Languages: `en` + `zh-CN`; namespaces
+`common` (shared atoms: `status.*`, `actions.*`, `time.*`, `misc.*`), `nav`, `auth`, `pages`, `board`, `session`.
+Components use `useTranslation('<ns>')`; non-React code uses `i18n.t('<ns>:key')`. **English locale values are the
+canonical copy** (tests pin them) — add every key to BOTH locale files. The header and login card carry a
+`LanguageSwitcher` (persists to `localStorage('fleetdeck.lang')`; `<html lang>` follows). `util.ts`
+(`statusLabel`, `formatRelative`) is already localized — keep calling it. antd strings come from the
+ConfigProvider locale wired in `providers/AntdProvider.tsx`.
 
 ## Adding a new adapter
 

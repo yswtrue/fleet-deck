@@ -1,4 +1,5 @@
 import { Button } from 'antd'
+import { useTranslation } from '../i18n/index.ts'
 import styles from './ErrorState.module.css'
 
 export interface ErrorStateProps {
@@ -20,6 +21,7 @@ function ErrorIcon() {
 }
 
 export function ErrorState({ title, children, onRetry }: ErrorStateProps) {
+  const { t } = useTranslation('pages')
   return (
     <div className={styles.error} role="alert">
       <div className={styles.icon}>
@@ -30,7 +32,7 @@ export function ErrorState({ title, children, onRetry }: ErrorStateProps) {
       {onRetry && (
         <div className={styles.action}>
           <Button type="primary" onClick={onRetry}>
-            Retry
+            {t('common:actions.retry')}
           </Button>
         </div>
       )}

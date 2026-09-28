@@ -1,0 +1,55 @@
+{
+  "home": {
+    "title": "节点",
+    "subtitle": "已注册到此中枢的机器。打开任意一台以管理其工作区和任务。",
+    "loadError": "无法加载节点",
+    "emptyTitle": "暂无节点",
+    "emptyBody": "在任意机器上启动节点，它将自动注册到这里："
+  },
+  "node": {
+    "invalid": "无效的节点",
+    "notFound": "节点未找到",
+    "notFoundBody": "它可能已被删除，或你的账户没有访问权限。",
+    "host": "主机：",
+    "noHost": "未设置主机",
+    "lastSeen": "最后在线 {{time}}",
+    "capabilities": "能力",
+    "agents": "智能体",
+    "none": "无",
+    "workspaces": "工作区"
+  },
+  "nodeCard": {
+    "ariaLabel": "节点 {{name}}",
+    "workspaces_one": "{{count}} 个工作区",
+    "workspaces_other": "{{count}} 个工作区",
+    "activeTasks_one": "{{count}} 个活跃任务",
+    "activeTasks_other": "{{count}} 个活跃任务"
+  },
+  "workspace": {
+    "new": "新建工作区",
+    "created": "工作区“{{name}}”已创建",
+    "createFailed": "无法创建工作区：{{message}}",
+    "loadError": "无法加载工作区",
+    "emptyTitle": "暂无工作区",
+    "emptyBody": "使用上方的“新建工作区”添加一个。",
+    "cardAria": "工作区 {{name}}",
+    "noTasksYet": "暂无任务",
+    "name": "名称",
+    "namePlaceholder": "my-project",
+    "nameRequired": "请输入工作区名称",
+    "nameTooLong": "名称请控制在 100 个字符以内",
+    "path": "绝对路径",
+    "pathHelp": "在节点上检出的路径，例如 /home/you/code/my-project",
+    "pathRequired": "请输入工作区路径",
+    "pathAbsolute": "路径必须为绝对路径（以 / 或盘符开头）",
+    "pathPlaceholder": "/home/you/code/my-project"
+  },
+  "empty": {
+    "copy": "复制",
+    "copySuccess": "命令已复制",
+    "copyError": "复制命令失败"
+  },
+  "loading": {
+    "label": "加载中"
+  }
+}

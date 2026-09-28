@@ -5,6 +5,7 @@ import type { MessageInstance } from 'antd/es/message/interface'
 import { SubtaskDots } from './SubtaskDots.tsx'
 import { TASK_STATUS_TRANSITIONS, useTaskStatusMutation } from '../hooks/useTaskBoard.ts'
 import { formatRelative, statusLabel } from '../util.ts'
+import { useTranslation } from '../i18n/index.ts'
 import styles from './TaskCard.module.css'
 import type { Task, Subtask } from '../types.ts'
 
@@ -24,6 +25,7 @@ export function TaskCard({
   messageApi?: MessageInstance
 }) {
   const navigate = useNavigate()
+  const { t } = useTranslation('board')
   // The static antd message API renders nothing under React 19; the hook-based
   // API is the one that actually mounts toasts.
   const [localMessageApi, localMessageHolder] = message.useMessage()
@@ -39,7 +41,7 @@ export function TaskCard({
     }
     // Session-less tasks (e.g. waiting while their node is offline) have
     // nothing to open: say so instead of swallowing the click.
-    messageApi.warning('Task has no session yet — not dispatched (node offline?)')
+    messageApi.warning(t('card.noSessionToast'))
   }
 
   // Nested actions handle their own keys (Enter opens the move menu); the card
@@ -50,7 +52,7 @@ export function TaskCard({
 
   const menuItems: MenuProps['items'] = transitions.map((status) => ({
     key: status,
-    label: `Move to ${statusLabel(status)}`,
+    label: t('card.moveTo', { status: statusLabel(status) }),
   }))
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
@@ -62,10 +64,14 @@ export function TaskCard({
     // settles regardless of unmount, so the toast always fires.
     statusMutation
       .mutateAsync({ id: task.id, status })
-      .then(() => messageApi.success(`“${task.title}” moved to ${statusLabel(status)}`))
+      .then(() =>
+        messageApi.success(t('card.movedTo', { title: task.title, status: statusLabel(status) }))
+      )
       .catch((err: unknown) =>
         messageApi.error(
-          err instanceof Error ? `Could not move task: ${err.message}` : 'Could not move task'
+          err instanceof Error
+            ? t('card.moveErrorDetail', { message: err.message })
+            : t('card.moveError')
         )
       )
   }
@@ -79,7 +85,7 @@ export function TaskCard({
       onClick={openSession}
       onKeyDown={handleKeyDown}
       role="button"
-      aria-label={`Task ${task.title}, status ${statusLabel(task.status)}`}
+      aria-label={t('card.aria', { title: task.title, status: statusLabel(task.status) })}
       styles={{ body: { padding: 12 } }}
     >
       {externalMessageApi ? null : localMessageHolder}
@@ -89,11 +95,8 @@ export function TaskCard({
         </span>
         <span className={styles.agentChip}>{task.agent_type}</span>
         {!task.session_id && (
-          <span
-            className={styles.noSessionChip}
-            title="This task has not been dispatched to a node yet"
-          >
-            No session yet
+          <span className={styles.noSessionChip} title={t('card.noSessionHint')}>
+            {t('card.noSession')}
           </span>
         )}
         {transitions.length > 0 && (
@@ -106,11 +109,11 @@ export function TaskCard({
               size="small"
               type="text"
               className={styles.moveButton}
-              aria-label={`Change status of ${task.title}`}
-              title="Move to…"
+              aria-label={t('card.moveAria', { title: task.title })}
+              title={t('card.moveTitle')}
               onClick={(event) => event.stopPropagation()}
             >
-              Move…
+              {t('card.moveButton')}
             </Button>
           </Dropdown>
         )}
@@ -118,7 +121,9 @@ export function TaskCard({
       <p className={styles.title}>{task.title}</p>
       {task.prompt && <p className={styles.prompt}>{task.prompt}</p>}
       <SubtaskDots subtasks={subtasks} />
-      <p className={styles.footer}>Updated {formatRelative(task.updated_at)}</p>
+      <p className={styles.footer}>
+        {t('card.updated', { time: formatRelative(task.updated_at) })}
+      </p>
     </Card>
   )
 }

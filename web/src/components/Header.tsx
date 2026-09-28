@@ -6,6 +6,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { WebSocketContext } from '../hooks/WebSocketContext.ts'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { UserMenu } from './UserMenu.tsx'
+import { LanguageSwitcher } from './LanguageSwitcher.tsx'
+import { useTranslation } from '../i18n/index.ts'
 import type { Node as HubNode, Workspace as HubWorkspace } from '../types.ts'
 import styles from './Header.module.css'
 
@@ -100,6 +102,7 @@ function LogoMark() {
  * and the user menu in the `headerActions` slot (renders null when signed out).
  */
 export function Header() {
+  const { t } = useTranslation('nav')
   const api = useHubApi()
   const queryClient = useQueryClient()
   const location = useLocation()
@@ -147,7 +150,9 @@ export function Header() {
   } else if (section === 'sessions' && routeId) {
     crumbs.push({
       key: 'session',
-      title: <NavLink to={`/sessions/${routeId}`}>Session {shortId(routeId)}</NavLink>,
+      title: (
+        <NavLink to={`/sessions/${routeId}`}>{t('sessionCrumb', { id: shortId(routeId) })}</NavLink>
+      ),
     })
   }
 
@@ -155,10 +160,10 @@ export function Header() {
     ws == null
       ? ''
       : ws.connectionState === 'open'
-        ? 'Live'
+        ? t('live')
         : ws.connectionState === 'connecting'
-          ? 'Connecting'
-          : 'Offline'
+          ? t('connecting')
+          : t('common:status.offline')
   const wsState =
     ws == null
       ? 'down'
@@ -171,13 +176,13 @@ export function Header() {
   return (
     <Layout.Header className={styles.header}>
       <div className={styles.left}>
-        <NavLink to="/" className={styles.brand} aria-label="FleetDeck home">
+        <NavLink to="/" className={styles.brand} aria-label={t('brandHome')}>
           <LogoMark />
           <span className={styles.wordmark}>FleetDeck</span>
         </NavLink>
         <Breadcrumb
           className={styles.breadcrumb}
-          items={[{ key: 'home', title: <NavLink to="/">Home</NavLink> }, ...crumbs]}
+          items={[{ key: 'home', title: <NavLink to="/">{t('home')}</NavLink> }, ...crumbs]}
         />
       </div>
       <div className={styles.right}>
@@ -185,10 +190,10 @@ export function Header() {
           type="button"
           className={styles.health}
           onClick={refresh}
-          aria-label="Refresh hub and live connection status"
+          aria-label={t('refreshStatus')}
         >
           <span className={styles.dot} data-state={health === true ? 'ok' : 'down'} />
-          <span className={styles.label}>{health === true ? 'Hub online' : 'Hub offline'}</span>
+          <span className={styles.label}>{health === true ? t('hubOnline') : t('hubOffline')}</span>
           {ws != null && (
             <>
               <span className={styles.divider} />
@@ -199,6 +204,7 @@ export function Header() {
         </button>
         {/* User menu (auth slice); renders null while signed out. */}
         <div id="headerActions" className={styles.headerActions}>
+          <LanguageSwitcher />
           <UserMenu />
         </div>
       </div>

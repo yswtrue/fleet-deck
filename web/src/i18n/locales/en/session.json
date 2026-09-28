@@ -1,0 +1,48 @@
+{
+  "error": {
+    "load": "Could not load session"
+  },
+  "invalid": "Invalid session",
+  "sessionTitle": "Session {{id}}",
+  "connection": {
+    "connecting": "Connecting…",
+    "reconnecting": "Reconnecting…",
+    "failed": "Connection failed"
+  },
+  "transcript": {
+    "empty": "The agent hasn't said anything yet.",
+    "jumpToLatest": "Jump to latest"
+  },
+  "role": {
+    "user": "You",
+    "assistant": "Assistant",
+    "system": "System"
+  },
+  "permission": {
+    "tag": "Permission",
+    "required": "Permission required"
+  },
+  "composer": {
+    "placeholder": "Reply to the agent… (Enter to send, Shift+Enter for a new line)",
+    "waiting": "Waiting for the agent to ask a question…",
+    "send": "Send",
+    "sendError": "Reply not sent",
+    "sendErrorDetail": "Reply not sent: {{message}}"
+  },
+  "panel": {
+    "task": "Task",
+    "subtasks": "Subtasks & todos",
+    "session": "Session"
+  },
+  "subtask": {
+    "pending": "Pending",
+    "inProgress": "In progress",
+    "done": "Done",
+    "empty": "No subtasks yet."
+  },
+  "meta": {
+    "status": "Status",
+    "agent": "Agent",
+    "node": "Node"
+  }
+}

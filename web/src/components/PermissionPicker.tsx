@@ -1,4 +1,5 @@
 import { Button } from 'antd'
+import { useTranslation } from '../i18n/index.ts'
 import styles from './PermissionPicker.module.css'
 import type { PermissionRequest } from '../permission.ts'
 
@@ -24,9 +25,10 @@ export function PermissionPicker({
   request: PermissionRequest
   onPick: (optionId: string) => void
 }) {
+  const { t } = useTranslation('session')
   return (
-    <section className={styles.card} role="group" aria-label="Permission required">
-      <p className={styles.heading}>Permission required</p>
+    <section className={styles.card} role="group" aria-label={t('permission.required')}>
+      <p className={styles.heading}>{t('permission.required')}</p>
       <p className={styles.question}>{request.question}</p>
       <div className={styles.options}>
         {request.options.map((option) => {

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ConfigProvider } from 'antd'
+import enUS from 'antd/locale/en_US'
+import zhCN from 'antd/locale/zh_CN'
+import { i18n } from '../i18n/index.ts'
 import { fleetdeckTheme } from './theme.ts'
 import type { ThemeMode } from './theme.ts'
 
@@ -21,6 +24,17 @@ function currentMode(): ThemeMode {
  */
 export function AntdProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>(currentMode)
+  // antd ships its own strings (pagination, empty, modal buttons); track the
+  // i18next language so ConfigProvider can hand it the matching pack.
+  const [lang, setLang] = useState<string>(() => i18n.resolvedLanguage ?? i18n.language)
+
+  useEffect(() => {
+    const onLanguageChanged = (lng: string) => setLang(lng)
+    i18n.on('languageChanged', onLanguageChanged)
+    return () => {
+      i18n.off('languageChanged', onLanguageChanged)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
@@ -30,5 +44,9 @@ export function AntdProvider({ children }: { children: ReactNode }) {
     return () => mql.removeEventListener('change', onChange)
   }, [])
 
-  return <ConfigProvider theme={fleetdeckTheme(mode)}>{children}</ConfigProvider>
+  return (
+    <ConfigProvider locale={lang.startsWith('zh') ? zhCN : enUS} theme={fleetdeckTheme(mode)}>
+      {children}
+    </ConfigProvider>
+  )
 }

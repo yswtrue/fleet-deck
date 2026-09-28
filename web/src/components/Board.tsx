@@ -7,11 +7,13 @@ import { LoadingSkeleton } from './LoadingSkeleton.tsx'
 import { ErrorState } from './ErrorState.tsx'
 import { EmptyState } from './EmptyState.tsx'
 import { useTaskBoard } from '../hooks/useTaskBoard.ts'
+import { useTranslation } from '../i18n/index.ts'
 import type { Task } from '../types.ts'
 
 const COLUMNS: Task['status'][] = ['waiting', 'running', 'awaiting_user', 'done']
 
 export function Board({ workspaceId }: { workspaceId: string }) {
+  const { t } = useTranslation('board')
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const { tasks, subtasksByTask, isLoading, isFetching, error } = useTaskBoard(
@@ -41,20 +43,20 @@ export function Board({ workspaceId }: { workspaceId: string }) {
   }
 
   if (isLoading) return <LoadingSkeleton count={4} />
-  if (error) return <ErrorState title="Could not load board">{error.message}</ErrorState>
+  if (error) return <ErrorState title={t('error.load')}>{error.message}</ErrorState>
 
   return (
     <div className={styles.board}>
       {messageHolder}
       <div className={styles.toolbar}>
         <Button type="primary" onClick={() => setShowForm(true)}>
-          New task
+          {t('toolbar.newTask')}
         </Button>
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search task titles…"
-          aria-label="Search task titles"
+          placeholder={t('search.placeholder')}
+          aria-label={t('search.label')}
           aria-busy={isSearching}
           style={{ width: 260 }}
           suffix={
@@ -62,7 +64,7 @@ export function Board({ workspaceId }: { workspaceId: string }) {
               <Spin size="small" />
             ) : query ? (
               <Button type="text" size="small" className={styles.clearButton} onClick={clearSearch}>
-                Clear
+                {t('search.clear')}
               </Button>
             ) : null
           }
@@ -70,11 +72,11 @@ export function Board({ workspaceId }: { workspaceId: string }) {
       </div>
       {tasks.length === 0 ? (
         debouncedQuery ? (
-          <EmptyState title={`No tasks match “${debouncedQuery}”.`}>
-            Try a different search.
+          <EmptyState title={t('empty.noMatchTitle', { query: debouncedQuery })}>
+            {t('empty.noMatchBody')}
           </EmptyState>
         ) : (
-          <EmptyState title="No tasks yet">Start one above.</EmptyState>
+          <EmptyState title={t('empty.noTasksTitle')}>{t('empty.noTasksBody')}</EmptyState>
         )
       ) : (
         <div className={styles.columns}>

@@ -1,31 +1,23 @@
+import { i18n } from './i18n/index.ts'
+
+/**
+ * Compact relative age ("5m ago") localized through the `common.time` keys,
+ * falling back to a locale-aware date for anything older than a month.
+ */
 export function formatRelative(iso: string): string {
   const date = new Date(iso)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return 'just now'
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
+  if (seconds < 60) return i18n.t('common:time.justNow')
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return i18n.t('common:time.minutesAgo', { n: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return i18n.t('common:time.hoursAgo', { n: hours })
   const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return date.toLocaleDateString()
+  if (days < 30) return i18n.t('common:time.daysAgo', { n: days })
+  return date.toLocaleDateString(i18n.language)
 }
 
+/** Localized label for a task/session/node status token. */
 export function statusLabel(status: string): string {
-  switch (status) {
-    case 'waiting':
-      return 'Waiting'
-    case 'running':
-      return 'Running'
-    case 'done':
-      return 'Done'
-    case 'awaiting_user':
-      return 'Awaiting you'
-    case 'failed':
-      return 'Failed'
-    default:
-      return status
-  }
+  return i18n.t('common:status.' + status, { defaultValue: status })
 }

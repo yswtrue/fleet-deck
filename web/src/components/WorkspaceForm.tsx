@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Form, Input, Modal, message } from 'antd'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useHubApi } from '../hooks/useHubApi.ts'
+import { useTranslation } from '../i18n/index.ts'
 
 interface WorkspaceFormValues {
   name: string
@@ -24,6 +25,7 @@ function PlusIcon() {
 export function WorkspaceForm({ nodeId }: { nodeId: string }) {
   const api = useHubApi()
   const queryClient = useQueryClient()
+  const { t } = useTranslation('pages')
   const [open, setOpen] = useState(false)
   const [form] = Form.useForm<WorkspaceFormValues>()
   // `message.useMessage()` (not the static `message` API): antd v5's static
@@ -38,14 +40,14 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
         path: values.path.trim(),
       }),
     onSuccess: (workspace) => {
-      messageApi.success(`Workspace “${workspace.name}” created`)
+      messageApi.success(t('workspace.created', { name: workspace.name }))
       queryClient.invalidateQueries({ queryKey: ['workspaces', nodeId] })
       queryClient.invalidateQueries({ queryKey: ['tasks-by-workspace'] })
       form.resetFields()
       setOpen(false)
     },
     onError: (error) => {
-      messageApi.error(`Could not create workspace: ${error.message}`)
+      messageApi.error(t('workspace.createFailed', { message: error.message }))
     },
   })
 
@@ -53,12 +55,12 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
     <>
       {messageHolder}
       <Button type="primary" icon={<PlusIcon />} onClick={() => setOpen(true)}>
-        New workspace
+        {t('workspace.new')}
       </Button>
       <Modal
         open={open}
-        title="New workspace"
-        okText="Create"
+        title={t('workspace.new')}
+        okText={t('common:actions.create')}
         confirmLoading={createWorkspace.isPending}
         onOk={() => form.submit()}
         onCancel={() => {
@@ -76,32 +78,30 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
         >
           <Form.Item
             name="name"
-            label="Name"
+            label={t('workspace.name')}
             rules={[
-              { required: true, message: 'Enter a workspace name' },
-              { max: 100, message: 'Keep the name under 100 characters' },
+              { required: true, message: t('workspace.nameRequired') },
+              { max: 100, message: t('workspace.nameTooLong') },
             ]}
           >
-            <Input placeholder="my-project" autoFocus />
+            <Input placeholder={t('workspace.namePlaceholder')} autoFocus />
           </Form.Item>
           <Form.Item
             name="path"
-            label="Absolute path"
-            extra="Checked out on the node, e.g. /home/you/code/my-project"
+            label={t('workspace.path')}
+            extra={t('workspace.pathHelp')}
             rules={[
-              { required: true, message: 'Enter the workspace path' },
+              { required: true, message: t('workspace.pathRequired') },
               {
                 validator: (_rule, value: string) => {
                   const path = (value ?? '').trim()
                   if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return Promise.resolve()
-                  return Promise.reject(
-                    new Error('Path must be absolute (start with / or a drive letter)')
-                  )
+                  return Promise.reject(new Error(t('workspace.pathAbsolute')))
                 },
               },
             ]}
           >
-            <Input placeholder="/home/you/code/my-project" />
+            <Input placeholder={t('workspace.pathPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>

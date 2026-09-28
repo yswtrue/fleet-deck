@@ -1,0 +1,59 @@
+{
+  "error": {
+    "load": "无法加载看板"
+  },
+  "toolbar": {
+    "newTask": "新建任务"
+  },
+  "search": {
+    "placeholder": "搜索任务标题…",
+    "label": "搜索任务标题",
+    "clear": "清空"
+  },
+  "empty": {
+    "noMatchTitle": "没有匹配“{{query}}”的任务。",
+    "noMatchBody": "换一个关键词试试。",
+    "noTasksTitle": "还没有任务",
+    "noTasksBody": "点击上方按钮新建一个。"
+  },
+  "column": {
+    "region": "{{status}}任务",
+    "count": "{{count}} 个任务",
+    "empty": "暂无任务"
+  },
+  "card": {
+    "aria": "任务 {{title}}，状态 {{status}}",
+    "noSession": "尚无会话",
+    "noSessionHint": "该任务尚未派发到节点",
+    "noSessionToast": "任务尚无会话 —— 尚未派发（节点离线？）",
+    "moveButton": "移动…",
+    "moveTitle": "移动到…",
+    "moveAria": "更改 {{title}} 的状态",
+    "moveTo": "移动到{{status}}",
+    "movedTo": "“{{title}}”已移至{{status}}",
+    "moveError": "无法移动任务",
+    "moveErrorDetail": "无法移动任务：{{message}}",
+    "updated": "更新于 {{time}}"
+  },
+  "form": {
+    "title": "新建任务",
+    "titleLabel": "标题",
+    "titlePlaceholder": "要让智能体做什么？",
+    "titleRequired": "请输入标题",
+    "promptLabel": "提示词",
+    "promptPlaceholder": "详细描述任务（可选）...",
+    "agentLabel": "Agent 类型",
+    "agentPlaceholder": "由哪个 agent 执行？",
+    "agentRequired": "请输入 agent 类型",
+    "agentHelp": "已知 agent：fake、opencode、codex、claude、pi"
+  },
+  "subtask": {
+    "progress": "{{total}} 个子任务中已完成 {{done}} 个",
+    "progressShort": "{{done}}/{{total}} 已完成"
+  },
+  "workspace": {
+    "invalid": "无效的工作区",
+    "notFound": "未找到工作区",
+    "notFoundBody": "该工作区可能已被删除，或你的账户无权访问。"
+  }
+}

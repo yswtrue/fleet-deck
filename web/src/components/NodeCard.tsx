@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, Tag, Typography } from 'antd'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { formatRelative } from '../util.ts'
+import { useTranslation } from '../i18n/index.ts'
 import type { Node } from '../types.ts'
 import styles from './NodeCard.module.css'
 
@@ -15,6 +16,7 @@ import styles from './NodeCard.module.css'
 export function NodeCard({ node }: { node: Node }) {
   const navigate = useNavigate()
   const api = useHubApi()
+  const { t } = useTranslation('pages')
 
   const workspacesQuery = useQuery({
     queryKey: ['workspaces', node.id],
@@ -47,29 +49,29 @@ export function NodeCard({ node }: { node: Node }) {
       role="button"
       onClick={() => navigate(`/nodes/${node.id}`)}
       onKeyDown={handleKeyDown}
-      aria-label={`Node ${node.name}`}
+      aria-label={t('nodeCard.ariaLabel', { name: node.name })}
     >
       <div className={styles.head}>
         <Typography.Title level={5} className={styles.name} ellipsis={{ tooltip: node.name }}>
           {node.name}
         </Typography.Title>
         <span className="fd-pill" data-status={node.status}>
-          {node.status === 'online' ? 'Online' : 'Offline'}
+          {node.status === 'online' ? t('common:status.online') : t('common:status.offline')}
         </span>
       </div>
       <div className={styles.host} title={node.host}>
-        {node.host || 'No host set'}
+        {node.host || t('node.noHost')}
       </div>
       <div className="fd-chips">
-        <span className="fd-chip-label">Capabilities</span>
+        <span className="fd-chip-label">{t('node.capabilities')}</span>
         {capabilities.length > 0 ? (
           capabilities.map((capability) => <Tag key={capability}>{capability}</Tag>)
         ) : (
-          <span className={styles.muted}>none</span>
+          <span className={styles.muted}>{t('node.none')}</span>
         )}
       </div>
       <div className="fd-chips">
-        <span className="fd-chip-label">Agents</span>
+        <span className="fd-chip-label">{t('node.agents')}</span>
         {agentTypes.length > 0 ? (
           agentTypes.map((agentType) => (
             <Tag key={agentType} color="blue">
@@ -77,20 +79,16 @@ export function NodeCard({ node }: { node: Node }) {
             </Tag>
           ))
         ) : (
-          <span className={styles.muted}>none yet</span>
+          <span className={styles.muted}>{t('common:misc.noneYet')}</span>
         )}
       </div>
       <div className={styles.meta}>
-        <span>
-          {workspaceCount} {workspaceCount === 1 ? 'workspace' : 'workspaces'}
-        </span>
-        <span>
-          {activeTaskCount} active {activeTaskCount === 1 ? 'task' : 'tasks'}
-        </span>
+        <span>{t('nodeCard.workspaces', { count: workspaceCount })}</span>
+        <span>{t('nodeCard.activeTasks', { count: activeTaskCount })}</span>
       </div>
       {node.last_seen_at && (
         <div className={styles.lastSeen} title={new Date(node.last_seen_at).toLocaleString()}>
-          Last seen {formatRelative(node.last_seen_at)}
+          {t('node.lastSeen', { time: formatRelative(node.last_seen_at) })}
         </div>
       )}
     </Card>

@@ -1,0 +1,16 @@
+{
+  "brand": "FleetDeck",
+  "home": "Home",
+  "hubOnline": "Hub online",
+  "hubOffline": "Hub offline",
+  "refreshStatus": "Refresh hub and live connection status",
+  "live": "Live",
+  "connecting": "Connecting…",
+  "reconnecting": "Reconnecting…",
+  "connectionFailed": "Connection failed",
+  "language": "Language",
+  "languageEnglish": "English",
+  "languageChinese": "中文",
+  "sessionCrumb": "Session {{id}}",
+  "brandHome": "FleetDeck home"
+}

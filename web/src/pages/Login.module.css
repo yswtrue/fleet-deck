@@ -48,3 +48,9 @@
 .submit {
   margin-top: 8px;
 }
+
+.langRow {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -8px;
+}

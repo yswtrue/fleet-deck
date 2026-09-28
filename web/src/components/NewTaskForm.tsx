@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Modal, Form, Input, Button, AutoComplete } from 'antd'
 import { useQueryClient } from '@tanstack/react-query'
 import { useForm } from '@refinedev/antd'
+import { useTranslation } from '../i18n/index.ts'
 
 interface NewTaskFormProps {
   workspaceId: string
@@ -17,6 +18,7 @@ const AGENT_TYPE_SUGGESTIONS = ['fake', 'opencode', 'codex', 'claude', 'pi'].map
  * `useForm`; no local Refine/DataProvider wrapper is needed.
  */
 export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
+  const { t } = useTranslation('board')
   const queryClient = useQueryClient()
   const { form, formProps, saveButtonProps, formLoading } = useForm({
     action: 'create',
@@ -45,15 +47,15 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
 
   return (
     <Modal
-      title="New task"
+      title={t('form.title')}
       open
       onCancel={onClose}
       footer={[
         <Button key="cancel" onClick={onClose}>
-          Cancel
+          {t('common:actions.cancel')}
         </Button>,
         <Button key="submit" type="primary" loading={formLoading} {...saveButtonProps}>
-          Create
+          {t('common:actions.create')}
         </Button>,
       ]}
     >
@@ -62,20 +64,20 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
           <Input />
         </Form.Item>
         <Form.Item
-          label="Title"
+          label={t('form.titleLabel')}
           name="title"
-          rules={[{ required: true, whitespace: true, message: 'Please enter a title' }]}
+          rules={[{ required: true, whitespace: true, message: t('form.titleRequired') }]}
         >
-          <Input placeholder="What should the agent do?" onPressEnter={() => void form.submit()} />
+          <Input placeholder={t('form.titlePlaceholder')} onPressEnter={() => void form.submit()} />
         </Form.Item>
-        <Form.Item label="Prompt" name="prompt" rules={[{ required: false }]}>
-          <Input.TextArea rows={5} placeholder="Describe the task in detail (optional)..." />
+        <Form.Item label={t('form.promptLabel')} name="prompt" rules={[{ required: false }]}>
+          <Input.TextArea rows={5} placeholder={t('form.promptPlaceholder')} />
         </Form.Item>
         <Form.Item
-          label="Agent type"
+          label={t('form.agentLabel')}
           name="agent_type"
-          rules={[{ required: true, whitespace: true, message: 'Please enter an agent type' }]}
-          extra="Known agents: fake, opencode, codex, claude, pi"
+          rules={[{ required: true, whitespace: true, message: t('form.agentRequired') }]}
+          extra={t('form.agentHelp')}
         >
           <div
             onKeyDown={(event) => {
@@ -86,7 +88,7 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
           >
             <AutoComplete
               options={AGENT_TYPE_SUGGESTIONS}
-              placeholder="Which agent should run this?"
+              placeholder={t('form.agentPlaceholder')}
               onOpenChange={(open) => {
                 agentMenuOpenRef.current = open
               }}

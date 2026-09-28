@@ -1,0 +1,35 @@
+{
+  "status": {
+    "waiting": "Waiting",
+    "running": "Running",
+    "done": "Done",
+    "awaiting_user": "Awaiting you",
+    "failed": "Failed",
+    "online": "Online",
+    "offline": "Offline"
+  },
+  "actions": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "create": "Create",
+    "save": "Save",
+    "edit": "Edit",
+    "delete": "Delete",
+    "retry": "Retry",
+    "search": "Search",
+    "add": "Add",
+    "remove": "Remove",
+    "back": "Back"
+  },
+  "time": {
+    "justNow": "just now",
+    "minutesAgo": "{{n}}m ago",
+    "hoursAgo": "{{n}}h ago",
+    "daysAgo": "{{n}}d ago"
+  },
+  "misc": {
+    "loading": "Loading…",
+    "none": "None",
+    "noneYet": "none yet"
+  }
+}
