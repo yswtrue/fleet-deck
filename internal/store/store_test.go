@@ -10,14 +10,15 @@ import (
 	"fleetdeck/internal/protocol"
 )
 
-// defaultTestDSN mirrors devenv.nix. Override with FLEETDECK_DATABASE_URL.
-const defaultTestDSN = "postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck?sslmode=disable"
-
-func testDSN() string {
-	if dsn := os.Getenv("FLEETDECK_DATABASE_URL"); dsn != "" {
-		return dsn
+// testDSN returns FLEETDECK_DATABASE_URL for live-DB tests. Credentials are
+// env-only (no baked-in DSN): the caller's test skips when it is unset.
+func testDSN(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv("FLEETDECK_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("FLEETDECK_DATABASE_URL not set; live-DB test skipped")
 	}
-	return defaultTestDSN
+	return dsn
 }
 
 // TestSmokeCRUDRoundTrip exercises one query per table against the live
@@ -31,7 +32,7 @@ func TestSmokeCRUDRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	st, err := New(ctx, testDSN())
+	st, err := New(ctx, testDSN(t))
 	if err != nil {
 		t.Skipf("postgres not reachable: %v", err)
 	}

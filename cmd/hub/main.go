@@ -1,11 +1,11 @@
 // Command hub is the FleetDeck control plane: HTTP API, web subscriber socket,
 // node command/event socket, and the only writer to Postgres.
 //
-// Configuration is environment-only:
+// Configuration is environment-only (no baked-in addresses or credentials;
+// local dev gets these from .env via the devenv shell):
 //
-//	FLEETDECK_HUB_ADDR      HTTP + WebSocket listen address (default ":7710")
-//	FLEETDECK_DATABASE_URL  Postgres DSN
-//	                        (default "postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck?sslmode=disable")
+//	FLEETDECK_HUB_ADDR      HTTP + WebSocket listen address (required, e.g. "127.0.0.1:7710")
+//	FLEETDECK_DATABASE_URL  Postgres DSN (required)
 //	FLEETDECK_REDIS_URL     redis:// URL for the read-through cache
 //	                        (unset = no cache; a down Redis degrades to DB reads)
 //
@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -26,8 +27,6 @@ import (
 	"fleetdeck/internal/store"
 )
 
-const defaultDSN = "postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck?sslmode=disable"
-
 func main() {
 	if err := run(); err != nil {
 		slog.Error("hub exited with error", "err", err)
@@ -39,7 +38,11 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	st, err := store.New(ctx, getenv("FLEETDECK_DATABASE_URL", defaultDSN))
+	dsn := os.Getenv("FLEETDECK_DATABASE_URL")
+	if dsn == "" {
+		return errors.New("FLEETDECK_DATABASE_URL is required (inside devenv shell it is derived from .env)")
+	}
+	st, err := store.New(ctx, dsn)
 	if err != nil {
 		return err
 	}
@@ -64,11 +67,4 @@ func run() error {
 	defer func() { _ = h.Close() }()
 
 	return h.Run(ctx)
-}
-
-func getenv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

@@ -8,10 +8,10 @@
 # Usage: bash scripts/smoke_mcp_subtask.sh
 set -uo pipefail
 
-ROOT=/Users/yswtrue/Codes/fleet-deck
-HUB_ADDR=127.0.0.1:17710
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+HUB_ADDR=${SMOKE_HUB_ADDR:-127.0.0.1:17710}
 HUB_URL="http://$HUB_ADDR"
-DBURL="postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck?sslmode=disable"
+DBURL=${FLEETDECK_DATABASE_URL:?set FLEETDECK_DATABASE_URL (run inside 'devenv shell')}
 BIN=/tmp/opencode/fd-mcp-subtask-smoke
 mkdir -p "$BIN"
 

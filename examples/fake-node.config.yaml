@@ -10,4 +10,9 @@ capabilities:
   - fake
 agent_types:
   - fake
-hub_url: ws://127.0.0.1:7710/ws/node
+# hub_url is omitted: it is derived from $FLEETDECK_HUB_ADDR as
+# ws://ADDR/ws/node (devenv derives that from .env). Set it explicitly for
+# remote hubs, e.g. hub_url: wss://hub.example.com/ws/node
+# Each node needs its own token file — one shared file makes the daemons
+# overwrite each other's registration token.
+token_file: ./.devenv/state/fleetdeck/fake-node-1.token

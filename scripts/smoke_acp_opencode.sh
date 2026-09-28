@@ -31,9 +31,9 @@
 # fails the lane for host credential reasons.
 set -uo pipefail
 
-ROOT=/Users/yswtrue/Codes/fleet-deck
-HUB_ADDR=127.0.0.1:7710
-DBURL="postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck?sslmode=disable"
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+HUB_ADDR=${SMOKE_HUB_ADDR:-127.0.0.1:7710}
+DBURL=${FLEETDECK_DATABASE_URL:?set FLEETDECK_DATABASE_URL (run inside 'devenv shell')}
 BIN=/tmp/opencode/fd-acp-opencode-smoke
 NODE_NAME=acp-opencode-node
 mkdir -p "$BIN"

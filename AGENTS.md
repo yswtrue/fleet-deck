@@ -11,19 +11,19 @@
 
 ## Local dev (devenv)
 
-The dev shell wires Postgres + hub + node + web as `process-compose` processes. **Everything below assumes you are inside `devenv shell` (or `nix develop`).**
+The dev shell wires Postgres + hub + node + web as `process-compose` processes. **Everything below assumes you are inside `devenv shell` (or `nix develop`).** All ports/credentials come from `.env` (copy `.env.example` to customize; when `.env` is absent the example values are used) — `devenv.nix` derives `FLEETDECK_DATABASE_URL` / `FLEETDECK_REDIS_URL` / `FLEETDECK_HUB_ADDR` from it, nothing is hardcoded.
 
 ```sh
 devenv up            # hub + node + web (process-compose)
 devenv up fake-node  # + a second node wired to the fake adapter
-db-up                # wait for Postgres on :55432
+db-up                # wait for Postgres on $FLEETDECK_DB_PORT
 migrate              # goose up
 db-reset             # dropdb + createdb + migrate (fresh schema)
 hub-health           # curl /api/health
 probe-adapters       # which agent CLIs (pi / codex / npx) are present
 ```
 
-Local URLs (fixed by `devenv.nix`):
+Local URLs (defaults from `.env.example`; override in `.env`):
 
 | service  | address                                                                                     |
 | -------- | ------------------------------------------------------------------------------------------- |
@@ -33,7 +33,7 @@ Local URLs (fixed by `devenv.nix`):
 | MCP      | stdio only — `cmd/fleetdeck-mcp` is launched by the agent; no port                          |
 | web      | `http://127.0.0.1:7711`                                                                     |
 
-Env vars (set by `devenv.nix`): `FLEETDECK_DATABASE_URL`, `FLEETDECK_REDIS_URL`, `FLEETDECK_HUB_ADDR`, `FLEETDECK_NODE_TOKEN_FILE`, `FLEETDECK_SCHEMA_OUT`.
+Env vars (set by `devenv.nix`): `FLEETDECK_DATABASE_URL`, `FLEETDECK_REDIS_URL`, `FLEETDECK_HUB_ADDR`, `FLEETDECK_NODE_TOKEN_FILE`, `FLEETDECK_SCHEMA_OUT`. The first three are derived from `.env`; `fleetdeck-mcp` additionally requires `FLEETDECK_HUB_URL` (its REST base URL — set it in the agent's MCP config, see `examples/fleetdeck-mcp.config.yaml`), and the hub/node/mcp binaries refuse to start when their required vars are missing (no baked-in addresses or credentials).
 
 ## Verification commands
 
@@ -58,14 +58,15 @@ Composite (from devenv shell): `check` runs gofmt + vet + golangci-lint + `go te
 
 ## Live tests need Postgres
 
-`go test ./...` hits Postgres at `$FLEETDECK_DATABASE_URL` (default: the dev DB on `127.0.0.1:55432`). Tests that touch `internal/store/`, `internal/hub/`, `internal/mcp/` will fail without Postgres reachable. Use `db-reset` first, or `db-up && migrate` if the schema is intact.
+`go test ./...` hits Postgres at `$FLEETDECK_DATABASE_URL` (devenv shell derives it from `.env`; when unset, live-DB tests skip). Tests that touch `internal/store/`, `internal/hub/`, `internal/mcp/` need Postgres reachable to actually run. Use `db-reset` first, or `db-up && migrate` if the schema is intact.
 
 **The suite wipes rows (e.g. `DELETE FROM users`) — run it against a scratch DB to keep dev data intact.** Every test package honors `FLEETDECK_DATABASE_URL`; create the DB with the devenv bootstrap superuser (the OS username role, e.g. `yswtrue`), migrate, then point the suite at it:
 
 ```sh
-psql -h 127.0.0.1 -p 55432 -U "$USER" -d postgres -c "CREATE DATABASE fleetdeck_test OWNER fleetdeck"
-goose -dir migrations postgres postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck_test?sslmode=disable up
-FLEETDECK_DATABASE_URL=postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck_test?sslmode=disable go test -race ./...
+psql -h "$FLEETDECK_DB_HOST" -p "$FLEETDECK_DB_PORT" -U "$USER" -d postgres -c "CREATE DATABASE ${FLEETDECK_DB_NAME}_test OWNER $FLEETDECK_DB_USER"
+TEST_DSN="postgres://$FLEETDECK_DB_USER:$FLEETDECK_DB_PASSWORD@$FLEETDECK_DB_HOST:$FLEETDECK_DB_PORT/${FLEETDECK_DB_NAME}_test?sslmode=disable"
+goose -dir migrations postgres "$TEST_DSN" up
+FLEETDECK_DATABASE_URL="$TEST_DSN" go test -race ./...
 ```
 
 ## Architecture invariants
@@ -124,7 +125,7 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - `GET /api/tasks` filters: exactly one of `workspace_id` / `node_id`; `q=term` switches to pg_trgm fuzzy matching (substring OR trigram similarity, best match first) over task titles.
 - Hub `Event.Seq` is the **hub-wide broadcast ordinal** (for WS live gap detection). `store.Event.Seq` is **per-session** (for `/api/sessions/{id}/events?after_seq=` gap-fill). They are intentionally different; do not unify.
 - `web/src/hooks/useTaskBoard.ts` cache key is `['tasks', workspaceId]` (an active search extends it with the query). Code that creates tasks must invalidate **both** that prefix and `['tasks-by-workspace']` (the `WorkspaceList` task-count key) — see `NewTaskForm.tsx`.
-- Go tests in `internal/store/store_test.go` and `internal/hub/{hub,api}_test.go` use `127.0.0.1:55432`. They skip with `-short`.
+- Go tests in `internal/store/store_test.go` and `internal/hub/{hub,api}_test.go` read `FLEETDECK_DATABASE_URL` (no baked-in DSN — they skip when it is unset). They also skip with `-short`.
 - **`internal/hub/static/` is the web UI embed root.** `go build` works with just the committed `.keep`, but a hub that serves the UI needs `web/dist` copied there first (the Dockerfile does this). The SPA also reads `web/public/config.js` at runtime for a custom hub URL (standalone static deploys).
 - Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts, no-session feedback), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), `Users` (node-binding UI), `LanguageSwitcher` (language switch + persistence), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
@@ -133,7 +134,7 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - **Token usage**: adapters report per-turn usage via `EventSink.Usage` → `EvSessionUsage` → `token_usage` rows (model + prompt/completion/total). `GET /api/stats/tokens` aggregates per model + totals (node-binding scoped). Model comes from the ACP `session/new` `configOptions` (`model` currentValue); agents that report no model fall back to `agent_type`, agents that report no usage record nothing (never fabricate). The locked `dispatchEvent.ts` returns null for `session.usage` (harmless — the usage UI reads via react-query).
 - **Task notifications**: `useTaskNotifications` (mounted as `TaskNotificationBridge` in App) fires browser Notifications on `task.created`/`task.status_changed`; gated by `Notification.permission === 'granted'` AND `localStorage('fleetdeck.notify') === 'on'` (values are `'on'`/`'off'`, not `'true'`), coalesced per task via `tag`, click focuses the tab.
 - **Mobile**: layout is responsive at ≤768px (columns stack, sidebar stacks under the transcript, modals fit, ≥36px touch targets on coarse pointers) — keep new surfaces working at 320px+.
-- **Smoke scripts wipe rows in their target DB**: `scripts/smoke_acp_opencode.sh` runs `delete from users` (deterministic setup) and deletes its node on exit (cascading its workspaces/tasks/sessions/usage). Point them at a scratch DB or expect dev data loss.
+- **Smoke scripts wipe rows in their target DB**: `scripts/smoke_acp_opencode.sh` runs `delete from users` (deterministic setup) and deletes its node on exit (cascading its workspaces/tasks/sessions/usage). Point them at a scratch DB or expect dev data loss. They require `FLEETDECK_DATABASE_URL` (run inside `devenv shell`) and take `SMOKE_HUB_ADDR` to override their hub port.
 - **Task lifecycle**: `POST /api/tasks` takes `auto_start:false` for backlog tasks (created but never dispatched until `POST /api/tasks/{id}/start`); `PATCH /api/tasks/{id} {archived:true}` archives `done` tasks (hidden from default board lists; `?archived=1` lists only archived); `POST /api/sessions/{id}/send` also reaches `done`/`failed` sessions — the task reopens `running`, the node reattaches via `MsgSessionResume` (`session/load`; unresumable sessions restart fresh with the follow-up as prompt). A completion gate parks sessions ending with unfinished mirrored todos in `awaiting_user` instead of `done`.
 - **Read-through cache** (`FLEETDECK_REDIS_URL`, `internal/cache`): auth token→user resolution (60s TTL) and per-workspace task lists (30s TTL) are cached in Redis; logout and every task mutation delete their entries (`invalidateTasks`), TTLs bound any missed invalidation. An unset URL is a Noop cache and cache errors always degrade to a database read — never make the cache a request-failure source. Fuzzy search and node-scoped lists (binding-filtered) are deliberately uncached.
 

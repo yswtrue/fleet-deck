@@ -1,24 +1,33 @@
 {
   pkgs,
+  config,
   ...
 }:
 
 let
   # ---------------------------------------------------------------------------
-  # FleetDeck local development topology
+  # FleetDeck local development topology — sourced from the dotenv file
+  # (official `dotenv` integration, see https://devenv.sh/integrations/dotenv/).
+  # Ports/credentials are defined ONLY there.
   # ---------------------------------------------------------------------------
-  pgPort = 55432; # non-default port so we never fight a system postgres
-  dbName = "fleetdeck";
-  dbUser = "fleetdeck";
-  dbPass = "fleetdeck";
+  envValue =
+    key:
+    config.env.${key} or (throw "${key} is missing from the dotenv file (copy .env.example to .env)");
 
-  databaseUrl = "postgres://${dbUser}:${dbPass}@127.0.0.1:${toString pgPort}/${dbName}?sslmode=disable";
-  redisPort = 56379; # non-default port so we never fight a system redis
-  redisUrl = "redis://127.0.0.1:${toString redisPort}/0";
+  pgHost = envValue "FLEETDECK_DB_HOST";
+  pgPort = pkgs.lib.toInt (envValue "FLEETDECK_DB_PORT");
+  dbName = envValue "FLEETDECK_DB_NAME";
+  dbUser = envValue "FLEETDECK_DB_USER";
+  dbPass = envValue "FLEETDECK_DB_PASSWORD";
 
-  hubAddr = "127.0.0.1:7710"; # HTTP API + WebSocket (web UI + node connections)
-  mcpAddr = "127.0.0.1:7717"; # MCP server: fleetdeck_* agent status tools
-  webPort = 7711; # vite dev server
+  databaseUrl = "postgres://${dbUser}:${dbPass}@${pgHost}:${toString pgPort}/${dbName}?sslmode=disable";
+  redisHost = envValue "FLEETDECK_REDIS_HOST";
+  redisPort = pkgs.lib.toInt (envValue "FLEETDECK_REDIS_PORT");
+  redisUrl = "redis://${redisHost}:${toString redisPort}/0";
+
+  hubAddr = "${envValue "FLEETDECK_HUB_HOST"}:${envValue "FLEETDECK_HUB_PORT"}"; # HTTP + WebSocket (web UI + node connections)
+  webHost = envValue "FLEETDECK_WEB_HOST";
+  webPort = envValue "FLEETDECK_WEB_PORT"; # vite dev server
 
   # `devenv up` processes must tolerate phases whose code does not exist yet,
   # otherwise they restart-loop while we are still in an earlier phase.
@@ -33,6 +42,15 @@ let
   '';
 in
 {
+  # Loads .env into config.env (and the shell/process environment). Falls back
+  # to .env.example when .env is absent. Note the dotenv file lands in the nix
+  # store — fine for these local dev credentials, see the dotenv docs for the
+  # SecretSpec alternative.
+  dotenv = {
+    enable = true;
+    filename = if builtins.pathExists ./.env then ".env" else ".env.example";
+  };
+
   # ---------------------------------------------------------------------------
   # Packages
   # ---------------------------------------------------------------------------
@@ -90,7 +108,7 @@ in
   services.postgres = {
     enable = true;
     port = pgPort;
-    listen_addresses = "127.0.0.1";
+    listen_addresses = pgHost;
     initialDatabases = [
       {
         name = dbName;
@@ -107,18 +125,18 @@ in
   services.redis = {
     enable = true;
     port = redisPort;
-    bind = "127.0.0.1";
+    bind = redisHost;
   };
 
   # ---------------------------------------------------------------------------
   # Environment
   # ---------------------------------------------------------------------------
   env = {
+    # Derived connection strings the binaries actually read. The raw .env keys
+    # are exported by the dotenv integration itself.
     FLEETDECK_DATABASE_URL = databaseUrl;
     FLEETDECK_REDIS_URL = redisUrl;
     FLEETDECK_HUB_ADDR = hubAddr;
-    FLEETDECK_MCP_ADDR = mcpAddr;
-    FLEETDECK_WEB_PORT = toString webPort;
 
     # Node-side secrets / buffers. Kept out of the repo.
     FLEETDECK_NODE_TOKEN_FILE = "./.devenv/state/fleetdeck/node-token";
@@ -154,7 +172,7 @@ in
     };
 
     web = {
-      exec = guarded "web/package.json" "pnpm --dir web dev --host 127.0.0.1 --port ${toString webPort}";
+      exec = guarded "web/package.json" "pnpm --dir web dev --host ${webHost} --port ${toString webPort}";
       process-compose = {
         availability.restart = "on_failure";
       };
@@ -177,8 +195,7 @@ in
   # ---------------------------------------------------------------------------
   scripts = {
     # --- database -----------------------------------------------------------
-    db-up.exec = "pg_isready -h 127.0.0.1 -p ${toString pgPort} -t 5";
-    db-url.exec = "echo \"$FLEETDECK_DATABASE_URL\"";
+    db-up.exec = "pg_isready -h ${pgHost} -p ${toString pgPort} -t 5";
     db-shell.exec = "pgcli \"$FLEETDECK_DATABASE_URL\"";
 
     migrate.exec = ''
@@ -200,8 +217,8 @@ in
     db-reset.exec = ''
       cd "$DEVENV_ROOT"
       echo "dropping and recreating ${dbName}"
-      dropdb --if-exists -h 127.0.0.1 -p ${toString pgPort} -U ${dbUser} ${dbName}
-      createdb -h 127.0.0.1 -p ${toString pgPort} -U ${dbUser} ${dbName}
+      dropdb --if-exists -h ${pgHost} -p ${toString pgPort} -U ${dbUser} ${dbName}
+      createdb -h ${pgHost} -p ${toString pgPort} -U ${dbUser} ${dbName}
       migrate up
     '';
 
@@ -268,7 +285,7 @@ in
     # Bounded check so `devenv shell` never hangs when postgres is not running.
     # Migrations are applied explicitly, not implicitly on every shell entry.
     "fleetdeck:migrate".exec = ''
-      if [ -d "$DEVENV_ROOT/migrations" ] && pg_isready -h 127.0.0.1 -p ${toString pgPort} -q; then
+      if [ -d "$DEVENV_ROOT/migrations" ] && pg_isready -h ${pgHost} -p ${toString pgPort} -q; then
         goose -dir "$DEVENV_ROOT/migrations" postgres "$FLEETDECK_DATABASE_URL" up || \
           echo "fleetdeck: migrations failed - run 'db-reset' or 'migrate-status'"
       fi
@@ -303,10 +320,9 @@ in
     echo ""
     echo "  FleetDeck development shell"
     echo "  ─────────────────────────────────────────────────────────────"
-    printf "  %-14s %s\n" "postgres" "127.0.0.1:${toString pgPort} / ${dbName} (user ${dbUser})"
+    printf "  %-14s %s\n" "postgres" "${pgHost}:${toString pgPort} / ${dbName} (user ${dbUser})"
     printf "  %-14s %s\n" "hub"      "http://${hubAddr}"
-    printf "  %-14s %s\n" "mcp"      "http://${mcpAddr}"
-    printf "  %-14s %s\n" "web"      "http://127.0.0.1:${toString webPort}"
+    printf "  %-14s %s\n" "web"      "http://${webHost}:${toString webPort}"
     echo ""
     printf "  %-14s %s\n" "go"       "$(go version | cut -d' ' -f3)"
     printf "  %-14s %s\n" "node"     "$(node --version)"
@@ -327,7 +343,7 @@ in
     go version
 
     echo "== database reachable =="
-    until pg_isready -h 127.0.0.1 -p ${toString pgPort} -q; do sleep 0.5; done
+    until pg_isready -h ${pgHost} -p ${toString pgPort} -q; do sleep 0.5; done
     psql "$FLEETDECK_DATABASE_URL" -c 'select 1' >/dev/null
 
     echo "== migrations apply cleanly =="

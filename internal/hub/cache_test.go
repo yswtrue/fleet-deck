@@ -99,7 +99,7 @@ func TestCacheOutageDegradesToDatabase(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	st, err := store.New(ctx, testDSN())
+	st, err := store.New(ctx, testDSN(t))
 	if err != nil {
 		t.Skipf("postgres not reachable: %v", err)
 	}

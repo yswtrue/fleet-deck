@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -30,7 +31,9 @@ type Config struct {
 	// AgentTypes are the agent_type keys this node can run. They are also
 	// advertised as capabilities.
 	AgentTypes []string `yaml:"agent_types"`
-	// HubURL is the hub's node WebSocket endpoint.
+	// HubURL is the hub's node WebSocket endpoint. When empty it is derived
+	// from $FLEETDECK_HUB_ADDR as ws://ADDR/ws/node (LoadConfig errors when
+	// neither is set).
 	HubURL string `yaml:"hub_url"`
 	// TokenFile is where the issued node token is persisted between runs.
 	// Defaults to $FLEETDECK_NODE_TOKEN_FILE or .devenv/state/fleetdeck/node-token.
@@ -53,13 +56,18 @@ func LoadConfig(path string) (Config, error) {
 		}
 	}
 	cfg.ApplyDefaults()
+	if cfg.HubURL == "" {
+		return Config{}, errors.New("node: hub_url is not set in the config and FLEETDECK_HUB_ADDR is unset")
+	}
 	return cfg, nil
 }
 
 // ApplyDefaults fills empty fields with their documented defaults.
 func (c *Config) ApplyDefaults() {
 	if c.HubURL == "" {
-		c.HubURL = "ws://127.0.0.1:7710/ws/node"
+		if addr := os.Getenv("FLEETDECK_HUB_ADDR"); addr != "" {
+			c.HubURL = "ws://" + addr + "/ws/node"
+		}
 	}
 	if c.TokenFile == "" {
 		c.TokenFile = os.Getenv("FLEETDECK_NODE_TOKEN_FILE")

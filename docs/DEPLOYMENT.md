@@ -19,10 +19,11 @@ Claude, pi) installed locally. The compose stack is purely the control plane.
 ## Quick start (control plane)
 
 ```sh
+cp .env.example .env        # ports + DB credentials; required (compose interpolates it)
 docker compose up -d --build
 # Everything on one port — the hub serves the embedded web UI, the REST API,
 # and the WebSocket endpoints:
-#   UI + API + WS:       http://localhost:7710
+#   UI + API + WS:       http://localhost:7710   (FLEETDECK_HUB_PORT from .env)
 ```
 
 Optional ingress with Traefik (label-discovered routes, ports 80/443) — it is
@@ -173,7 +174,7 @@ End-to-end scripts (from a checkout): `scripts/smoke_send_message.sh`,
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | UI loads but shows "Hub offline" | `/api`/`/ws` not reachable — with the `traefik` profile check label routing (`docker compose --profile traefik logs traefik`); behind your own proxy make sure `/ws` passes the `Upgrade` header |
 | Blank page / "web UI not built"  | the hub was built without the bundle — rebuild the image (the Dockerfile embeds `web/dist`)                                                                                                      |
-| Node stuck "offline" in UI       | wrong `hub_url`, or the hub port (7710) is not reachable from the node machine                                                                                                                   |
+| Node stuck "offline" in UI       | wrong `hub_url`, or the hub port (`FLEETDECK_HUB_PORT`, default 7710) is not reachable from the node machine                                                                                     |
 | Task stays `waiting`             | its workspace belongs to an offline node                                                                                                                                                         |
 | Session fails right after start  | agent CLI missing/not authenticated **on the node machine** — check the node's logs (`stderr` of the agent is not captured; run the CLI manually to diagnose)                                    |
 | 409 on reply                     | the session is not awaiting input (double reply) — the UI rolls the message back and warns                                                                                                       |

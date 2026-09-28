@@ -13,9 +13,18 @@ import (
 )
 
 func main() {
-	url := flag.String("url", "ws://127.0.0.1:7710/ws/web", "hub web socket URL")
+	url := flag.String("url", "", "hub web socket URL (default ws://$FLEETDECK_HUB_ADDR/ws/web)")
 	duration := flag.Duration("duration", 0, "capture window; 0 means run until killed")
 	flag.Parse()
+
+	if *url == "" {
+		addr := os.Getenv("FLEETDECK_HUB_ADDR")
+		if addr == "" {
+			fmt.Fprintln(os.Stderr, "ws_capture: -url or FLEETDECK_HUB_ADDR is required")
+			os.Exit(1)
+		}
+		*url = "ws://" + addr + "/ws/web"
+	}
 
 	conn, _, err := websocket.DefaultDialer.Dial(*url, nil)
 	if err != nil {

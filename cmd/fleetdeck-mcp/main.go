@@ -6,7 +6,7 @@
 //
 // Configuration:
 //
-//	FLEETDECK_HUB_URL    hub REST base URL (default "http://127.0.0.1:7710")
+//	FLEETDECK_HUB_URL    hub REST base URL (required, e.g. "http://127.0.0.1:7710")
 //	FLEETDECK_HUB_TOKEN  bearer token for the hub's protected REST API.
 //	                     When unset, no Authorization header is sent and the
 //	                     hub answers 401 on every protected endpoint.
@@ -41,7 +41,11 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	hub := fdmcp.NewHubClientWithToken(getenv("FLEETDECK_HUB_URL", fdmcp.DefaultHubURL), os.Getenv("FLEETDECK_HUB_TOKEN"))
+	hubURL := os.Getenv("FLEETDECK_HUB_URL")
+	if hubURL == "" {
+		return errors.New("FLEETDECK_HUB_URL is required (the hub REST base URL, e.g. http://127.0.0.1:7710)")
+	}
+	hub := fdmcp.NewHubClientWithToken(hubURL, os.Getenv("FLEETDECK_HUB_TOKEN"))
 	srv := fdmcp.NewServer(hub)
 
 	if err := srv.Run(ctx, &mcp.StdioTransport{}); err != nil {
@@ -52,11 +56,4 @@ func run() error {
 		return err
 	}
 	return nil
-}
-
-func getenv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

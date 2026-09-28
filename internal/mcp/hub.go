@@ -15,9 +15,6 @@ import (
 	"fleetdeck/internal/protocol"
 )
 
-// DefaultHubURL is the hub REST base URL used when FLEETDECK_HUB_URL is unset.
-const DefaultHubURL = "http://127.0.0.1:7710"
-
 // requestTimeout bounds every hub round trip so a hung hub cannot wedge a tool
 // call forever. The MCP client can already cancel via ctx; this is a backstop.
 const requestTimeout = 15 * time.Second
@@ -34,8 +31,7 @@ type HubClient struct {
 	http    *http.Client
 }
 
-// NewHubClient builds a client for baseURL. An empty baseURL selects
-// DefaultHubURL. A trailing slash is tolerated.
+// NewHubClient builds a client for baseURL. A trailing slash is tolerated.
 func NewHubClient(baseURL string) *HubClient {
 	return NewHubClientWithToken(baseURL, "")
 }
@@ -45,9 +41,6 @@ func NewHubClient(baseURL string) *HubClient {
 // no Authorization header; the hub then answers 401 on every protected
 // endpoint.
 func NewHubClientWithToken(baseURL, token string) *HubClient {
-	if baseURL == "" {
-		baseURL = DefaultHubURL
-	}
 	return &HubClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,

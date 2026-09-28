@@ -76,9 +76,10 @@ FleetDeck pulls these sessions into one control plane:
 ### Control plane (Docker Compose)
 
 ```sh
+cp .env.example .env        # ports + DB credentials live here; edit as needed
 docker compose up -d --build
 # Everything on one port (the hub serves the embedded UI + API + WS):
-#   http://localhost:7710
+#   http://localhost:<FLEETDECK_HUB_PORT>   (default .env value: 7710)
 
 # Optional Traefik ingress on :80/:443 (label-discovered routes):
 docker compose --profile traefik up -d
@@ -94,6 +95,7 @@ go build -o fleetdeck-node ./cmd/node
 ### Development (devenv)
 
 ```sh
+cp .env.example .env    # optional: customize ports/credentials (defaults work)
 devenv shell
 devenv up              # hub + node + web against local Postgres
 devenv up fake-node    # optional: deterministic fake agent node
@@ -107,7 +109,7 @@ Full walkthrough: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 # Backend
 go build ./... && go vet ./...
 gofmt -l cmd/ internal/        # must be empty
-go test -race ./...            # 78 passed / 15 packages (live Postgres)
+go test -race ./...            # 78 passed / 15 packages (live Postgres via FLEETDECK_DATABASE_URL; devenv shell derives it from .env)
 
 # Frontend (cd web)
 pnpm tsc --noEmit && pnpm lint

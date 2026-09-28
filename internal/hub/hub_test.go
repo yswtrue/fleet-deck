@@ -18,13 +18,15 @@ import (
 	"fleetdeck/internal/store"
 )
 
-const defaultTestDSN = "postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck?sslmode=disable"
-
-func testDSN() string {
-	if dsn := os.Getenv("FLEETDECK_DATABASE_URL"); dsn != "" {
-		return dsn
+// testDSN returns FLEETDECK_DATABASE_URL for live-DB tests. Credentials are
+// env-only (no baked-in DSN): the caller's test skips when it is unset.
+func testDSN(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv("FLEETDECK_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("FLEETDECK_DATABASE_URL not set; live-DB test skipped")
 	}
-	return defaultTestDSN
+	return dsn
 }
 
 // newTestHub starts a hub backed by the live dev Postgres and an httptest
@@ -37,7 +39,7 @@ func newTestHub(t *testing.T) (*Hub, *store.Store, *httptest.Server, testAuth) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	st, err := store.New(ctx, testDSN())
+	st, err := store.New(ctx, testDSN(t))
 	if err != nil {
 		t.Skipf("postgres not reachable: %v", err)
 	}

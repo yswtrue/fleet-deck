@@ -61,9 +61,10 @@ FleetDeck 把这些会话收拢到一个 Web 控制面:
 ### 控制面(Docker Compose)
 
 ```sh
+cp .env.example .env        # 端口 + 数据库凭证都在这里,按需修改
 docker compose up -d --build
 # 单端口全搞定(hub 内嵌 UI + API + WS):
-#   http://localhost:7710
+#   http://localhost:<FLEETDECK_HUB_PORT>   (.env 默认值:7710)
 
 # 可选:Traefik 入口(:80/:443,label 自动发现路由):
 docker compose --profile traefik up -d
@@ -79,6 +80,7 @@ go build -o fleetdeck-node ./cmd/node
 ### 开发环境(devenv)
 
 ```sh
+cp .env.example .env    # 可选:自定义端口/凭证(默认值即可用)
 devenv shell
 devenv up              # hub + node + web,连本地 Postgres
 devenv up fake-node    # 可选:确定性的 fake agent node
@@ -92,7 +94,7 @@ devenv up fake-node    # 可选:确定性的 fake agent node
 # 后端
 go build ./... && go vet ./...
 gofmt -l cmd/ internal/        # 必须为空
-go test -race ./...            # 78 passed / 15 packages(需 live Postgres)
+go test -race ./...            # 78 passed / 15 packages(需 live Postgres: $FLEETDECK_DATABASE_URL,devenv shell 从 .env 派生)
 
 # 前端(cd web)
 pnpm tsc --noEmit && pnpm lint

@@ -2,26 +2,33 @@
 # as the single ingress. Node daemons are intentionally NOT here — they run
 # locally on each target machine and dial out to the hub (docs/DEPLOYMENT.md).
 #
-#   docker compose up -d --build     # then open http://localhost:7711
+#   docker compose up -d --build     # then open http://localhost:<FLEETDECK_HUB_PORT>
+#
+# Ports and credentials are interpolated from .env (copy .env.example to .env);
+# nothing is hardcoded here.
 #
 # Single-origin design: the SPA is built with VITE_HUB_URL=/ so /api and /ws
 # go through Traefik to the hub — no CORS, one published entrypoint.
 
 name: fleetdeck
 
-x-hub-dsn: &hub-dsn postgres://fleetdeck:fleetdeck@postgres:5432/fleetdeck?sslmode=disable
+x-hub-dsn: &hub-dsn postgres://${FLEETDECK_DB_USER:?set in .env}:${FLEETDECK_DB_PASSWORD:?set in .env}@postgres/${FLEETDECK_DB_NAME:?set in .env}?sslmode=disable
 
 services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: fleetdeck
-      POSTGRES_USER: fleetdeck
-      POSTGRES_PASSWORD: fleetdeck
+      POSTGRES_DB: ${FLEETDECK_DB_NAME:?set in .env}
+      POSTGRES_USER: ${FLEETDECK_DB_USER:?set in .env}
+      POSTGRES_PASSWORD: ${FLEETDECK_DB_PASSWORD:?set in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U fleetdeck -d fleetdeck']
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${FLEETDECK_DB_USER:?set in .env} -d ${FLEETDECK_DB_NAME:?set in .env}',
+        ]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -50,13 +57,13 @@ services:
     build: { context: ., target: runtime }
     command: ['/usr/local/bin/hub']
     environment:
-      FLEETDECK_HUB_ADDR: ':7710'
+      FLEETDECK_HUB_ADDR: ':${FLEETDECK_HUB_PORT:?set in .env}'
       FLEETDECK_DATABASE_URL: *hub-dsn
       FLEETDECK_REDIS_URL: redis://redis:6379/0
     ports:
       # UI + API + WS on one port (the hub serves the embedded SPA). Also the
-      # endpoint node daemons dial (ws://host:7710/ws/node).
-      - '7710:7710'
+      # endpoint node daemons dial (ws://host:<FLEETDECK_HUB_PORT>/ws/node).
+      - '${FLEETDECK_HUB_PORT:?set in .env}:${FLEETDECK_HUB_PORT:?set in .env}'
     labels:
       traefik.enable: 'true'
       traefik.http.routers.hub.rule: 'PathPrefix(`/`)'
@@ -66,7 +73,7 @@ services:
       traefik.http.routers.hub-secure.entrypoints: 'websecure'
       traefik.http.routers.hub-secure.tls: 'true'
       traefik.http.routers.hub-secure.service: 'hub'
-      traefik.http.services.hub.loadbalancer.server.port: '7710'
+      traefik.http.services.hub.loadbalancer.server.port: '${FLEETDECK_HUB_PORT:?set in .env}'
     depends_on:
       migrate:
         condition: service_completed_successfully

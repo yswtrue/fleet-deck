@@ -33,12 +33,12 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
-// Run serves the hub on FLEETDECK_HUB_ADDR (default ":7710") and blocks until
+// Run serves the hub on FLEETDECK_HUB_ADDR and blocks until
 // ctx is cancelled, then shuts down gracefully within a bounded window.
 func (h *Hub) Run(ctx context.Context) error {
 	addr := os.Getenv("FLEETDECK_HUB_ADDR")
 	if addr == "" {
-		addr = ":7710"
+		return errors.New(`FLEETDECK_HUB_ADDR is required (e.g. "127.0.0.1:7710")`)
 	}
 	srv := &http.Server{
 		Addr:              addr,
