@@ -108,6 +108,8 @@ func taskFromRow(r sqlcgen.Task) protocol.Task {
 		AgentType:   r.AgentType,
 		SessionID:   sessionID,
 		SortOrder:   int(r.SortOrder),
+		AutoStart:   r.AutoStart,
+		ArchivedAt:  r.ArchivedAt,
 		CreatedAt:   r.CreatedAt,
 		UpdatedAt:   r.UpdatedAt,
 	}

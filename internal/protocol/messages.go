@@ -121,6 +121,19 @@ type SendMessageCommand struct {
 	Message   string `json:"message"`
 }
 
+// SessionResumeCommand revives a finished (done/failed) session with the
+// user's follow-up: the node reattaches to the agent-side session via
+// session/load and then prompts with Message. ExternalSessionID is the
+// agent-side session id recorded when the session first ran.
+type SessionResumeCommand struct {
+	SessionID         string `json:"session_id"`
+	TaskID            string `json:"task_id"`
+	AgentType         string `json:"agent_type"`
+	WorkspacePath     string `json:"workspace_path"`
+	ExternalSessionID string `json:"external_session_id"`
+	Message           string `json:"message"`
+}
+
 // CancelCommand terminates a running session.
 type CancelCommand struct {
 	SessionID string `json:"session_id"`

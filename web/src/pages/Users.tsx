@@ -137,6 +137,7 @@ function UserFormModal({
       open={open}
       title={editing ? t('users.editTitle') : t('users.new')}
       okText={editing ? t('common:actions.save') : t('common:actions.create')}
+      cancelText={t('common:actions.cancel')}
       confirmLoading={saveUser.isPending}
       onOk={() => void form.submit()}
       onCancel={onClose}
@@ -296,6 +297,7 @@ export function Users() {
               title={t('users.deleteConfirmTitle', { email: user.email })}
               description={t('users.deleteConfirmBody')}
               okText={t('common:actions.delete')}
+              cancelText={t('common:actions.cancel')}
               okButtonProps={{ danger: true }}
               onConfirm={() => deleteUser.mutate(user)}
               disabled={isSelf}

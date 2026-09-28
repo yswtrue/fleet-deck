@@ -3,7 +3,9 @@
     "load": "Could not load board"
   },
   "toolbar": {
-    "newTask": "New task"
+    "newTask": "New task",
+    "showArchived": "Show archived",
+    "hideArchived": "Hide archived"
   },
   "search": {
     "placeholder": "Search task titles…",
@@ -33,6 +35,23 @@
     "movedTo": "“{{title}}” moved to {{status}}",
     "moveError": "Could not move task",
     "moveErrorDetail": "Could not move task: {{message}}",
+    "backlog": "Backlog",
+    "backlogHint": "Created without starting — dispatch it when ready",
+    "startButton": "Start",
+    "startAria": "Start {{title}}",
+    "started": "“{{title}}” started",
+    "startError": "Could not start task",
+    "startErrorDetail": "Could not start task: {{message}}",
+    "archiveButton": "Archive",
+    "archiveAria": "Archive {{title}}",
+    "archived": "“{{title}}” archived",
+    "archiveError": "Could not archive task",
+    "archiveErrorDetail": "Could not archive task: {{message}}",
+    "unarchiveButton": "Unarchive",
+    "unarchiveAria": "Unarchive {{title}}",
+    "unarchived": "“{{title}}” unarchived",
+    "unarchiveError": "Could not unarchive task",
+    "unarchiveErrorDetail": "Could not unarchive task: {{message}}",
     "updated": "Updated {{time}}"
   },
   "form": {
@@ -45,7 +64,9 @@
     "agentLabel": "Agent type",
     "agentPlaceholder": "Which agent should run this?",
     "agentRequired": "Please enter an agent type",
-    "agentHelp": "Known agents: fake, opencode, codex, claude, pi"
+    "agentHelp": "Known agents: fake, opencode, codex, claude, pi",
+    "autoStartLabel": "Start immediately",
+    "autoStartHelp": "Off creates a backlog task: it waits until you start it."
   },
   "subtask": {
     "progress": "{{done}} of {{total}} subtasks done",

@@ -153,7 +153,7 @@ func TestNodeRegistrationDrivesTaskToDone(t *testing.T) {
 			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgTodoUpdate, protocol.TodoUpdate{
 				SessionID: cmd.SessionID,
 				Todos: []protocol.Todo{
-					{ID: "1", Title: "Research", Status: protocol.SubtaskInProgress},
+					{ID: "1", Title: "Research", Status: protocol.SubtaskDone},
 				},
 			}))
 			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{

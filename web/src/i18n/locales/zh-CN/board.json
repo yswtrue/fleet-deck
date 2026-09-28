@@ -3,7 +3,9 @@
     "load": "无法加载看板"
   },
   "toolbar": {
-    "newTask": "新建任务"
+    "newTask": "新建任务",
+    "showArchived": "显示已归档",
+    "hideArchived": "隐藏已归档"
   },
   "search": {
     "placeholder": "搜索任务标题…",
@@ -33,6 +35,23 @@
     "movedTo": "“{{title}}”已移至{{status}}",
     "moveError": "无法移动任务",
     "moveErrorDetail": "无法移动任务：{{message}}",
+    "backlog": "待办",
+    "backlogHint": "创建时未启动 —— 就绪后手动启动",
+    "startButton": "启动",
+    "startAria": "启动 {{title}}",
+    "started": "“{{title}}”已启动",
+    "startError": "无法启动任务",
+    "startErrorDetail": "无法启动任务：{{message}}",
+    "archiveButton": "归档",
+    "archiveAria": "归档 {{title}}",
+    "archived": "“{{title}}”已归档",
+    "archiveError": "无法归档任务",
+    "archiveErrorDetail": "无法归档任务：{{message}}",
+    "unarchiveButton": "取消归档",
+    "unarchiveAria": "取消归档 {{title}}",
+    "unarchived": "“{{title}}”已取消归档",
+    "unarchiveError": "无法取消归档",
+    "unarchiveErrorDetail": "无法取消归档：{{message}}",
     "updated": "更新于 {{time}}"
   },
   "form": {
@@ -45,7 +64,9 @@
     "agentLabel": "Agent 类型",
     "agentPlaceholder": "由哪个 agent 执行？",
     "agentRequired": "请输入 agent 类型",
-    "agentHelp": "已知 agent：fake、opencode、codex、claude、pi"
+    "agentHelp": "已知 agent：fake、opencode、codex、claude、pi",
+    "autoStartLabel": "立即启动",
+    "autoStartHelp": "关闭则创建为待办任务：等待你手动启动。"
   },
   "subtask": {
     "progress": "{{total}} 个子任务中已完成 {{done}} 个",

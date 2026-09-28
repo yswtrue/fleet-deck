@@ -16,6 +16,11 @@ type StartRequest struct {
 	AgentType     string
 	Prompt        string
 	WorkspacePath string
+	// ResumeSessionID, when non-empty, asks the adapter to reattach to the
+	// given agent-side session instead of starting a fresh one. Adapters
+	// that can reattach (see Resumable) run Prompt as the first turn on the
+	// reattached session; adapters that cannot ignore it and start fresh.
+	ResumeSessionID string
 }
 
 // StartResult tells the caller what the adapter established.
@@ -37,6 +42,17 @@ type Adapter interface {
 
 	// Cancel terminates a running session.
 	Cancel(ctx context.Context, sessionID string) error
+}
+
+// Resumable is implemented by adapters that can reattach to an earlier
+// agent-side session instead of starting a fresh one. The node probes for it
+// when handling a session.resume command: adapters that do not implement it
+// resume by starting a fresh session with the follow-up message.
+type Resumable interface {
+	// SetResumeSessionID arms the adapter so the next Start reattaches to the
+	// agent-side session id instead of creating a new one. An empty id is a
+	// no-op (Start behaves as usual). Must be called before Start.
+	SetResumeSessionID(externalSessionID string)
 }
 
 // EventSink is the outbound channel through which adapters report what

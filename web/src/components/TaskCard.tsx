@@ -3,7 +3,12 @@ import { Button, Card, Dropdown, message } from 'antd'
 import type { MenuProps } from 'antd'
 import type { MessageInstance } from 'antd/es/message/interface'
 import { SubtaskDots } from './SubtaskDots.tsx'
-import { TASK_STATUS_TRANSITIONS, useTaskStatusMutation } from '../hooks/useTaskBoard.ts'
+import {
+  TASK_STATUS_TRANSITIONS,
+  useArchiveTaskMutation,
+  useStartTaskMutation,
+  useTaskStatusMutation,
+} from '../hooks/useTaskBoard.ts'
 import { formatRelative, statusLabel } from '../util.ts'
 import { useTranslation } from '../i18n/index.ts'
 import styles from './TaskCard.module.css'
@@ -31,8 +36,13 @@ export function TaskCard({
   const [localMessageApi, localMessageHolder] = message.useMessage()
   const messageApi = externalMessageApi ?? localMessageApi
   const statusMutation = useTaskStatusMutation()
-  // `done` is terminal: no menu at all, and the hub would 409 anyway.
+  const startMutation = useStartTaskMutation()
+  const archiveMutation = useArchiveTaskMutation()
+  // `done` is terminal: no move menu at all, and the hub would 409 anyway.
+  // Archive/unarchive and backlog-start are separate actions below.
   const transitions = TASK_STATUS_TRANSITIONS[task.status]
+  const isBacklog = task.status === 'waiting' && !task.auto_start
+  const isArchived = !!task.archived_at
 
   const openSession = () => {
     if (task.session_id) {
@@ -76,12 +86,56 @@ export function TaskCard({
       )
   }
 
+  // Start/archive (unmount-prone: archive removes the card from the default
+  // list, start moves it) use the same mutateAsync + promise pattern as the
+  // status move above so the toast always fires.
+  const handleStart = (event: React.MouseEvent) => {
+    event.stopPropagation()
+    startMutation
+      .mutateAsync(task.id)
+      .then(() => messageApi.success(t('card.started', { title: task.title })))
+      .catch((err: unknown) =>
+        messageApi.error(
+          err instanceof Error
+            ? t('card.startErrorDetail', { message: err.message })
+            : t('card.startError')
+        )
+      )
+  }
+
+  const handleArchiveToggle = (event: React.MouseEvent) => {
+    event.stopPropagation()
+    if (isArchived) {
+      archiveMutation
+        .mutateAsync({ id: task.id, archived: false })
+        .then(() => messageApi.success(t('card.unarchived', { title: task.title })))
+        .catch((err: unknown) =>
+          messageApi.error(
+            err instanceof Error
+              ? t('card.unarchiveErrorDetail', { message: err.message })
+              : t('card.unarchiveError')
+          )
+        )
+      return
+    }
+    archiveMutation
+      .mutateAsync({ id: task.id, archived: true })
+      .then(() => messageApi.success(t('card.archived', { title: task.title })))
+      .catch((err: unknown) =>
+        messageApi.error(
+          err instanceof Error
+            ? t('card.archiveErrorDetail', { message: err.message })
+            : t('card.archiveError')
+        )
+      )
+  }
+
   return (
     <Card
       size="small"
       hoverable
       tabIndex={0}
-      className={styles.card}
+      className={`${styles.card}${isArchived ? ` ${styles.archived}` : ''}`}
       onClick={openSession}
       onKeyDown={handleKeyDown}
       role="button"
@@ -94,10 +148,51 @@ export function TaskCard({
           {statusLabel(task.status)}
         </span>
         <span className={styles.agentChip}>{task.agent_type}</span>
-        {!task.session_id && (
+        {!task.session_id && !isBacklog && (
           <span className={styles.noSessionChip} title={t('card.noSessionHint')}>
             {t('card.noSession')}
           </span>
+        )}
+        {isBacklog && (
+          <span className={styles.noSessionChip} title={t('card.backlogHint')}>
+            {t('card.backlog')}
+          </span>
+        )}
+        {isBacklog && (
+          <Button
+            size="small"
+            type="text"
+            className={styles.moveButton}
+            aria-label={t('card.startAria', { title: task.title })}
+            onClick={handleStart}
+            loading={startMutation.isPending}
+          >
+            {t('card.startButton')}
+          </Button>
+        )}
+        {task.status === 'done' && !isArchived && (
+          <Button
+            size="small"
+            type="text"
+            className={styles.moveButton}
+            aria-label={t('card.archiveAria', { title: task.title })}
+            onClick={handleArchiveToggle}
+            loading={archiveMutation.isPending}
+          >
+            {t('card.archiveButton')}
+          </Button>
+        )}
+        {isArchived && (
+          <Button
+            size="small"
+            type="text"
+            className={styles.moveButton}
+            aria-label={t('card.unarchiveAria', { title: task.title })}
+            onClick={handleArchiveToggle}
+            loading={archiveMutation.isPending}
+          >
+            {t('card.unarchiveButton')}
+          </Button>
         )}
         {transitions.length > 0 && (
           <Dropdown

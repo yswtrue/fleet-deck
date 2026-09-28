@@ -54,6 +54,7 @@ func (h *Hub) routes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/tasks", h.requireAuth(h.handleListTasks))
 	mux.HandleFunc("POST /api/tasks", h.requireAuth(h.handleCreateTask))
+	mux.HandleFunc("POST /api/tasks/{id}/start", h.requireAuth(h.handleStartTask))
 	mux.HandleFunc("PATCH /api/tasks/{id}", h.requireAuth(h.handlePatchTask))
 	mux.HandleFunc("GET /api/tasks/{id}/subtasks", h.requireAuth(h.handleListSubtasksByTask))
 
@@ -301,26 +302,46 @@ func (h *Hub) handleListTasks(w http.ResponseWriter, r *http.Request) {
 		tasks []protocol.Task
 		err   error
 	)
+	// ?archived=1 scopes every list/search path to archived rows only; the
+	// default view hides them (archived_at IS NULL in SQL).
+	archivedOnly := r.URL.Query().Get("archived") == "1"
 	switch {
 	case workspaceID != "" && q != "":
-		tasks, err = sq.SearchTasksByWorkspace(ctx, workspaceID, q)
-	case workspaceID != "":
-		// Board reads are cached per workspace and invalidated on every task
-		// mutation (see invalidateTasks). Fuzzy search stays uncached.
-		cacheKey := "tasks:ws:" + workspaceID
-		var cached []protocol.Task
-		if h.cachedJSON(ctx, cacheKey, &cached) {
-			tasks = cached
+		if archivedOnly {
+			tasks, err = sq.SearchArchivedTasksByWorkspace(ctx, workspaceID, q)
 		} else {
-			tasks, err = sq.ListTasksByWorkspace(ctx, workspaceID)
-			if err == nil {
-				h.cacheSet(ctx, cacheKey, tasks, taskListTTL)
+			tasks, err = sq.SearchTasksByWorkspace(ctx, workspaceID, q)
+		}
+	case workspaceID != "":
+		if archivedOnly {
+			tasks, err = sq.ListArchivedTasksByWorkspace(ctx, workspaceID)
+		} else {
+			// Board reads are cached per workspace and invalidated on every task
+			// mutation (see invalidateTasks). Fuzzy search and the
+			// archived-only view stay uncached.
+			cacheKey := "tasks:ws:" + workspaceID
+			var cached []protocol.Task
+			if h.cachedJSON(ctx, cacheKey, &cached) {
+				tasks = cached
+			} else {
+				tasks, err = sq.ListTasksByWorkspace(ctx, workspaceID)
+				if err == nil {
+					h.cacheSet(ctx, cacheKey, tasks, taskListTTL)
+				}
 			}
 		}
 	case q != "":
-		tasks, err = sq.SearchTasksByNode(ctx, nodeID, q)
+		if archivedOnly {
+			tasks, err = sq.SearchArchivedTasksByNode(ctx, nodeID, q)
+		} else {
+			tasks, err = sq.SearchTasksByNode(ctx, nodeID, q)
+		}
 	default:
-		tasks, err = sq.ListTasksByNode(ctx, nodeID)
+		if archivedOnly {
+			tasks, err = sq.ListArchivedTasksByNode(ctx, nodeID)
+		} else {
+			tasks, err = sq.ListTasksByNode(ctx, nodeID)
+		}
 	}
 	if err != nil {
 		h.serverError(w, "list tasks", err)
@@ -338,6 +359,9 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Title       string `json:"title"`
 		Prompt      string `json:"prompt"`
 		AgentType   string `json:"agent_type"`
+		// AutoStart is a pointer so a missing field defaults to true while
+		// an explicit false creates a backlog task (see handleStartTask).
+		AutoStart *bool `json:"auto_start"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -356,6 +380,10 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	autoStart := true
+	if req.AutoStart != nil {
+		autoStart = *req.AutoStart
+	}
 	task, err := h.store.Queries().CreateTask(ctx, store.CreateTaskParams{
 		WorkspaceID: req.WorkspaceID,
 		Title:       req.Title,
@@ -363,6 +391,7 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Status:      protocol.TaskWaiting,
 		AgentType:   req.AgentType,
 		SortOrder:   0,
+		AutoStart:   autoStart,
 	})
 	if err != nil {
 		h.serverError(w, "create task", err)
@@ -371,6 +400,12 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	h.invalidateTasks(ctx, req.WorkspaceID)
 	h.bus.Publish(protocol.Event{Type: protocol.EvTaskCreated, Data: protocol.TaskCreated{Task: task}})
 
+	// Backlog tasks (auto_start=false) stay waiting until someone starts
+	// them explicitly via POST /api/tasks/{id}/start.
+	if !autoStart {
+		writeJSON(w, http.StatusCreated, task)
+		return
+	}
 	dispatched, err := h.dispatchTask(ctx, task)
 	if err != nil {
 		// The task still exists; report the dispatch failure in the log and
@@ -381,11 +416,48 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, dispatched)
 }
 
+// handleStartTask serves POST /api/tasks/{id}/start: dispatch a waiting
+// backlog task exactly like creation does (create session + forward pointer +
+// running flip in one tx, then task.start to the node). A node that is offline
+// leaves the task waiting with a warning.
+func (h *Hub) handleStartTask(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	ctx := r.Context()
+	task, err := h.taskVisibleTo(ctx, userOf(r), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if task.SessionID != "" {
+		writeError(w, http.StatusConflict, "task already started")
+		return
+	}
+	if task.Status != protocol.TaskWaiting {
+		writeError(w, http.StatusConflict,
+			fmt.Sprintf("only waiting tasks can be started (status %s)", task.Status))
+		return
+	}
+
+	dispatched, err := h.dispatchTask(ctx, task)
+	if err != nil {
+		h.serverError(w, "start task", err)
+		return
+	}
+	if dispatched.Status != protocol.TaskRunning {
+		h.log.Warn("task queued but node offline; task stays waiting", "task_id", id)
+		writeJSON(w, http.StatusAccepted, map[string]any{"task": dispatched, "warning": "node offline; task stays waiting"})
+		return
+	}
+	writeJSON(w, http.StatusOK, dispatched)
+}
+
 func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var req struct {
 		Status    *protocol.TaskStatus `json:"status"`
 		SortOrder *int                 `json:"sort_order"`
+		Archived  *bool                `json:"archived"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -419,6 +491,28 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 				Type: protocol.EvTaskStatusChanged,
 				Data: protocol.TaskStatusChanged{TaskID: id, From: task.Status, To: updated.Status},
 			})
+		}
+		task = updated
+	}
+
+	if req.Archived != nil {
+		// Archiving hides a finished task from the default board view;
+		// unarchiving is always allowed. Only finished tasks may be
+		// archived: reopening a done task goes through the session resume
+		// path, never through here.
+		if *req.Archived && task.Status != protocol.TaskDone {
+			writeError(w, http.StatusConflict, "only finished tasks can be archived")
+			return
+		}
+		var archivedAt *time.Time
+		if *req.Archived {
+			now := time.Now().UTC()
+			archivedAt = &now
+		}
+		updated, err := h.store.Queries().UpdateTaskArchivedAt(ctx, id, archivedAt)
+		if err != nil {
+			h.serverError(w, "update task archived_at", err)
+			return
 		}
 		task = updated
 	}
@@ -566,11 +660,13 @@ type sendMessageRequest struct {
 	Message string `json:"message"`
 }
 
-// handleSendMessage records a user reply to an awaiting_user session, flips the
-// session back to running, resumes the parent task in lock-step, broadcasts all
-// changes to web subscribers, and forwards the reply to the owning node. It is
-// best-effort with respect to the node: if the node is offline the message is
-// still stored and the caller gets 202 instead of an error.
+// handleSendMessage chats with a session that is paused or finished:
+// awaiting_user sessions take the normal reply path (session.send_message to
+// the node), while done/failed sessions are revived (session.resume: the node
+// reattaches to the agent-side session and prompts with the new message). A
+// running session is rejected with 409. Both accepting paths record the
+// message, flip the session to running, move the parent task in lock-step,
+// and broadcast; a node that is offline yields 202, never an error.
 func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -591,14 +687,27 @@ func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
-	if session.Status != protocol.SessionAwaitingUser {
+	switch session.Status {
+	case protocol.SessionAwaitingUser:
+		h.resumeAwaitingSession(w, r, ctx, session, msgText)
+	case protocol.SessionDone, protocol.SessionFailed:
+		h.resumeFinishedSession(w, r, ctx, session, msgText)
+	default:
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error":  "session is not awaiting user input",
+			"error":  "session is running",
 			"status": string(session.Status),
 		})
-		return
 	}
+}
 
+// resumeAwaitingSession is the original /send path: record the user reply to
+// an awaiting_user session, flip the session back to running, resume the
+// parent task in lock-step, broadcast all changes, and forward the reply to
+// the owning node. It is best-effort with respect to the node: if the node is
+// offline the message is still stored and the caller gets 202 instead of an
+// error.
+func (h *Hub) resumeAwaitingSession(w http.ResponseWriter, r *http.Request, ctx context.Context, session protocol.Session, msgText string) {
+	id := session.ID
 	// Persist the user message and resume the session atomically.
 	var inserted protocol.Message
 	if err := h.store.WithTx(ctx, func(q *store.Queries) error {
@@ -640,6 +749,73 @@ func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	})
 	if !h.sendToNode(session.NodeID, env) {
 		h.log.Warn("could not deliver session.send_message to node",
+			"session_id", id, "node_id", session.NodeID)
+		writeJSON(w, http.StatusAccepted, map[string]string{
+			"status":  "queued",
+			"warning": "node offline; will not run until reconnect",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": inserted})
+}
+
+// resumeFinishedSession revives a finished (done/failed) session with the
+// user's follow-up: the message is recorded, the session flips back to
+// running, the parent task reopens (done -> running via moveTaskTo, bypassing
+// the manual PATCH table on purpose), and the owning node gets a
+// session.resume command carrying the agent-side external session id so it can
+// reattach with session/load. Like the awaiting path, an offline node yields
+// 202 with a warning, not an error.
+func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx context.Context, session protocol.Session, msgText string) {
+	id := session.ID
+	var inserted protocol.Message
+	if err := h.store.WithTx(ctx, func(q *store.Queries) error {
+		msg, err := q.CreateMessage(ctx, store.CreateMessageParams{
+			SessionID: id,
+			Role:      protocol.RoleUser,
+			Content:   msgText,
+		})
+		if err != nil {
+			return err
+		}
+		inserted = msg
+		// A resume clears the terminal ended_at: the session is live again.
+		return q.UpdateSessionStatus(ctx, id, protocol.SessionRunning, nil)
+	}); err != nil {
+		h.serverError(w, "resume session", err)
+		return
+	}
+
+	h.reopenTaskOnResume(ctx, id)
+
+	h.bus.Publish(protocol.Event{
+		Type: protocol.EvSessionMessage,
+		Data: protocol.SessionMessage{SessionID: id, Message: inserted},
+	})
+	h.bus.Publish(protocol.Event{
+		Type: protocol.EvSessionStateChanged,
+		Data: protocol.SessionStateChanged{SessionID: id, Status: protocol.SessionRunning},
+	})
+
+	workspacePath := ""
+	taskID := session.TaskID
+	if task, err := h.store.Queries().GetTask(ctx, session.TaskID); err == nil {
+		taskID = task.ID
+		if ws, err := h.store.Queries().GetWorkspace(ctx, task.WorkspaceID); err == nil {
+			workspacePath = ws.Path
+		}
+	}
+	env := protocol.NewEnvelope(protocol.MsgSessionResume, protocol.SessionResumeCommand{
+		SessionID:         id,
+		TaskID:            taskID,
+		AgentType:         session.AgentType,
+		WorkspacePath:     workspacePath,
+		ExternalSessionID: session.ExternalSessionID,
+		Message:           msgText,
+	})
+	if !h.sendToNode(session.NodeID, env) {
+		h.log.Warn("could not deliver session.resume to node",
 			"session_id", id, "node_id", session.NodeID)
 		writeJSON(w, http.StatusAccepted, map[string]string{
 			"status":  "queued",

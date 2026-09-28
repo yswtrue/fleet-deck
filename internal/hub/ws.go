@@ -299,12 +299,55 @@ func (h *Hub) moveTaskTo(ctx context.Context, task protocol.Task, to protocol.Ta
 // syncTaskFromSession maps a session lifecycle status onto its owning task and
 // broadcasts task.status_changed when the task moves. This is the single place
 // the session -> task status rule is applied.
+//
+// Completion gate: a session that ends (done) does not finish a task whose
+// mirrored subtasks are still open — the task parks in awaiting_user instead
+// so the user can see the unfinished work and continue the session (which the
+// /send resume path reopens). Failed sessions still complete their task.
 func (h *Hub) syncTaskFromSession(ctx context.Context, sessionID string, status protocol.SessionStatus) {
 	task, err := h.store.Queries().GetTaskBySessionID(ctx, sessionID)
 	if err != nil {
 		return
 	}
-	h.moveTaskTo(ctx, task, taskStatusFor(status))
+	to := taskStatusFor(status)
+	if status == protocol.SessionDone && to == protocol.TaskDone && h.taskHasOpenSubtasks(ctx, task.ID) {
+		to = protocol.TaskAwaitingUser
+	}
+	h.moveTaskTo(ctx, task, to)
+}
+
+// taskHasOpenSubtasks reports whether the task has at least one mirrored
+// subtask that is not done. Subtask rows disappear when their agent-side todo
+// is removed, so only present rows count.
+func (h *Hub) taskHasOpenSubtasks(ctx context.Context, taskID string) bool {
+	subs, err := h.store.Queries().ListSubtasksByTask(ctx, taskID)
+	if err != nil {
+		// On a read failure stay with the ungated mapping: a stuck task is
+		// worse than an early done.
+		h.log.Warn("completion gate: list subtasks", "task_id", taskID, "err", err)
+		return false
+	}
+	for _, sub := range subs {
+		if sub.Status != protocol.SubtaskDone {
+			return true
+		}
+	}
+	return false
+}
+
+// reopenTaskOnResume flips a finished task back to running when its session is
+// revived through /send. It goes through moveTaskTo (the internal
+// session->task derivation), deliberately bypassing the manual PATCH table
+// where done is terminal.
+func (h *Hub) reopenTaskOnResume(ctx context.Context, sessionID string) {
+	task, err := h.store.Queries().GetTaskBySessionID(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	if task.Status != protocol.TaskDone {
+		return
+	}
+	h.moveTaskTo(ctx, task, protocol.TaskRunning)
 }
 
 // resumeTaskOnReply bumps the parent task awaiting_user -> running in lock-step

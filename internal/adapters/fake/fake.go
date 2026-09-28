@@ -76,6 +76,12 @@ func init() {
 	adapters.Default.Register("fake", func() adapters.Adapter { return New() })
 }
 
+// SetResumeSessionID implements adapters.Resumable. The fake has no real
+// agent-side session to reattach to, so a resume replays the scenario from
+// the top like a fresh run (deliberate parity choice, documented on
+// adapters.Resumable).
+func (a *Adapter) SetResumeSessionID(externalSessionID string) {}
+
 // Start emits the running state, kicks off the scenario, and returns
 // immediately with a synthetic external session id.
 func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink adapters.EventSink) (adapters.StartResult, error) {

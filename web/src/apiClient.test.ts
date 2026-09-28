@@ -156,3 +156,78 @@ describe('user ↔ node bindings', () => {
     expect(init?.body).toBe(JSON.stringify({ node_ids: [] }))
   })
 })
+
+describe('task lifecycle', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/login')
+  })
+  afterEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/')
+    vi.unstubAllGlobals()
+  })
+
+  it('creates backlog tasks with auto_start: false', async () => {
+    const fetchMock = mockFetch(() => jsonResponse({ id: 't-1' }))
+
+    await apiClient.createTask({
+      workspace_id: 'w-1',
+      title: 'Backlog item',
+      agent_type: 'fake',
+      auto_start: false,
+    })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/tasks')
+    expect(init?.method).toBe('POST')
+    expect(init?.body).toBe(
+      JSON.stringify({
+        workspace_id: 'w-1',
+        title: 'Backlog item',
+        agent_type: 'fake',
+        auto_start: false,
+      })
+    )
+  })
+
+  it('starts a waiting task via POST /api/tasks/{id}/start', async () => {
+    const fetchMock = mockFetch(() => jsonResponse({ id: 't-1', status: 'running' }))
+
+    await expect(apiClient.startTask('t-1')).resolves.toEqual({ id: 't-1', status: 'running' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/tasks/t-1/start')
+    expect(init?.method).toBe('POST')
+  })
+
+  it('archives via PATCH {archived} and lists only archived rows with ?archived=1', async () => {
+    const fetchMock = mockFetch(() => jsonResponse({ id: 't-1' }))
+
+    await apiClient.patchTask('t-1', { archived: true })
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/t-1')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ archived: true }),
+    })
+
+    await apiClient.listTasks('w-1', undefined, { archived: true })
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/tasks?workspace_id=w-1&archived=1')
+
+    await apiClient.listTasksByNode('n-1', { archived: true })
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/tasks?node_id=n-1&archived=1')
+  })
+
+  it('keeps the default list unfiltered and preserves the q search path', async () => {
+    const fetchMock = mockFetch(() => jsonResponse([]))
+
+    await apiClient.listTasks('w-1')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks?workspace_id=w-1')
+
+    await apiClient.listTasks('w-1', 'flaky')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/tasks?workspace_id=w-1&q=flaky')
+
+    await apiClient.listTasksByNode('n-1')
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/tasks?node_id=n-1')
+  })
+})

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store/sqlcgen"
@@ -10,7 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// CreateTaskParams are the fields required to create a task.
+// CreateTaskParams are the fields required to create a task. AutoStart
+// defaults to true: pass an explicit false to create a backlog task that
+// stays waiting until POST /api/tasks/{id}/start dispatches it.
 type CreateTaskParams struct {
 	WorkspaceID string
 	Title       string
@@ -18,6 +21,7 @@ type CreateTaskParams struct {
 	Status      protocol.TaskStatus
 	AgentType   string
 	SortOrder   int
+	AutoStart   bool
 }
 
 // CreateTask inserts a task and returns the stored row.
@@ -29,6 +33,7 @@ func (q *Queries) CreateTask(ctx context.Context, p CreateTaskParams) (protocol.
 		Status:      string(p.Status),
 		AgentType:   p.AgentType,
 		SortOrder:   int32(p.SortOrder),
+		AutoStart:   p.AutoStart,
 	})
 	if err != nil {
 		return protocol.Task{}, fmt.Errorf("store: create task: %w", err)
@@ -45,7 +50,9 @@ func (q *Queries) GetTask(ctx context.Context, id string) (protocol.Task, error)
 	return taskFromRow(row), nil
 }
 
-// ListTasksByWorkspace returns a board's tasks ordered by sort_order.
+// ListTasksByWorkspace returns a board's unarchived tasks ordered by
+// sort_order. Archived rows are hidden by default; use
+// ListArchivedTasksByWorkspace with ?archived=1.
 func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) ([]protocol.Task, error) {
 	rows, err := q.q.ListTasksByWorkspace(ctx, workspaceID)
 	if err != nil {
@@ -54,8 +61,17 @@ func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) 
 	return tasksFromRows(rows), nil
 }
 
-// ListTasksByNode returns every task on every workspace of a node, ordered by
-// sort_order.
+// ListArchivedTasksByWorkspace returns only a board's archived tasks.
+func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID string) ([]protocol.Task, error) {
+	rows, err := q.q.ListArchivedTasksByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list archived tasks by workspace: %w", err)
+	}
+	return tasksFromRows(rows), nil
+}
+
+// ListTasksByNode returns every unarchived task on every workspace of a
+// node, ordered by sort_order.
 func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]protocol.Task, error) {
 	rows, err := q.q.ListTasksByNode(ctx, nodeID)
 	if err != nil {
@@ -64,8 +80,17 @@ func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]protoco
 	return tasksFromRows(rows), nil
 }
 
-// SearchTasksByWorkspace fuzzy-matches task titles on a board (pg_trgm:
-// substring or trigram similarity), best match first.
+// ListArchivedTasksByNode returns only a node's archived tasks.
+func (q *Queries) ListArchivedTasksByNode(ctx context.Context, nodeID string) ([]protocol.Task, error) {
+	rows, err := q.q.ListArchivedTasksByNode(ctx, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list archived tasks by node: %w", err)
+	}
+	return tasksFromRows(rows), nil
+}
+
+// SearchTasksByWorkspace fuzzy-matches unarchived task titles on a board
+// (pg_trgm: substring or trigram similarity), best match first.
 func (q *Queries) SearchTasksByWorkspace(ctx context.Context, workspaceID, query string) ([]protocol.Task, error) {
 	rows, err := q.q.SearchTasksByWorkspace(ctx, sqlcgen.SearchTasksByWorkspaceParams{
 		WorkspaceID: workspaceID,
@@ -77,8 +102,21 @@ func (q *Queries) SearchTasksByWorkspace(ctx context.Context, workspaceID, query
 	return tasksFromRows(rows), nil
 }
 
-// SearchTasksByNode fuzzy-matches task titles across every workspace of a
-// node, best match first.
+// SearchArchivedTasksByWorkspace fuzzy-matches only archived task titles on a
+// board.
+func (q *Queries) SearchArchivedTasksByWorkspace(ctx context.Context, workspaceID, query string) ([]protocol.Task, error) {
+	rows, err := q.q.SearchArchivedTasksByWorkspace(ctx, sqlcgen.SearchArchivedTasksByWorkspaceParams{
+		WorkspaceID: workspaceID,
+		Q:           queryText(query),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: search archived tasks by workspace: %w", err)
+	}
+	return tasksFromRows(rows), nil
+}
+
+// SearchTasksByNode fuzzy-matches unarchived task titles across every
+// workspace of a node, best match first.
 func (q *Queries) SearchTasksByNode(ctx context.Context, nodeID, query string) ([]protocol.Task, error) {
 	rows, err := q.q.SearchTasksByNode(ctx, sqlcgen.SearchTasksByNodeParams{
 		NodeID: nodeID,
@@ -86,6 +124,19 @@ func (q *Queries) SearchTasksByNode(ctx context.Context, nodeID, query string) (
 	})
 	if err != nil {
 		return nil, fmt.Errorf("store: search tasks by node: %w", err)
+	}
+	return tasksFromRows(rows), nil
+}
+
+// SearchArchivedTasksByNode fuzzy-matches only archived task titles across a
+// node.
+func (q *Queries) SearchArchivedTasksByNode(ctx context.Context, nodeID, query string) ([]protocol.Task, error) {
+	rows, err := q.q.SearchArchivedTasksByNode(ctx, sqlcgen.SearchArchivedTasksByNodeParams{
+		NodeID: nodeID,
+		Q:      queryText(query),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: search archived tasks by node: %w", err)
 	}
 	return tasksFromRows(rows), nil
 }
@@ -146,4 +197,17 @@ func (q *Queries) UpdateTaskSortOrder(ctx context.Context, id string, sortOrder 
 		return fmt.Errorf("store: update task sort order: %w", err)
 	}
 	return nil
+}
+
+// UpdateTaskArchivedAt sets (archive) or clears (unarchive, nil) a task's
+// archived_at marker and returns the updated row.
+func (q *Queries) UpdateTaskArchivedAt(ctx context.Context, id string, archivedAt *time.Time) (protocol.Task, error) {
+	row, err := q.q.UpdateTaskArchivedAt(ctx, sqlcgen.UpdateTaskArchivedAtParams{
+		ID:         id,
+		ArchivedAt: archivedAt,
+	})
+	if err != nil {
+		return protocol.Task{}, fmt.Errorf("store: update task archived_at: %w", err)
+	}
+	return taskFromRow(row), nil
 }

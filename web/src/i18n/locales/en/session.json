@@ -25,6 +25,7 @@
   "composer": {
     "placeholder": "Reply to the agent… (Enter to send, Shift+Enter for a new line)",
     "waiting": "Waiting for the agent to ask a question…",
+    "continuePlaceholder": "Continue the conversation… (Enter to send, Shift+Enter for a new line)",
     "send": "Send",
     "sendError": "Reply not sent",
     "sendErrorDetail": "Reply not sent: {{message}}"

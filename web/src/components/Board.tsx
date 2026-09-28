@@ -16,11 +16,13 @@ export function Board({ workspaceId }: { workspaceId: string }) {
   const { t } = useTranslation('board')
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+  const [showForm, setShowForm] = useState(false)
   const { tasks, subtasksByTask, isLoading, isFetching, error } = useTaskBoard(
     workspaceId,
-    debouncedQuery
+    debouncedQuery,
+    showArchived
   )
-  const [showForm, setShowForm] = useState(false)
   // Status-move toasts live here, not on the card: a move relocates the card
   // across columns (unmount/remount), and a card-owned holder would take the
   // toast down with it. The static antd message API renders nothing under
@@ -51,6 +53,13 @@ export function Board({ workspaceId }: { workspaceId: string }) {
       <div className={styles.toolbar}>
         <Button type="primary" onClick={() => setShowForm(true)}>
           {t('toolbar.newTask')}
+        </Button>
+        <Button
+          type={showArchived ? 'default' : 'text'}
+          aria-pressed={showArchived}
+          onClick={() => setShowArchived((prev) => !prev)}
+        >
+          {showArchived ? t('toolbar.hideArchived') : t('toolbar.showArchived')}
         </Button>
         <Input
           value={query}

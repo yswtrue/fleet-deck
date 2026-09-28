@@ -101,9 +101,46 @@ func TestSmokeCRUDRoundTrip(t *testing.T) {
 		Status:      protocol.TaskWaiting,
 		AgentType:   "fake",
 		SortOrder:   1,
+		AutoStart:   true,
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
+	}
+	if !task.AutoStart || task.ArchivedAt != nil {
+		t.Fatalf("CreateTask lifecycle defaults: auto_start=%v archived_at=%v", task.AutoStart, task.ArchivedAt)
+	}
+	backlog, err := q.CreateTask(ctx, CreateTaskParams{
+		WorkspaceID: ws.ID,
+		Title:       "backlog-" + suffix,
+		Prompt:      "later",
+		Status:      protocol.TaskWaiting,
+		AgentType:   "fake",
+		AutoStart:   false,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask backlog: %v", err)
+	}
+	if backlog.AutoStart {
+		t.Fatalf("backlog task auto_start = true, want false")
+	}
+	archivedAt := time.Now().UTC()
+	if got, err := q.UpdateTaskArchivedAt(ctx, task.ID, &archivedAt); err != nil || got.ArchivedAt == nil {
+		t.Fatalf("UpdateTaskArchivedAt: %v (%+v)", err, got)
+	}
+	if list, err := q.ListTasksByWorkspace(ctx, ws.ID); err != nil {
+		t.Fatalf("ListTasksByWorkspace: %v", err)
+	} else {
+		for _, row := range list {
+			if row.ID == task.ID {
+				t.Fatalf("archived task %s leaked into the default list", task.ID)
+			}
+		}
+	}
+	if list, err := q.ListArchivedTasksByWorkspace(ctx, ws.ID); err != nil || len(list) != 1 || list[0].ID != task.ID {
+		t.Fatalf("ListArchivedTasksByWorkspace: %v (%d rows)", err, len(list))
+	}
+	if got, err := q.UpdateTaskArchivedAt(ctx, task.ID, nil); err != nil || got.ArchivedAt != nil {
+		t.Fatalf("unarchive: %v (%+v)", err, got)
 	}
 	if got, err := q.GetTask(ctx, task.ID); err != nil || got.WorkspaceID != ws.ID {
 		t.Fatalf("GetTask: %v (workspace %q)", err, got.WorkspaceID)

@@ -81,6 +81,8 @@ type Task struct {
 	SortOrder   int32
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	ArchivedAt  *time.Time
+	AutoStart   bool
 }
 
 type User struct {

@@ -39,5 +39,6 @@ const (
 	MsgRegisterResponse = "register_response"
 	MsgTaskStart        = "task.start"
 	MsgSendMessage      = "session.send_message"
+	MsgSessionResume    = "session.resume"
 	MsgCancel           = "session.cancel"
 )

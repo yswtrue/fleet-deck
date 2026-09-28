@@ -40,10 +40,23 @@ export interface CreateTaskInput {
   title: string
   prompt?: string
   agent_type: string
+  /** False creates a backlog task: it stays `waiting` until explicitly started. */
+  auto_start?: boolean
 }
 
 export interface PatchTaskInput {
   status?: Task['status']
+  /** Archive (true; only `done` tasks) or unarchive (false) the task. */
+  archived?: boolean
+}
+
+/**
+ * Options for the task list endpoints. Archived tasks are excluded by default;
+ * pass `archived: true` to list only archived rows (`?archived=1`).
+ */
+export interface ListTasksOptions {
+  q?: string
+  archived?: boolean
 }
 
 // ── Auth (multi-user) ────────────────────────────────────────────────────────
@@ -304,17 +317,26 @@ export const apiClient = {
   createWorkspace: (workspace: CreateWorkspaceInput) =>
     fetchJson<Workspace>('/api/workspaces', { method: 'POST', body: JSON.stringify(workspace) }),
 
-  listTasks: (workspaceId: string, q?: string) =>
+  listTasks: (workspaceId: string, q?: string, options?: ListTasksOptions) =>
     fetchJson<Task[]>(
-      `/api/tasks?workspace_id=${encodeURIComponent(workspaceId)}${q ? `&q=${encodeURIComponent(q)}` : ''}`
+      `/api/tasks?workspace_id=${encodeURIComponent(workspaceId)}${(options?.q ?? q) ? `&q=${encodeURIComponent(options?.q ?? (q as string))}` : ''}${options?.archived ? '&archived=1' : ''}`
     ),
 
   /** GET /api/tasks?node_id= spans every workspace on the node in one call. */
-  listTasksByNode: (nodeId: string) =>
-    fetchJson<Task[]>(`/api/tasks?node_id=${encodeURIComponent(nodeId)}`),
+  listTasksByNode: (nodeId: string, options?: ListTasksOptions) =>
+    fetchJson<Task[]>(
+      `/api/tasks?node_id=${encodeURIComponent(nodeId)}${options?.archived ? '&archived=1' : ''}`
+    ),
 
   createTask: (task: CreateTaskInput) =>
     fetchJson<Task>('/api/tasks', { method: 'POST', body: JSON.stringify(task) }),
+
+  /**
+   * POST /api/tasks/{id}/start dispatches a waiting task (the same dispatch
+   * the hub runs on creation when `auto_start` is true). 409 when the task
+   * was already started or is no longer waiting.
+   */
+  startTask: (id: string) => fetchJson<Task>(`/api/tasks/${id}/start`, { method: 'POST' }),
 
   patchTask: (id: string, patch: PatchTaskInput) =>
     fetchJson<Task>(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),

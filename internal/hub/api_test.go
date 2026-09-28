@@ -203,8 +203,8 @@ func TestSendMessageRefusesWhenNotAwaiting(t *testing.T) {
 	if err := json.Unmarshal(raw, &body); err != nil {
 		t.Fatalf("decode 409 body: %v (%s)", err, raw)
 	}
-	if body.Error != "session is not awaiting user input" || body.Status != string(protocol.SessionRunning) {
-		t.Fatalf("409 body = %+v, want status=running", body)
+	if body.Error != "session is running" || body.Status != string(protocol.SessionRunning) {
+		t.Fatalf("409 body = %+v, want error=session is running status=running", body)
 	}
 
 	ctx := context.Background()
@@ -1027,4 +1027,839 @@ func TestGetNodeByID(t *testing.T) {
 
 	resp, raw = getRaw(t, "", ts.URL+"/api/nodes/"+node.ID)
 	requireStatus(t, "get node without token", resp, raw, http.StatusUnauthorized)
+}
+
+// TestSendMessageResumesDoneSession asserts the resume path: a user message to
+// a done session is persisted, the session flips back to running, the parent
+// task reopens done -> running (bypassing the manual PATCH table), and the
+// owning node receives a session.resume command carrying the recorded
+// external session id.
+func TestSendMessageResumesDoneSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("resume-node"))
+	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	// Finish the session the way the node would: failed and done both route
+	// through syncTaskFromSession, driving the task to done.
+	ended := time.Now().UTC()
+	if err := st.Queries().UpdateSessionStatus(ctx, task.SessionID, protocol.SessionDone, &ended); err != nil {
+		t.Fatalf("seed session done: %v", err)
+	}
+	if _, err := st.Queries().UpdateTaskStatus(ctx, task.ID, protocol.TaskDone); err != nil {
+		t.Fatalf("seed task done: %v", err)
+	}
+	const extID = "agent-resume-1"
+	if err := st.Queries().UpdateSessionExternalID(ctx, task.SessionID, extID); err != nil {
+		t.Fatalf("seed external id: %v", err)
+	}
+
+	events, unsubscribe := h.Bus().Subscribe(EventScope{All: true})
+	defer unsubscribe()
+
+	const followUp = "now do it again, better"
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/send", map[string]string{"message": followUp})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("send status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+
+	// Session running again, terminal marker cleared.
+	sess, err := st.Queries().GetSession(ctx, task.SessionID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sess.Status != protocol.SessionRunning {
+		t.Fatalf("session status = %q, want running", sess.Status)
+	}
+	if sess.EndedAt != nil {
+		t.Fatalf("session ended_at = %v, want nil after resume", sess.EndedAt)
+	}
+
+	// Task reopened.
+	got, err := st.Queries().GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if got.Status != protocol.TaskRunning {
+		t.Fatalf("task status = %q, want running", got.Status)
+	}
+
+	// Follow-up persisted as a user message.
+	msgs, err := st.Queries().ListMessagesBySession(ctx, task.SessionID, 20)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	var found bool
+	for _, m := range msgs {
+		if m.Role == protocol.RoleUser && m.Content == followUp {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("follow-up %q not persisted", followUp)
+	}
+
+	// All three broadcasts emitted: message, session resume, task reopen.
+	var sawMessage, sawState, sawTaskReopen bool
+	timeout := time.After(3 * time.Second)
+	for !sawMessage || !sawState || !sawTaskReopen {
+		select {
+		case evt, ok := <-events:
+			if !ok {
+				t.Fatal("broadcaster closed unexpectedly")
+			}
+			switch evt.Type {
+			case protocol.EvSessionMessage:
+				if sm, ok := evt.Data.(protocol.SessionMessage); ok &&
+					sm.SessionID == task.SessionID && sm.Message.Content == followUp {
+					sawMessage = true
+				}
+			case protocol.EvSessionStateChanged:
+				if sc, ok := evt.Data.(protocol.SessionStateChanged); ok &&
+					sc.SessionID == task.SessionID && sc.Status == protocol.SessionRunning {
+					sawState = true
+				}
+			case protocol.EvTaskStatusChanged:
+				if tc, ok := evt.Data.(protocol.TaskStatusChanged); ok &&
+					tc.TaskID == task.ID && tc.From == protocol.TaskDone && tc.To == protocol.TaskRunning {
+					sawTaskReopen = true
+				}
+			}
+		case <-timeout:
+			t.Fatalf("timed out waiting for broadcasts: sawMessage=%v sawState=%v sawTaskReopen=%v",
+				sawMessage, sawState, sawTaskReopen)
+		}
+	}
+
+	// The node got session.resume (not session.send_message) with the
+	// reattach payload.
+	env := waitEnvelope(t, envelopes, protocol.MsgSessionResume)
+	var cmd protocol.SessionResumeCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode session.resume: %v", err)
+	}
+	if cmd.SessionID != task.SessionID || cmd.TaskID != task.ID || cmd.Message != followUp {
+		t.Fatalf("resume command = %+v, want session/task/message for %q", cmd, task.SessionID)
+	}
+	if cmd.ExternalSessionID != extID {
+		t.Fatalf("resume external_session_id = %q, want %q", cmd.ExternalSessionID, extID)
+	}
+	if cmd.AgentType != "fake" || cmd.WorkspacePath == "" {
+		t.Fatalf("resume command missing agent/workspace: %+v", cmd)
+	}
+}
+
+// TestSendMessageResumesFailedSession asserts a failed session revives the
+// same way a done one does: message persisted, session running, task reopened,
+// session.resume delivered.
+func TestSendMessageResumesFailedSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("resume-failed-node"))
+	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	ended := time.Now().UTC()
+	if err := st.Queries().UpdateSessionStatus(ctx, task.SessionID, protocol.SessionFailed, &ended); err != nil {
+		t.Fatalf("seed session failed: %v", err)
+	}
+	if _, err := st.Queries().UpdateTaskStatus(ctx, task.ID, protocol.TaskDone); err != nil {
+		t.Fatalf("seed task done: %v", err)
+	}
+
+	const followUp = "retry, it was a fluke"
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/send", map[string]string{"message": followUp})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("send status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+
+	sess, err := st.Queries().GetSession(ctx, task.SessionID)
+	if err != nil || sess.Status != protocol.SessionRunning {
+		t.Fatalf("session status = %q (err %v), want running", sess.Status, err)
+	}
+	got, err := st.Queries().GetTask(ctx, task.ID)
+	if err != nil || got.Status != protocol.TaskRunning {
+		t.Fatalf("task status = %q (err %v), want running", got.Status, err)
+	}
+
+	env := waitEnvelope(t, envelopes, protocol.MsgSessionResume)
+	var cmd protocol.SessionResumeCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode session.resume: %v", err)
+	}
+	if cmd.SessionID != task.SessionID || cmd.Message != followUp {
+		t.Fatalf("resume command = %+v, want session %q", cmd, task.SessionID)
+	}
+}
+
+// TestSendMessageResumeNodeOffline asserts the resume path degrades the same
+// way the reply path does when the node is gone: 202 with a queued warning,
+// message durable, session and task already moved.
+func TestSendMessageResumeNodeOffline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("resume-offline-node"))
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	// Drop the connection; the offline cascade fails the running session and
+	// completes the task, which is exactly the finished state the resume path
+	// accepts.
+	_ = c.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for h.nodeOnline(nodeID) {
+		if time.Now().After(deadline) {
+			t.Fatal("node still online after close")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	for {
+		sess, err := st.Queries().GetSession(ctx, task.SessionID)
+		if err == nil && sess.Status == protocol.SessionFailed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("offline cascade did not fail the session in time")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	const followUp = "resume while offline"
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/send", map[string]string{"message": followUp})
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("send status = %d, want 202; body=%s", resp.StatusCode, raw)
+	}
+	var body struct {
+		Status  string `json:"status"`
+		Warning string `json:"warning"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode 202 body: %v (%s)", err, raw)
+	}
+	if body.Status != "queued" {
+		t.Fatalf("202 body = %+v, want status=queued", body)
+	}
+
+	sess, err := st.Queries().GetSession(ctx, task.SessionID)
+	if err != nil || sess.Status != protocol.SessionRunning {
+		t.Fatalf("session status = %q (err %v), want running", sess.Status, err)
+	}
+	got, err := st.Queries().GetTask(ctx, task.ID)
+	if err != nil || got.Status != protocol.TaskRunning {
+		t.Fatalf("task status = %q (err %v), want running", got.Status, err)
+	}
+}
+
+// TestNodeResumeRoundTrip wires a scripted node that honors session.resume the
+// way the real node daemon does (reattach + prompt) and asserts the follow-up
+// reply lands in the messages table — the end-to-end proof that a resumed
+// session runs again.
+func TestNodeResumeRoundTrip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("resume-rt-node"))
+	defer func() { _ = c.Close() }()
+
+	// Scripted node: on session.resume, answer the follow-up and report done,
+	// mirroring what node.resumeSession + the fake adapter produce.
+	go func() {
+		for {
+			var env protocol.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != protocol.MsgSessionResume {
+				continue
+			}
+			var cmd protocol.SessionResumeCommand
+			if err := env.Decode(&cmd); err != nil {
+				continue
+			}
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgSessionEvent, protocol.SessionMessage{
+				SessionID: cmd.SessionID,
+				Message: protocol.Message{
+					ID:        "resume-reply-1",
+					SessionID: cmd.SessionID,
+					Role:      protocol.RoleAssistant,
+					Content:   "resumed answer to: " + cmd.Message,
+					CreatedAt: time.Now().UTC(),
+				},
+			}))
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+				Type: protocol.EvSessionStateChanged,
+				Data: protocol.SessionStateChanged{SessionID: cmd.SessionID, Status: protocol.SessionDone},
+				Ts:   time.Now().UTC(),
+			}))
+		}
+	}()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	ended := time.Now().UTC()
+	if err := st.Queries().UpdateSessionStatus(ctx, task.SessionID, protocol.SessionDone, &ended); err != nil {
+		t.Fatalf("seed session done: %v", err)
+	}
+	if _, err := st.Queries().UpdateTaskStatus(ctx, task.ID, protocol.TaskDone); err != nil {
+		t.Fatalf("seed task done: %v", err)
+	}
+
+	const followUp = "one more thing"
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/send", map[string]string{"message": followUp})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("send status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		msgs, err := st.Queries().ListMessagesBySession(ctx, task.SessionID, 20)
+		if err == nil {
+			for _, m := range msgs {
+				if m.Role == protocol.RoleAssistant && m.Content == "resumed answer to: "+followUp {
+					return // the resumed session ran and answered
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("resumed session's reply never landed in the messages table")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestCompletionGateParksTaskInAwaitingUser asserts the gate: a session that
+// ends done while mirrored subtasks are still open parks the task in
+// awaiting_user instead of done (the session itself stays done so /send can
+// revive it).
+func TestCompletionGateParksTaskInAwaitingUser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("gate-park-node"))
+	defer func() { _ = c.Close() }()
+
+	// Scripted node: mirror an unfinished todo, then report done.
+	go func() {
+		for {
+			var env protocol.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != protocol.MsgTaskStart {
+				continue
+			}
+			var cmd protocol.TaskStartCommand
+			if err := env.Decode(&cmd); err != nil {
+				continue
+			}
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgTodoUpdate, protocol.TodoUpdate{
+				SessionID: cmd.SessionID,
+				Todos: []protocol.Todo{
+					{ID: "1", Title: "Research", Status: protocol.SubtaskDone},
+					{ID: "2", Title: "Implement", Status: protocol.SubtaskInProgress},
+				},
+			}))
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+				Type: protocol.EvSessionStateChanged,
+				Data: protocol.SessionStateChanged{SessionID: cmd.SessionID, Status: protocol.SessionDone},
+				Ts:   time.Now().UTC(),
+			}))
+		}
+	}()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got, err := st.Queries().GetTask(ctx, task.ID)
+		if err == nil && got.Status == protocol.TaskAwaitingUser {
+			break
+		}
+		if time.Now().After(deadline) {
+			status := ""
+			if err == nil {
+				status = string(got.Status)
+			}
+			t.Fatalf("task did not park in awaiting_user; last status=%q", status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// The session itself is done: the gate only holds the task.
+	sess, err := st.Queries().GetSession(ctx, task.SessionID)
+	if err != nil || sess.Status != protocol.SessionDone {
+		t.Fatalf("session status = %q (err %v), want done", sess.Status, err)
+	}
+}
+
+// TestCompletionGatePassesWhenSubtasksDone asserts the other branch: a done
+// session with zero open subtasks (all done, or none at all) completes the
+// task as before.
+func TestCompletionGatePassesWhenSubtasksDone(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("gate-pass-node"))
+	defer func() { _ = c.Close() }()
+
+	// Scripted node: mirror an all-done todo list, then report done. A second
+	// task gets no todos at all (zero-subtask branch).
+	go func() {
+		for {
+			var env protocol.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != protocol.MsgTaskStart {
+				continue
+			}
+			var cmd protocol.TaskStartCommand
+			if err := env.Decode(&cmd); err != nil {
+				continue
+			}
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgTodoUpdate, protocol.TodoUpdate{
+				SessionID: cmd.SessionID,
+				Todos: []protocol.Todo{
+					{ID: "1", Title: "Research", Status: protocol.SubtaskDone},
+					{ID: "2", Title: "Implement", Status: protocol.SubtaskDone},
+				},
+			}))
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+				Type: protocol.EvSessionStateChanged,
+				Data: protocol.SessionStateChanged{SessionID: cmd.SessionID, Status: protocol.SessionDone},
+				Ts:   time.Now().UTC(),
+			}))
+		}
+	}()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got, err := st.Queries().GetTask(ctx, task.ID)
+		if err == nil && got.Status == protocol.TaskDone {
+			return // all-done subtasks: completes as before
+		}
+		if time.Now().After(deadline) {
+			status := ""
+			if err == nil {
+				status = string(got.Status)
+			}
+			t.Fatalf("task with all-done subtasks did not complete; last status=%q", status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestCompletionGateZeroSubtasksCompletes asserts the zero-subtask branch: a
+// done session with no mirrored todos at all still completes the task.
+func TestCompletionGateZeroSubtasksCompletes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("gate-zero-node"))
+	defer func() { _ = c.Close() }()
+
+	go func() {
+		for {
+			var env protocol.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != protocol.MsgTaskStart {
+				continue
+			}
+			var cmd protocol.TaskStartCommand
+			if err := env.Decode(&cmd); err != nil {
+				continue
+			}
+			// No todo update at all: report done immediately.
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+				Type: protocol.EvSessionStateChanged,
+				Data: protocol.SessionStateChanged{SessionID: cmd.SessionID, Status: protocol.SessionDone},
+				Ts:   time.Now().UTC(),
+			}))
+		}
+	}()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got, err := st.Queries().GetTask(ctx, task.ID)
+		if err == nil && got.Status == protocol.TaskDone {
+			return // zero subtasks: completes as before
+		}
+		if time.Now().After(deadline) {
+			status := ""
+			if err == nil {
+				status = string(got.Status)
+			}
+			t.Fatalf("task with zero subtasks did not complete; last status=%q", status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestCreateBacklogTaskStaysWaiting asserts auto_start=false skips dispatch:
+// the task is created waiting with no session, and no task.start reaches the
+// node.
+func TestCreateBacklogTaskStaysWaiting(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("backlog-node"))
+	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
+
+	workspace := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID,
+		"name":    uniqueName("backlog-ws"),
+		"path":    "/tmp/backlog-ws",
+	})
+	task := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]any{
+		"workspace_id": workspace.ID,
+		"title":        uniqueName("backlog-task"),
+		"prompt":       "do it later",
+		"agent_type":   "fake",
+		"auto_start":   false,
+	})
+	if task.Status != protocol.TaskWaiting {
+		t.Fatalf("backlog task status = %q, want waiting", task.Status)
+	}
+	if task.SessionID != "" {
+		t.Fatalf("backlog task has session %q, want none", task.SessionID)
+	}
+	if task.AutoStart {
+		t.Fatalf("backlog task auto_start = true, want false")
+	}
+
+	// No task.start within a beat: the node must hear nothing.
+	select {
+	case env := <-envelopes:
+		t.Fatalf("node received unexpected envelope %q for a backlog task", env.Type)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	// Default creation still dispatches.
+	dispatched := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]any{
+		"workspace_id": workspace.ID,
+		"title":        uniqueName("eager-task"),
+		"prompt":       "do it now",
+		"agent_type":   "fake",
+	})
+	if dispatched.Status != protocol.TaskRunning || dispatched.SessionID == "" {
+		t.Fatalf("default task not dispatched: %+v", dispatched)
+	}
+	if !dispatched.AutoStart {
+		t.Fatalf("default task auto_start = false, want true")
+	}
+	// Drain the eager task's start frame so later tests on this node (none —
+	// each test dials its own node) stay clean.
+	env := waitEnvelope(t, envelopes, protocol.MsgTaskStart)
+	var cmd protocol.TaskStartCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode task.start: %v", err)
+	}
+	if cmd.TaskID != dispatched.ID {
+		t.Fatalf("task.start for %q, want %q", cmd.TaskID, dispatched.ID)
+	}
+}
+
+// TestStartBacklogTask asserts POST /api/tasks/{id}/start dispatches a waiting
+// backlog task: session created, forward pointer set, task running, and a
+// task.start envelope on the wire.
+func TestStartBacklogTask(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("start-node"))
+	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
+
+	workspace := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID,
+		"name":    uniqueName("start-ws"),
+		"path":    "/tmp/start-ws",
+	})
+	backlog := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]any{
+		"workspace_id": workspace.ID,
+		"title":        uniqueName("start-task"),
+		"prompt":       "start me",
+		"agent_type":   "fake",
+		"auto_start":   false,
+	})
+
+	events, unsubscribe := h.Bus().Subscribe(EventScope{All: true})
+	defer unsubscribe()
+
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/tasks/"+backlog.ID+"/start", map[string]any{})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("start status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	started := decodeOK[protocol.Task](t, "start task", resp, raw)
+	if started.Status != protocol.TaskRunning || started.SessionID == "" {
+		t.Fatalf("started task = %+v, want running with a session", started)
+	}
+
+	// The node got task.start for the backlog task.
+	env := waitEnvelope(t, envelopes, protocol.MsgTaskStart)
+	var cmd protocol.TaskStartCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode task.start: %v", err)
+	}
+	if cmd.TaskID != backlog.ID || cmd.SessionID != started.SessionID {
+		t.Fatalf("task.start = %+v, want task %q session %q", cmd, backlog.ID, started.SessionID)
+	}
+
+	// The running flip was broadcast.
+	timeout := time.After(3 * time.Second)
+	for {
+		select {
+		case evt, ok := <-events:
+			if !ok {
+				t.Fatal("broadcaster closed unexpectedly")
+			}
+			if evt.Type == protocol.EvTaskStatusChanged {
+				if tc, ok := evt.Data.(protocol.TaskStatusChanged); ok &&
+					tc.TaskID == backlog.ID && tc.To == protocol.TaskRunning {
+					return
+				}
+			}
+		case <-timeout:
+			t.Fatal("timed out waiting for task.status_changed to running")
+		}
+	}
+}
+
+// TestStartTaskConflicts asserts the 409s: an already-started task (409) and a
+// task that is not waiting (409).
+func TestStartTaskConflicts(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("start-conflict-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+
+	// Already started (session pointer set) -> 409.
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID+"/start", map[string]any{})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("start started task: status = %d, want 409; body=%s", resp.StatusCode, raw)
+	}
+
+	// A finished task with the pointer cleared is not waiting -> 409.
+	ctx := context.Background()
+	if err := st.Queries().UpdateTaskSessionID(ctx, task.ID, ""); err != nil {
+		t.Fatalf("clear session pointer: %v", err)
+	}
+	if _, err := st.Queries().UpdateTaskStatus(ctx, task.ID, protocol.TaskDone); err != nil {
+		t.Fatalf("seed task done: %v", err)
+	}
+	resp, raw = postRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID+"/start", map[string]any{})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("start done task: status = %d, want 409; body=%s", resp.StatusCode, raw)
+	}
+
+	// Unknown task -> 404.
+	resp, raw = postRaw(t, auth.token, ts.URL+"/api/tasks/00000000-0000-0000-0000-000000000000/start", map[string]any{})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("start unknown task: status = %d, want 404; body=%s", resp.StatusCode, raw)
+	}
+}
+
+// TestTaskArchiveFlow asserts archive semantics: archiving a non-done task is
+// 409, archiving a done task hides it from every default list/search path,
+// ?archived=1 returns only archived rows, and unarchiving restores it.
+func TestTaskArchiveFlow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("archive-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	// A running task cannot be archived.
+	resp, raw := patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"archived": true})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("archive running task: status = %d, want 409; body=%s", resp.StatusCode, raw)
+	}
+	var errBody struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &errBody); err != nil {
+		t.Fatalf("decode 409 body: %v (%s)", err, raw)
+	}
+	if errBody.Error != "only finished tasks can be archived" {
+		t.Fatalf("409 body = %+v, want only-finished error", errBody)
+	}
+
+	// Finish the task, then archive.
+	if _, err := st.Queries().UpdateTaskStatus(ctx, task.ID, protocol.TaskDone); err != nil {
+		t.Fatalf("seed task done: %v", err)
+	}
+	resp, raw = patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"archived": true})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("archive done task: status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	var archived protocol.Task
+	if err := json.Unmarshal(raw, &archived); err != nil {
+		t.Fatalf("decode archived task: %v (%s)", err, raw)
+	}
+	if archived.ArchivedAt == nil {
+		t.Fatalf("archived task has nil archived_at: %+v", archived)
+	}
+
+	wsID := archived.WorkspaceID
+	lists := map[string]string{
+		"workspace list":  ts.URL + "/api/tasks?workspace_id=" + wsID,
+		"node list":       ts.URL + "/api/tasks?node_id=" + nodeID,
+		"workspace query": ts.URL + "/api/tasks?workspace_id=" + wsID + "&q=" + task.Title,
+		"node query":      ts.URL + "/api/tasks?node_id=" + nodeID + "&q=" + task.Title,
+	}
+	for name, url := range lists {
+		resp, raw := getRaw(t, auth.token, url)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status = %d; body=%s", name, resp.StatusCode, raw)
+		}
+		var rows []protocol.Task
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			t.Fatalf("%s: decode: %v (%s)", name, err, raw)
+		}
+		for _, row := range rows {
+			if row.ID == task.ID {
+				t.Fatalf("%s leaks archived task %s", name, task.ID)
+			}
+		}
+	}
+
+	// ?archived=1 returns ONLY archived rows: the archived task is present,
+	// and a live task is not.
+	live := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	archivedLists := map[string]string{
+		"workspace list": ts.URL + "/api/tasks?workspace_id=" + wsID + "&archived=1",
+		"node list":      ts.URL + "/api/tasks?node_id=" + nodeID + "&archived=1",
+	}
+	for name, url := range archivedLists {
+		resp, raw := getRaw(t, auth.token, url)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status = %d; body=%s", name, resp.StatusCode, raw)
+		}
+		var rows []protocol.Task
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			t.Fatalf("%s: decode: %v (%s)", name, err, raw)
+		}
+		var sawArchived, sawLive bool
+		for _, row := range rows {
+			switch row.ID {
+			case task.ID:
+				sawArchived = true
+			case live.ID:
+				sawLive = true
+			}
+		}
+		if !sawArchived {
+			t.Fatalf("%s misses archived task %s (got %d rows)", name, task.ID, len(rows))
+		}
+		if sawLive {
+			t.Fatalf("%s leaks live task %s into the archived-only view", name, live.ID)
+		}
+	}
+
+	// Unarchive restores the task to the default view.
+	resp, raw = patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"archived": false})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unarchive: status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	var restored protocol.Task
+	if err := json.Unmarshal(raw, &restored); err != nil {
+		t.Fatalf("decode restored task: %v (%s)", err, raw)
+	}
+	if restored.ArchivedAt != nil {
+		t.Fatalf("restored task still archived: %+v", restored)
+	}
+	resp, raw = getRaw(t, auth.token, ts.URL+"/api/tasks?workspace_id="+wsID)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("default list after unarchive: status = %d", resp.StatusCode)
+	}
+	var rows []protocol.Task
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatalf("decode default list: %v (%s)", err, raw)
+	}
+	var found bool
+	for _, row := range rows {
+		if row.ID == task.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("unarchived task %s missing from the default list", task.ID)
+	}
 }

@@ -116,6 +116,10 @@ type Adapter struct {
 	// ResumeSessionID, when non-empty, makes Start reattach to an existing
 	// agent session with `session/load` instead of creating one with
 	// `session/new`. It is also reported as StartResult.ExternalSessionID.
+	//
+	// Prefer driving this through adapters.StartRequest.ResumeSessionID (it
+	// copies over at the top of Start); the field stays settable directly for
+	// existing callers. Either way it must be fixed before Start runs.
 	ResumeSessionID string
 
 	// CancelGrace overrides the 2s grace between `session/cancel` and the hard
@@ -164,11 +168,27 @@ func New(agentType string) *Adapter {
 	}
 }
 
+// SetResumeSessionID implements adapters.Resumable: the next Start reattaches
+// to the given agent-side session with `session/load` instead of creating one
+// with `session/new`.
+func (a *Adapter) SetResumeSessionID(externalSessionID string) {
+	a.ResumeSessionID = externalSessionID
+}
+
 // Start spawns the agent, completes the ACP handshake (initialize, then
 // session/new or session/load), emits StateChange(running), and kicks off the
 // first turn with the task prompt. It returns once the session is established;
 // the read goroutine drives further events through sink until Done/Error.
+//
+// Resume: StartRequest.ResumeSessionID selects the session/load path, and the
+// prompt runs as the first turn on the reattached session — so a resume needs
+// no follow-up SendMessage: Start(prompt=message) already ends with the agent
+// answering the follow-up, exactly like the initial Start(prompt) turn (see
+// TestSessionResume).
 func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink adapters.EventSink) (adapters.StartResult, error) {
+	if req.ResumeSessionID != "" {
+		a.ResumeSessionID = req.ResumeSessionID
+	}
 	a.mu.Lock()
 	if a.started {
 		a.mu.Unlock()

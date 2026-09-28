@@ -476,6 +476,13 @@
         "sort_order": {
           "type": "integer"
         },
+        "auto_start": {
+          "type": "boolean"
+        },
+        "archived_at": {
+          "type": "string",
+          "format": "date-time"
+        },
         "created_at": {
           "type": "string",
           "format": "date-time"
@@ -494,6 +501,7 @@
         "status",
         "agent_type",
         "sort_order",
+        "auto_start",
         "created_at",
         "updated_at"
       ]
@@ -533,6 +541,13 @@
             "sort_order": {
               "type": "integer"
             },
+            "auto_start": {
+              "type": "boolean"
+            },
+            "archived_at": {
+              "type": "string",
+              "format": "date-time"
+            },
             "created_at": {
               "type": "string",
               "format": "date-time"
@@ -551,6 +566,7 @@
             "status",
             "agent_type",
             "sort_order",
+            "auto_start",
             "created_at",
             "updated_at"
           ]

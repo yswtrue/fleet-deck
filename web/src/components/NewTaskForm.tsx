@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Modal, Form, Input, Button, AutoComplete } from 'antd'
+import { Modal, Form, Input, Button, AutoComplete, Switch } from 'antd'
 import { useQueryClient } from '@tanstack/react-query'
 import { useForm } from '@refinedev/antd'
 import { useTranslation } from '../i18n/index.ts'
@@ -59,7 +59,19 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
         </Button>,
       ]}
     >
-      <Form {...formProps} layout="vertical" initialValues={{ agent_type: 'fake' }}>
+      <Form
+        {...formProps}
+        layout="vertical"
+        initialValues={{ agent_type: 'fake', auto_start: true }}
+      >
+        <Form.Item
+          label={t('form.autoStartLabel')}
+          name="auto_start"
+          valuePropName="checked"
+          extra={t('form.autoStartHelp')}
+        >
+          <Switch aria-label={t('form.autoStartLabel')} />
+        </Form.Item>
         <Form.Item name="workspace_id" initialValue={workspaceId} hidden>
           <Input />
         </Form.Item>

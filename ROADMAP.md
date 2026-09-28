@@ -55,6 +55,12 @@ that would move them forward.
 
 - **Task title fuzzy search** — pg_trgm trigram matching (typo tolerant,
   relevance-ranked) with a board search box
+- **Task lifecycle** — backlog tasks (`auto_start:false` + explicit Start,
+  never auto-dispatched), task archiving (hidden by default, `?archived=1`
+  view), resumable finished sessions (chat with a done/failed session: it
+  reopens and continues via `session/load`, falling back to a fresh run),
+  and a completion gate (turns ending with unfinished todos park in
+  `awaiting_user` for review)
 - **Task transition state machine** — PATCH enforces the 4-state table
   (`done` terminal, idempotent writes, 409 on illegal moves)
 - **Accessibility** — keyboard-reachable cards (Tab + Enter), distinct role
@@ -63,7 +69,7 @@ that would move them forward.
   with the embedded web UI + optional Traefik :80/:443 ingress via the
   `traefik` profile); the SPA also deploys to any static host via the runtime
   `config.js`; node daemons run locally — `docs/DEPLOYMENT.md`
-- **Test suites** — 101 Go tests (integration against live Postgres) + 54 web
+- **Test suites** — 115 Go tests (integration against live Postgres) + 66 web
   tests (Vitest + RTL: dispatcher, permission wire, auth client/login,
   components, SPA handler)
 

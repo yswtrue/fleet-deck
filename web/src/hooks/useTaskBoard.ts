@@ -20,15 +20,21 @@ function mapSessionStatus(status: SessionStatus): Task['status'] {
   }
 }
 
-export function useTaskBoard(workspaceId: string, q = '') {
+export function useTaskBoard(workspaceId: string, q = '', archived = false) {
   const api = useHubApi()
   const queryClient = useQueryClient()
   const [subtasksByTask, setSubtasksByTask] = useState<Record<string, Subtask[]>>({})
 
   // The unfiltered board keeps the canonical ['tasks', workspaceId] key (WS
   // handlers and task-creating code target it); an active search runs under an
-  // extended key, which still falls under the same invalidation prefix.
-  const taskKey = q ? ['tasks', workspaceId, q] : ['tasks', workspaceId]
+  // extended key, which still falls under the same invalidation prefix. The
+  // archived view gets its own suffix so toggling the filter refetches instead
+  // of reusing the active-task cache.
+  const taskKey = [
+    ...(['tasks', workspaceId] as const),
+    ...(q ? [q] : []),
+    ...(archived ? ['archived'] : []),
+  ]
 
   const {
     data: tasks,
@@ -37,7 +43,7 @@ export function useTaskBoard(workspaceId: string, q = '') {
     error,
   } = useQuery({
     queryKey: taskKey,
-    queryFn: () => api.listTasks(workspaceId, q || undefined),
+    queryFn: () => api.listTasks(workspaceId, q || undefined, { archived }),
     enabled: !!workspaceId,
   })
 
@@ -170,6 +176,38 @@ export function useTaskStatusMutation() {
     onError: (_err, _vars, context) => {
       context?.previous.forEach(([key, data]) => queryClient.setQueryData(key, data))
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
+/**
+ * useStartTaskMutation dispatches a backlog (`waiting` + `auto_start: false`)
+ * task via POST /api/tasks/{id}/start. The hub flips it to `running` and the
+ * settle refetch (every ['tasks', …] list) relocates the card; on error (e.g.
+ * the hub's 409 for an already-started task) the caller's toast reports the
+ * hub message.
+ */
+export function useStartTaskMutation() {
+  const api = useHubApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.startTask(id),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+}
+
+/**
+ * useArchiveTaskMutation archives/unarchives a task via PATCH
+ * /api/tasks/{id} ({archived}). Archiving removes the row from the default
+ * lists (the hub excludes archived rows unless `?archived=1`), so like the
+ * status move this refetches every ['tasks', …] list on settle.
+ */
+export function useArchiveTaskMutation() {
+  const api = useHubApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
+      api.patchTask(id, { archived }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
   })
 }

@@ -57,13 +57,19 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   const resolvedTask = task ?? taskFromState ?? snapshot?.task ?? undefined
   const session = snapshot?.session
 
-  // Gate the composer on the session's own state — the hub 409s sends outside
-  // awaiting_user. The task status is only a fallback for the first paint,
-  // before the snapshot/WS state is known (it can lag a resumed session).
+  // Gate the composer on the session's own state: `awaiting_user` (reply to
+  // the agent's question) and `done`/`failed` (continue the conversation —
+  // the hub reopens the session and surfaces the new state over WS). The task
+  // status is only a fallback for the first paint, before the snapshot/WS
+  // state is known (it can lag a resumed session).
   const sessionState = sessionStatus ?? session?.status
   const isAwaiting = sessionState
     ? sessionState === 'awaiting_user'
     : resolvedTask?.status === 'awaiting_user'
+  const isContinuable = sessionState
+    ? sessionState === 'done' || sessionState === 'failed'
+    : resolvedTask?.status === 'done'
+  const canSend = isAwaiting || isContinuable
 
   // Sidebar data: the task's mirrored todos (subtasks), kept fresh over WS.
   const taskId = resolvedTask?.id ?? ''
@@ -99,10 +105,10 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   }, [messages, delta, atBottom])
 
   useEffect(() => {
-    if (isAwaiting && inputRef.current) {
+    if (canSend && inputRef.current) {
       inputRef.current.focus()
     }
-  }, [isAwaiting])
+  }, [canSend])
 
   const handleScroll = () => {
     const el = scrollRef.current
@@ -119,7 +125,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
 
   const handleSend = async (event?: React.FormEvent) => {
     event?.preventDefault()
-    if (!reply.trim() || !isAwaiting) return
+    if (!reply.trim() || !canSend) return
     try {
       await send(reply)
     } catch (err) {
@@ -224,12 +230,18 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                       void handleSend()
                     }
                   }}
-                  placeholder={isAwaiting ? t('composer.placeholder') : t('composer.waiting')}
-                  disabled={!isAwaiting}
+                  placeholder={
+                    isAwaiting
+                      ? t('composer.placeholder')
+                      : isContinuable
+                        ? t('composer.continuePlaceholder')
+                        : t('composer.waiting')
+                  }
+                  disabled={!canSend}
                   rows={3}
                   style={{ flex: 1 }}
                 />
-                <Button type="primary" htmlType="submit" disabled={!isAwaiting || !reply.trim()}>
+                <Button type="primary" htmlType="submit" disabled={!canSend || !reply.trim()}>
                   {t('composer.send')}
                 </Button>
               </form>

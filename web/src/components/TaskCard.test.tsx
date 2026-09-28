@@ -15,6 +15,7 @@ const task: Task = {
   agent_type: 'fake',
   session_id: 's-1',
   sort_order: 0,
+  auto_start: true,
   created_at: '2026-09-28T00:00:00Z',
   updated_at: '2026-09-28T00:00:00Z',
 }
@@ -137,6 +138,70 @@ describe('TaskCard', () => {
     rerender(ui(false))
     await waitFor(() => expect(document.body.textContent).toContain('moved to Done'), {
       timeout: 3000,
+    })
+  })
+
+  it('a backlog task shows a Backlog chip (not the no-session badge) and starts via POST', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ...task, status: 'running', session_id: 's-9' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    renderCard({ ...task, status: 'waiting', session_id: '', auto_start: false })
+    // Backlog state is visible before any click; the generic no-session badge
+    // stays hidden so the two states are not confused.
+    expect(document.body.textContent).toContain('Backlog')
+    expect(document.body.textContent).not.toContain('No session yet')
+    fireEvent.click(screen.getByRole('button', { name: 'Start Fix the flaky test' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/t-1/start')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' })
+    await waitFor(() => expect(document.body.textContent).toContain('started'))
+  })
+
+  it('surfaces a start 409 as an error toast', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'task is not waiting' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    renderCard({ ...task, status: 'waiting', session_id: '', auto_start: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Start Fix the flaky test' }))
+    await waitFor(() =>
+      expect(document.body.textContent).toContain('HTTP 409: task is not waiting')
+    )
+  })
+
+  it('a done card offers Archive; an archived card offers Unarchive instead', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({ ...task, status: 'done', archived_at: '2026-09-28T01:00:00Z' }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    )
+    const first = renderCard({ ...task, status: 'done' })
+    fireEvent.click(screen.getByRole('button', { name: 'Archive Fix the flaky test' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ archived: true }),
+    })
+    await waitFor(() => expect(document.body.textContent).toContain('archived'))
+    first.unmount()
+    fetchMock.mockClear()
+
+    renderCard({ ...task, status: 'done', archived_at: '2026-09-28T01:00:00Z' })
+    expect(screen.queryByRole('button', { name: 'Archive Fix the flaky test' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Unarchive Fix the flaky test' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ archived: false }),
     })
   })
 })

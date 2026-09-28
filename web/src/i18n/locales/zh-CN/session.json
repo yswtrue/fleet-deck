@@ -25,6 +25,7 @@
   "composer": {
     "placeholder": "回复智能体…（Enter 发送，Shift+Enter 换行）",
     "waiting": "等待智能体提问…",
+    "continuePlaceholder": "继续对话…（Enter 发送，Shift+Enter 换行）",
     "send": "发送",
     "sendError": "回复未发送",
     "sendErrorDetail": "回复未发送：{{message}}"

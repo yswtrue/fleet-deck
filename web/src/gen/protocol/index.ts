@@ -118,6 +118,8 @@ export interface Task {
   agent_type: string;
   session_id?: string;
   sort_order: number;
+  auto_start: boolean;
+  archived_at?: string;
   created_at: string;
   updated_at: string;
 }

@@ -61,6 +61,7 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
         open={open}
         title={t('workspace.new')}
         okText={t('common:actions.create')}
+        cancelText={t('common:actions.cancel')}
         confirmLoading={createWorkspace.isPending}
         onOk={() => form.submit()}
         onCancel={() => {

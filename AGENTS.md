@@ -44,13 +44,13 @@ Order matters; do all of these before pushing.
 go build ./...
 go vet ./...
 gofmt -l cmd/ internal/        # must be empty
-go test -race ./...            # 101 passed / 16 packages (1 skip; live DB required)
+go test -race ./...            # 115 passed / 16 packages (1 skip; live DB required)
 go test -short ./...           # skip live-DB tests
 
 # Frontend (cd web)
 pnpm exec tsc -b               # real typecheck (bare `tsc --noEmit` is a no-op on the solution tsconfig; `pnpm build` also runs it)
 pnpm lint
-pnpm test                      # vitest (54 tests: dispatchEvent contract, auth, i18n, binding UI, components)
+pnpm test                      # vitest (66 tests: dispatchEvent contract, auth, i18n, lifecycle, binding UI, components)
 pnpm build
 ```
 
@@ -120,7 +120,7 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 ## Gotchas
 
 - **Terminal `EventSink` signals are `Done` / `Error`** — they carry the session's final state (connSink maps them to `session.state_changed`). Do NOT pair them with a terminal `StateChange`; that double-broadcasts the transition. `StateChange` is for non-terminal transitions only.
-- `PATCH /api/tasks/{id}` enforces the 4-state transition table (`canTransitionTask` in `internal/hub/api.go`): `done` is terminal, same-status is idempotent, illegal moves are 409. The internal session→task derivation does not go through it.
+- `PATCH /api/tasks/{id}` enforces the 4-state transition table (`canTransitionTask` in `internal/hub/api.go`): `done` is terminal, same-status is idempotent, illegal moves are 409. The internal session→task derivation does not go through it — session resume reopens done tasks via `moveTaskTo` (see the lifecycle gotcha).
 - `GET /api/tasks` filters: exactly one of `workspace_id` / `node_id`; `q=term` switches to pg_trgm fuzzy matching (substring OR trigram similarity, best match first) over task titles.
 - Hub `Event.Seq` is the **hub-wide broadcast ordinal** (for WS live gap detection). `store.Event.Seq` is **per-session** (for `/api/sessions/{id}/events?after_seq=` gap-fill). They are intentionally different; do not unify.
 - `web/src/hooks/useTaskBoard.ts` cache key is `['tasks', workspaceId]` (an active search extends it with the query). Code that creates tasks must invalidate **both** that prefix and `['tasks-by-workspace']` (the `WorkspaceList` task-count key) — see `NewTaskForm.tsx`.
@@ -130,6 +130,7 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
 - **react-query v5 drops per-`mutate` callbacks when the caller unmounts** (`hasListeners()` gate). Use `mutateAsync().then()/.catch()` when the outcome must survive unmount (e.g. toast + navigate after a board-column move).
 - **Node offline event buffering** (`FLEETDECK_EVENT_BUFFER_DIR`, `internal/node/buffer.go`): when set, every outbound envelope is persisted first (one JSON file per event, atomic tmp+rename) and the writer replays the queue in sequence order across reconnects — FIFO, at-least-once, files deleted only after a successful write. When unset, events are dropped while the hub is unreachable (the old behavior). Sessions survive hub restarts either way (adapter ctx is process-level).
+- **Task lifecycle**: `POST /api/tasks` takes `auto_start:false` for backlog tasks (created but never dispatched until `POST /api/tasks/{id}/start`); `PATCH /api/tasks/{id} {archived:true}` archives `done` tasks (hidden from default board lists; `?archived=1` lists only archived); `POST /api/sessions/{id}/send` also reaches `done`/`failed` sessions — the task reopens `running`, the node reattaches via `MsgSessionResume` (`session/load`; unresumable sessions restart fresh with the follow-up as prompt). A completion gate parks sessions ending with unfinished mirrored todos in `awaiting_user` instead of `done`.
 - **Read-through cache** (`FLEETDECK_REDIS_URL`, `internal/cache`): auth token→user resolution (60s TTL) and per-workspace task lists (30s TTL) are cached in Redis; logout and every task mutation delete their entries (`invalidateTasks`), TTLs bound any missed invalidation. An unset URL is a Noop cache and cache errors always degrade to a database read — never make the cache a request-failure source. Fuzzy search and node-scoped lists (binding-filtered) are deliberately uncached.
 
 ## Web copy / i18n

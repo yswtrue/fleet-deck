@@ -86,8 +86,13 @@ type Task struct {
 	AgentType   string     `json:"agent_type"`
 	SessionID   string     `json:"session_id,omitempty"`
 	SortOrder   int        `json:"sort_order"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	// AutoStart is false for backlog tasks: created but never dispatched
+	// until someone starts them explicitly.
+	AutoStart bool `json:"auto_start"`
+	// ArchivedAt marks a finished task hidden from the default board view.
+	ArchivedAt *time.Time `json:"archived_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 // Subtask is a task's sub-step, mirrored from the agent session's todo list.

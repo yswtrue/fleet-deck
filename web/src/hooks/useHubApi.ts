@@ -6,6 +6,7 @@ export type {
   CreateTaskInput,
   CreateWorkspaceInput,
   HubApi,
+  ListTasksOptions,
   PatchTaskInput,
   SessionSnapshot,
   StoredEvent,
