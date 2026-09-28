@@ -13,6 +13,8 @@ let
   dbPass = "fleetdeck";
 
   databaseUrl = "postgres://${dbUser}:${dbPass}@127.0.0.1:${toString pgPort}/${dbName}?sslmode=disable";
+  redisPort = 56379; # non-default port so we never fight a system redis
+  redisUrl = "redis://127.0.0.1:${toString redisPort}/0";
 
   hubAddr = "127.0.0.1:7710"; # HTTP API + WebSocket (web UI + node connections)
   mcpAddr = "127.0.0.1:7717"; # MCP server: fleetdeck_* agent status tools
@@ -100,11 +102,20 @@ in
     # Task titles actually need it; see docs/IMPLEMENTATION.md (deferred list).
   };
 
+  # Hub read-through cache (auth tokens, task lists). Cache-only: no
+  # persistence, data may vanish between runs without consequence.
+  services.redis = {
+    enable = true;
+    port = redisPort;
+    bind = "127.0.0.1";
+  };
+
   # ---------------------------------------------------------------------------
   # Environment
   # ---------------------------------------------------------------------------
   env = {
     FLEETDECK_DATABASE_URL = databaseUrl;
+    FLEETDECK_REDIS_URL = redisUrl;
     FLEETDECK_HUB_ADDR = hubAddr;
     FLEETDECK_MCP_ADDR = mcpAddr;
     FLEETDECK_WEB_PORT = toString webPort;

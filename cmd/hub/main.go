@@ -6,18 +6,22 @@
 //	FLEETDECK_HUB_ADDR      HTTP + WebSocket listen address (default ":7710")
 //	FLEETDECK_DATABASE_URL  Postgres DSN
 //	                        (default "postgres://fleetdeck:fleetdeck@127.0.0.1:55432/fleetdeck?sslmode=disable")
+//	FLEETDECK_REDIS_URL     redis:// URL for the read-through cache
+//	                        (unset = no cache; a down Redis degrades to DB reads)
 //
 // Nodes connect to /ws/node and web clients to /ws/web.
 package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"fleetdeck/internal/adapters"
+	"fleetdeck/internal/cache"
 	"fleetdeck/internal/hub"
 	"fleetdeck/internal/store"
 )
@@ -41,7 +45,22 @@ func run() error {
 	}
 	defer st.Close()
 
-	h := hub.New(ctx, st, adapters.Default)
+	// Redis-backed read-through cache (auth tokens, task lists). Unset or
+	// unreachable Redis degrades to direct database reads; requests never
+	// fail because of the cache.
+	var c cache.Cache = cache.Noop{}
+	if url := os.Getenv("FLEETDECK_REDIS_URL"); url != "" {
+		rc, err := cache.NewRedis(url)
+		if err != nil {
+			return fmt.Errorf("redis url: %w", err)
+		}
+		c = rc
+		slog.Info("redis cache enabled", "url", url)
+	} else {
+		slog.Info("redis cache disabled (FLEETDECK_REDIS_URL unset)")
+	}
+
+	h := hub.New(ctx, st, adapters.Default, c)
 	defer func() { _ = h.Close() }()
 
 	return h.Run(ctx)

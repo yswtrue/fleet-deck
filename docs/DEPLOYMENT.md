@@ -42,6 +42,7 @@ start a task.
 | Service    | Image / target                                    | Role                                                                |
 | ---------- | ------------------------------------------------- | ------------------------------------------------------------------- |
 | `postgres` | `postgres:17-alpine`                              | storage (internal only; volume `pgdata`)                            |
+| `redis`    | `redis:7-alpine`                                  | hub read-through cache (no persistence; `FLEETDECK_REDIS_URL`)      |
 | `migrate`  | `Dockerfile` target `runtime`                     | runs `goose up` once per deploy                                     |
 | `hub`      | `Dockerfile` target `runtime`                     | everything user-facing: embedded web UI + REST + WS, sole DB writer |
 | `traefik`  | `traefik:v3.7.13` (profile `traefik`, **opt-in**) | ingress on :80/:443; routes discovered from container labels        |

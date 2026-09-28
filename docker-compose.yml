@@ -27,6 +27,17 @@ services:
       retries: 20
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    # Cache-only: no persistence — losing it just means cache misses.
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   migrate:
     build: { context: ., target: runtime }
     command: ['goose', '-dir', '/app/migrations', 'postgres', *hub-dsn, 'up']
@@ -41,6 +52,7 @@ services:
     environment:
       FLEETDECK_HUB_ADDR: ':7710'
       FLEETDECK_DATABASE_URL: *hub-dsn
+      FLEETDECK_REDIS_URL: redis://redis:6379/0
     ports:
       # UI + API + WS on one port (the hub serves the embedded SPA). Also the
       # endpoint node daemons dial (ws://host:7710/ws/node).
@@ -58,6 +70,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   traefik:

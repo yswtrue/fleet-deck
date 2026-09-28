@@ -273,7 +273,18 @@ func (h *Hub) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	case workspaceID != "" && q != "":
 		tasks, err = sq.SearchTasksByWorkspace(ctx, workspaceID, q)
 	case workspaceID != "":
-		tasks, err = sq.ListTasksByWorkspace(ctx, workspaceID)
+		// Board reads are cached per workspace and invalidated on every task
+		// mutation (see invalidateTasks). Fuzzy search stays uncached.
+		cacheKey := "tasks:ws:" + workspaceID
+		var cached []protocol.Task
+		if h.cachedJSON(ctx, cacheKey, &cached) {
+			tasks = cached
+		} else {
+			tasks, err = sq.ListTasksByWorkspace(ctx, workspaceID)
+			if err == nil {
+				h.cacheSet(ctx, cacheKey, tasks, taskListTTL)
+			}
+		}
 	case q != "":
 		tasks, err = sq.SearchTasksByNode(ctx, nodeID, q)
 	default:
@@ -334,6 +345,7 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		h.serverError(w, "create task", err)
 		return
 	}
+	h.invalidateTasks(ctx, req.WorkspaceID)
 	h.bus.Publish(protocol.Event{Type: protocol.EvTaskCreated, Data: protocol.TaskCreated{Task: task}})
 
 	dispatched, err := h.dispatchTask(ctx, task)
@@ -396,6 +408,7 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		task.SortOrder = *req.SortOrder
 	}
 
+	h.invalidateTasks(ctx, task.WorkspaceID)
 	writeJSON(w, http.StatusOK, task)
 }
 

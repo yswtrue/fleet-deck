@@ -28,6 +28,10 @@ that would move them forward.
   outbound events are persisted (one file per event, atomic rename) while the
   hub is unreachable and replayed in sequence order on reconnect (FIFO,
   at-least-once); without it, events drop during outages
+- **Redis read-through cache** — opt-in via `FLEETDECK_REDIS_URL` (devenv and
+  Compose ship a Redis): auth token resolution and board task lists are
+  cached with explicit invalidation + short TTLs; an absent or failing Redis
+  degrades to direct database reads
 
 ### Agent integrations
 
@@ -54,7 +58,7 @@ that would move them forward.
   with the embedded web UI + optional Traefik :80/:443 ingress via the
   `traefik` profile); the SPA also deploys to any static host via the runtime
   `config.js`; node daemons run locally — `docs/DEPLOYMENT.md`
-- **Test suites** — 91 Go tests (integration against live Postgres) + 47 web
+- **Test suites** — 96 Go tests (integration against live Postgres) + 47 web
   tests (Vitest + RTL: dispatcher, permission wire, auth client/login,
   components, SPA handler)
 

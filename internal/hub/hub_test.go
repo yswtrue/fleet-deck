@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gorilla/websocket"
 
 	"fleetdeck/internal/adapters"
+	"fleetdeck/internal/cache"
 	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store"
 )
@@ -41,7 +43,15 @@ func newTestHub(t *testing.T) (*Hub, *store.Store, *httptest.Server, testAuth) {
 	}
 	t.Cleanup(st.Close)
 
-	h := New(ctx, st, adapters.NewRegistry())
+	// Every hub test runs through a real Redis-backed cache (miniredis), so
+	// caching and invalidation bugs surface across the whole suite.
+	mr := miniredis.RunT(t)
+	c, err := cache.NewRedis("redis://" + mr.Addr())
+	if err != nil {
+		t.Fatalf("test cache: %v", err)
+	}
+
+	h := New(ctx, st, adapters.NewRegistry(), c)
 	t.Cleanup(func() { _ = h.Close() })
 
 	ts := httptest.NewServer(h.Handler())

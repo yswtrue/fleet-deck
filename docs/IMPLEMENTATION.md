@@ -4,7 +4,7 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 9 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + workspace 成员可见性,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、MCP 自查询工具(6 个)、无障碍(键盘可达 + 双主题)、Docker Compose 部署(含 Traefik)、测试 91 Go + 47 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 9 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + workspace 成员可见性,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、MCP 自查询工具(6 个)、无障碍(键盘可达 + 双主题)、Docker Compose 部署(含 Traefik)、测试 96 Go + 47 web。
 
 **未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation、`task.cancelled_at` 取消审计列;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
@@ -151,6 +151,12 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 - **启用**:`FLEETDECK_EVENT_BUFFER_DIR` 设置时启用;未设置保持旧行为(断线即丢)。
 - **WAL 队列**(`internal/node/buffer.go`):每个出站信封一个 JSON 文件(`%020d.json`,原子 tmp+rename),序号续接磁盘最大值(重启不乱序);writer 是唯一消费者,按序号发送、**成功写入 socket 才删除文件**。
 - **语义**:严格 FIFO、at-least-once(崩溃/断线后未删文件会重发);坏文件自动跳过删除,不阻塞队列。adapter 会话的 ctx 是进程级,跨断线存活,故运行中会话的全部事件都经此路径重放。
+
+### 3.8 Redis 读缓存
+
+- **接入**:`FLEETDECK_REDIS_URL` 未设置 → Noop 缓存(直连 DB);Redis 故障一律按 miss 处理,请求永不因缓存失败。devenv(`services.redis`,:56379)与 docker-compose(`redis:7-alpine`)各带一个 Redis。
+- **缓存面**(cache-aside,`internal/cache`):①token→user 鉴权解析(TTL 60s,logout 显式删除,TTL 封顶批量吊销窗口)②工作区任务列表 `tasks:ws:<id>`(TTL 30s;create/patch/dispatch/会话推导/离线级联全部经 `invalidateTasks` 显式失效)。模糊搜索与 node 级列表(带成员过滤)刻意不缓存。
+- **测试**:miniredis 提供真实 Redis 语义;`newTestHub` 默认挂缓存,整套 hub 测试都穿过缓存层(失效回归 + 登出吊销 + 故障降级)。
 
 ## 4. 阶段计划(✅ 已全部完成)
 

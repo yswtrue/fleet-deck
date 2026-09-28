@@ -62,11 +62,23 @@ func (h *Hub) userFromRequest(r *http.Request) (*store.User, string, error) {
 
 // userFromToken resolves an opaque token string to its user, enforcing
 // expiry and revocation. Unknown, expired, or revoked tokens yield a nil user.
+// The resolution is cached (authCacheTTL) since every authenticated request
+// and WebSocket handshake goes through here; logout deletes the entry
+// explicitly and the TTL bounds any other missed revocation.
 func (h *Hub) userFromToken(ctx context.Context, token string) (*store.User, string, error) {
 	if token == "" {
 		return nil, "", nil
 	}
 	hash := hashAuthToken(token)
+	cacheKey := "auth:token:" + hash
+	var cached authCacheEntry
+	if h.cachedJSON(ctx, cacheKey, &cached) {
+		if !time.Now().UTC().Before(cached.ExpiresAt) {
+			return nil, "", nil // cached but past the token's own expiry
+		}
+		user := cached.User
+		return &user, hash, nil
+	}
 	row, err := h.store.Queries().GetAuthTokenByHash(ctx, hash)
 	if err != nil {
 		return nil, "", nil // unknown token: unauthenticated, not a server error
@@ -78,6 +90,7 @@ func (h *Hub) userFromToken(ctx context.Context, token string) (*store.User, str
 	if err != nil {
 		return nil, "", nil // owner deleted: behave as unauthenticated
 	}
+	h.cacheSet(ctx, cacheKey, authCacheEntry{User: user, ExpiresAt: row.ExpiresAt}, authCacheTTL)
 	return &user, hash, nil
 }
 

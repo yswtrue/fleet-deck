@@ -182,6 +182,8 @@ func (h *Hub) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		h.serverError(w, "auth logout", err)
 		return
 	}
+	// Drop the cached token resolution so the revocation takes effect at once.
+	h.cacheDelete(r.Context(), "auth:token:"+tokenHashOf(r))
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -287,6 +287,7 @@ func (h *Hub) moveTaskTo(ctx context.Context, task protocol.Task, to protocol.Ta
 		h.log.Warn("update task status", "task_id", task.ID, "err", err)
 		return
 	}
+	h.invalidateTasks(ctx, task.WorkspaceID)
 	h.bus.Publish(protocol.Event{
 		Type: protocol.EvTaskStatusChanged,
 		Data: protocol.TaskStatusChanged{TaskID: updated.ID, From: task.Status, To: updated.Status},

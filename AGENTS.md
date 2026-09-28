@@ -25,14 +25,15 @@ probe-adapters       # which agent CLIs (pi / codex / npx) are present
 
 Local URLs (fixed by `devenv.nix`):
 
-| service  | address                                                            |
-| -------- | ------------------------------------------------------------------ |
-| Postgres | `127.0.0.1:55432`, db `fleetdeck`, user/pass `fleetdeck/fleetdeck` |
-| hub      | `http://127.0.0.1:7710` (HTTP + WS)                                |
-| MCP      | stdio only — `cmd/fleetdeck-mcp` is launched by the agent; no port |
-| web      | `http://127.0.0.1:7711`                                            |
+| service  | address                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------- |
+| Postgres | `127.0.0.1:55432`, db `fleetdeck`, user/pass `fleetdeck/fleetdeck`                          |
+| Redis    | `127.0.0.1:56379`, cache-only (`FLEETDECK_REDIS_URL`; hub degrades to DB reads when absent) |
+| hub      | `http://127.0.0.1:7710` (HTTP + WS)                                                         |
+| MCP      | stdio only — `cmd/fleetdeck-mcp` is launched by the agent; no port                          |
+| web      | `http://127.0.0.1:7711`                                                                     |
 
-Env vars (set by `devenv.nix`): `FLEETDECK_DATABASE_URL`, `FLEETDECK_HUB_ADDR`, `FLEETDECK_NODE_TOKEN_FILE`, `FLEETDECK_SCHEMA_OUT`.
+Env vars (set by `devenv.nix`): `FLEETDECK_DATABASE_URL`, `FLEETDECK_REDIS_URL`, `FLEETDECK_HUB_ADDR`, `FLEETDECK_NODE_TOKEN_FILE`, `FLEETDECK_SCHEMA_OUT`.
 
 ## Verification commands
 
@@ -43,7 +44,7 @@ Order matters; do all of these before pushing.
 go build ./...
 go vet ./...
 gofmt -l cmd/ internal/        # must be empty
-go test -race ./...            # 91 passed / 15 packages (1 skip; live DB required)
+go test -race ./...            # 96 passed / 16 packages (1 skip; live DB required)
 go test -short ./...           # skip live-DB tests
 
 # Frontend (cd web)
@@ -79,6 +80,7 @@ These are locked. Do not change without a Gate review.
 cmd/{hub,node,fleetctl,fleetdeck-mcp}/   # entrypoints
 internal/protocol/                       # wire contract (Go structs + transport.go)
 internal/store/                          # sqlc + pgx; queries + WithTx
+internal/cache/                          # read-through cache (Redis + Noop; FLEETDECK_REDIS_URL)
 internal/hub/                            # HTTP API + auth (middleware.go, auth_handlers.go) + WS broadcast + node-offline cascade; serves the embedded web UI (static/ is the go:embed root)
 internal/node/                           # thin WS client; runs adapters in-process
 internal/adapters/{adapter,registry}.go # Adapter/EventSink interfaces
@@ -119,6 +121,7 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
 - **react-query v5 drops per-`mutate` callbacks when the caller unmounts** (`hasListeners()` gate). Use `mutateAsync().then()/.catch()` when the outcome must survive unmount (e.g. toast + navigate after a board-column move).
 - **Node offline event buffering** (`FLEETDECK_EVENT_BUFFER_DIR`, `internal/node/buffer.go`): when set, every outbound envelope is persisted first (one JSON file per event, atomic tmp+rename) and the writer replays the queue in sequence order across reconnects — FIFO, at-least-once, files deleted only after a successful write. When unset, events are dropped while the hub is unreachable (the old behavior). Sessions survive hub restarts either way (adapter ctx is process-level).
+- **Read-through cache** (`FLEETDECK_REDIS_URL`, `internal/cache`): auth token→user resolution (60s TTL) and per-workspace task lists (30s TTL) are cached in Redis; logout and every task mutation delete their entries (`invalidateTasks`), TTLs bound any missed invalidation. An unset URL is a Noop cache and cache errors always degrade to a database read — never make the cache a request-failure source. Fuzzy search and node-scoped lists (membership-filtered) are deliberately uncached.
 
 ## Adding a new adapter
 

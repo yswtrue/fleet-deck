@@ -14,9 +14,25 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"fleetdeck/internal/adapters"
+	"fleetdeck/internal/cache"
 	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store"
 )
+
+// Cache entry TTLs. Both are safety nets behind explicit invalidation: a
+// missed delete serves stale data for at most this long. authCacheTTL also
+// bounds how long a token revoked in bulk (password reset) keeps working.
+const (
+	authCacheTTL = 60 * time.Second
+	taskListTTL  = 30 * time.Second
+)
+
+// authCacheEntry is the cached result of resolving a bearer token: its owner
+// plus the token's own expiry, re-checked on every cache hit.
+type authCacheEntry struct {
+	User      store.User `json:"user"`
+	ExpiresAt time.Time  `json:"expires_at"`
+}
 
 // Hub is the control plane. It owns the database, the adapter registry, the
 // web broadcaster, and the set of currently connected nodes.
@@ -25,6 +41,7 @@ type Hub struct {
 	registry *adapters.Registry
 	bus      *Broadcaster
 	log      *slog.Logger
+	cache    cache.Cache
 
 	nodesMu sync.Mutex
 	nodes   map[string]*nodeConn
@@ -41,17 +58,22 @@ type nodeConn struct {
 
 func (nc *nodeConn) close() { nc.once.Do(func() { close(nc.done) }) }
 
-// New builds a Hub. A nil registry falls back to an empty one.
-func New(ctx context.Context, st *store.Store, registry *adapters.Registry) *Hub {
+// New builds a Hub. A nil registry falls back to an empty one; a nil cache
+// falls back to a no-op cache (every read goes to Postgres).
+func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c cache.Cache) *Hub {
 	_ = ctx
 	if registry == nil {
 		registry = adapters.NewRegistry()
+	}
+	if c == nil {
+		c = cache.Noop{}
 	}
 	return &Hub{
 		store:    st,
 		registry: registry,
 		bus:      NewBroadcaster(),
 		log:      slog.Default().With("component", "hub"),
+		cache:    c,
 		nodes:    make(map[string]*nodeConn),
 	}
 }
@@ -69,6 +91,43 @@ func (h *Hub) Bus() *Broadcaster { return h.bus }
 func (h *Hub) Close() error {
 	h.bus.Close()
 	return nil
+}
+
+// ---- read-through cache ----------------------------------------------------
+
+// cachedJSON reports whether key holds a cached value, decoding it into dest.
+// Cache errors are treated as misses: the cache is an accelerator only.
+func (h *Hub) cachedJSON(ctx context.Context, key string, dest any) bool {
+	ok, err := h.cache.Get(ctx, key, dest)
+	if err != nil {
+		h.log.Debug("cache get failed; reading through", "key", key, "err", err)
+		return false
+	}
+	return ok
+}
+
+// cacheSet stores val under key; failures are logged and ignored.
+func (h *Hub) cacheSet(ctx context.Context, key string, val any, ttl time.Duration) {
+	if err := h.cache.Set(ctx, key, val, ttl); err != nil {
+		h.log.Debug("cache set failed", "key", key, "err", err)
+	}
+}
+
+// cacheDelete drops keys; failures are logged and ignored.
+func (h *Hub) cacheDelete(ctx context.Context, keys ...string) {
+	if err := h.cache.Delete(ctx, keys...); err != nil {
+		h.log.Debug("cache delete failed", "keys", keys, "err", err)
+	}
+}
+
+// invalidateTasks drops the cached task list for a workspace. Every task
+// mutation (create, status change, sort, dispatch, session-derived moves,
+// node-offline cascade) must call it; taskListTTL covers anything missed.
+func (h *Hub) invalidateTasks(ctx context.Context, workspaceID string) {
+	if workspaceID == "" {
+		return
+	}
+	h.cacheDelete(ctx, "tasks:ws:"+workspaceID)
 }
 
 // ---- node connection registry ---------------------------------------------
@@ -294,6 +353,7 @@ func (h *Hub) markNodeOffline(ctx context.Context, nodeID string) {
 			h.log.Warn("complete task on node offline", "task_id", task.ID, "err", err)
 			continue
 		}
+		h.invalidateTasks(ctx, task.WorkspaceID)
 		h.bus.Publish(protocol.Event{
 			Type: protocol.EvTaskStatusChanged,
 			Data: protocol.TaskStatusChanged{TaskID: updated.ID, From: task.Status, To: updated.Status},
@@ -342,6 +402,7 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 	if err != nil {
 		return task, err
 	}
+	h.invalidateTasks(ctx, task.WorkspaceID)
 
 	h.bus.Publish(protocol.Event{
 		Type: protocol.EvTaskStatusChanged,
