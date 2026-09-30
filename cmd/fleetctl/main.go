@@ -98,6 +98,7 @@ func schemaCmd(args []string) {
 		"RegisterResponse":          protocol.RegisterResponse{},
 		"TaskStartCommand":          protocol.TaskStartCommand{},
 		"SendMessageCommand":        protocol.SendMessageCommand{},
+		"SessionResumeCommand":      protocol.SessionResumeCommand{},
 		"CancelCommand":             protocol.CancelCommand{},
 		"SessionHistoryRequest":     protocol.SessionHistoryRequest{},
 		"SessionHistoryResponse":    protocol.SessionHistoryResponse{},

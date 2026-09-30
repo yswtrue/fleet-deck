@@ -18,6 +18,7 @@ export interface ProtocolSchema {
   SessionHistoryRequest?: SessionHistoryRequest;
   SessionHistoryResponse?: SessionHistoryResponse;
   SessionMessage?: SessionMessage;
+  SessionResumeCommand?: SessionResumeCommand;
   SessionStateChanged?: SessionStateChanged;
   SessionUsage?: SessionUsage;
   SessionUserInputRequested?: SessionUserInputRequested;
@@ -108,6 +109,14 @@ export interface SessionHistoryResponse {
 export interface SessionMessage {
   session_id: string;
   message: Message;
+}
+export interface SessionResumeCommand {
+  session_id: string;
+  task_id: string;
+  agent_type: string;
+  workspace_path: string;
+  external_session_id: string;
+  message: string;
 }
 export interface SessionStateChanged {
   session_id: string;
