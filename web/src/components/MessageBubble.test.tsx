@@ -39,4 +39,23 @@ describe('MessageBubble', () => {
     expect(screen.getByText('System')).toBeTruthy()
     expect(screen.getByText('node went offline')).toBeTruthy()
   })
+
+  it('hides the time for replayed history without timestamps', () => {
+    // ACP replay carries no timestamps and none are fabricated: the bubble
+    // must show content but no bogus time.
+    const { container } = render(
+      <MessageBubble
+        message={
+          {
+            ...base,
+            created_at: '0001-01-01T00:00:00Z',
+            role: 'assistant',
+            content: 'replayed answer',
+          } as Message
+        }
+      />
+    )
+    expect(screen.getByText('replayed answer')).toBeTruthy()
+    expect(container.querySelector('time')).toBeNull()
+  })
 })

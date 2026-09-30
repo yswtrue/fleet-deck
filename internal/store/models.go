@@ -197,21 +197,3 @@ func sessionsFromRows(rows []sqlcgen.Session) []protocol.Session {
 	}
 	return out
 }
-
-func messageFromRow(r sqlcgen.Message) protocol.Message {
-	return protocol.Message{
-		ID:        r.ID,
-		SessionID: r.SessionID,
-		Role:      protocol.MessageRole(r.Role),
-		Content:   r.Content,
-		CreatedAt: r.CreatedAt,
-	}
-}
-
-func messagesFromRows(rows []sqlcgen.Message) []protocol.Message {
-	out := make([]protocol.Message, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, messageFromRow(r))
-	}
-	return out
-}

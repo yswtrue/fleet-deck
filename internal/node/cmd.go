@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/protocol"
@@ -58,6 +59,16 @@ func (n *Node) handle(ctx context.Context, env protocol.Envelope) {
 			n.log.Warn("cancel failed", "session_id", cmd.SessionID, "err", err)
 		}
 		n.forget(cmd.SessionID)
+
+	case protocol.MsgSessionHistory:
+		var cmd protocol.SessionHistoryRequest
+		if err := env.Decode(&cmd); err != nil {
+			n.log.Warn("bad session.history_req payload", "err", err)
+			return
+		}
+		// Replay spawns an agent process and can take a while; never block the
+		// hub-message read loop on it.
+		go n.replayHistory(cmd)
 
 	default:
 		n.log.Debug("ignoring unknown hub message", "type", env.Type)
@@ -181,4 +192,56 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 		}
 		log.Info("session resumed", "external_session_id", result.ExternalSessionID)
 	}()
+}
+
+// replayTimeout bounds one history replay: it may spawn a short-lived agent
+// process, so it gets a generous but finite budget.
+const replayTimeout = 60 * time.Second
+
+// replayHistory answers a session.history_req: it replays the agent-side
+// session's conversation through a fresh adapter (replay is read-only and
+// independent of any live session instance) and reports the messages back to
+// the hub. Failures travel in the response payload — the hub then falls back
+// to its ephemeral text buffer.
+func (n *Node) replayHistory(cmd protocol.SessionHistoryRequest) {
+	resp := protocol.SessionHistoryResponse{
+		ReqID:     cmd.ReqID,
+		SessionID: cmd.SessionID,
+		Messages:  []protocol.Message{},
+	}
+	send := func() { n.enqueue(protocol.NewEnvelope(protocol.MsgSessionHistoryResp, resp)) }
+
+	agentType := cmd.AgentType
+	if agentType == "" {
+		agentType = n.cfg.DefaultAdapter
+	}
+	adapter, ok := n.registry.Get(agentType)
+	if !ok {
+		resp.Error = fmt.Sprintf("no adapter registered for agent_type %q", agentType)
+		send()
+		return
+	}
+	reader, ok := adapter.(adapters.HistoryReader)
+	if !ok {
+		resp.Error = fmt.Sprintf("agent_type %q has no history replay support", agentType)
+		send()
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), replayTimeout)
+	defer cancel()
+	msgs, err := reader.ReplaySession(ctx, adapters.ReplayRequest{
+		SessionID:         cmd.SessionID,
+		ExternalSessionID: cmd.ExternalSessionID,
+		WorkspacePath:     cmd.WorkspacePath,
+	})
+	if err != nil {
+		n.log.Warn("history replay failed", "session_id", cmd.SessionID, "err", err)
+		resp.Error = err.Error()
+		send()
+		return
+	}
+	resp.Messages = msgs
+	n.log.Info("history replayed", "session_id", cmd.SessionID, "messages", len(msgs))
+	send()
 }

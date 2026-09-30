@@ -250,14 +250,16 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 	}
 }
 
-// TestEvSessionMessagePersists posts a node session.event and asserts the hub
-// persists it as a chat-history row.
-func TestEvSessionMessagePersists(t *testing.T) {
+// TestEvSessionMessageBuffers posts a node session.event and asserts the
+// storage policy: the message is buffered in the hub's ephemeral text state
+// (served by GET /api/sessions/{id}/messages while the session is live) and no
+// content-shaped event is persisted to the server-side event stream.
+func TestEvSessionMessageBuffers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
 
-	_, st, ts, auth := newTestHub(t)
+	h, st, ts, auth := newTestHub(t)
 	c, nodeID := dialNode(t, ts, st, uniqueName("msg-node"))
 	defer func() { _ = c.Close() }()
 
@@ -283,16 +285,24 @@ func TestEvSessionMessagePersists(t *testing.T) {
 	ctx := context.Background()
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		msgs, err := st.Queries().ListMessagesBySession(ctx, task.SessionID, 10)
-		if err == nil {
-			for _, m := range msgs {
-				if m.Content == content && m.Role == protocol.RoleAssistant {
-					return // persisted
+		buf := h.textBuffer(ctx, task.SessionID)
+		for _, m := range buf.Messages {
+			if m.Content == content && m.Role == protocol.RoleAssistant {
+				// The status-event stream must stay content-free.
+				events, err := st.Queries().ListEventsBySession(ctx, task.SessionID, 0, 50)
+				if err != nil {
+					t.Fatalf("list events: %v", err)
 				}
+				for _, e := range events {
+					if e.Type == protocol.EvSessionMessage || e.Type == protocol.EvSessionDelta {
+						t.Fatalf("content event %q persisted to the event stream", e.Type)
+					}
+				}
+				return // buffered, nothing persisted
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("session message was not persisted (got %d rows)", len(msgs))
+			t.Fatalf("session message was not buffered (%d buffered)", len(buf.Messages))
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

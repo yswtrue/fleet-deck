@@ -173,6 +173,11 @@ type Adapter struct {
 
 	accMu sync.Mutex
 	acc   strings.Builder
+
+	// replayAsm, when set before Start, routes replayed session/update chunks
+	// to the history assembler instead of the live event path (see replay.go).
+	// It is write-once per adapter instance, before the read loop starts.
+	replayAsm *replayAssembler
 }
 
 var _ adapters.Adapter = (*Adapter)(nil)
@@ -796,9 +801,21 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 	switch p.Update.SessionUpdate {
 	case "agent_message_chunk":
 		if text := p.Update.Content.Text; text != "" {
+			if a.replayAsm != nil {
+				a.replayAsm.chunk(p.Update.MessageID, protocol.RoleAssistant, text)
+				return
+			}
 			a.appendText(text)
 			if sink != nil {
 				sink.TextDelta(ctx, sessionID, text)
+			}
+		}
+	case "user_message_chunk":
+		// Only a session/load replay carries user turns (live agents do not
+		// echo prompts), so this path is replay-only by construction.
+		if a.replayAsm != nil {
+			if text := p.Update.Content.Text; text != "" {
+				a.replayAsm.chunk(p.Update.MessageID, protocol.RoleUser, text)
 			}
 		}
 	case "agent_thought_chunk":

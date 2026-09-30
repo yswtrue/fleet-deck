@@ -15,6 +15,8 @@ export interface ProtocolSchema {
   SendMessageCommand?: SendMessageCommand;
   Session?: Session;
   SessionDelta?: SessionDelta;
+  SessionHistoryRequest?: SessionHistoryRequest;
+  SessionHistoryResponse?: SessionHistoryResponse;
   SessionMessage?: SessionMessage;
   SessionStateChanged?: SessionStateChanged;
   SessionUsage?: SessionUsage;
@@ -89,6 +91,19 @@ export interface Session {
 export interface SessionDelta {
   session_id: string;
   text: string;
+}
+export interface SessionHistoryRequest {
+  req_id: string;
+  session_id: string;
+  agent_type: string;
+  external_session_id: string;
+  workspace_path: string;
+}
+export interface SessionHistoryResponse {
+  req_id: string;
+  session_id: string;
+  messages: Message[];
+  error?: string;
 }
 export interface SessionMessage {
   session_id: string;

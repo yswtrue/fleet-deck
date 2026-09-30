@@ -151,6 +151,30 @@ type CancelCommand struct {
 	SessionID string `json:"session_id"`
 }
 
+// SessionHistoryRequest asks a node to replay a session's conversation from
+// the agent's own session store. The hub proxies it for
+// GET /api/sessions/{id}/messages: session content is deliberately never
+// persisted server-side (privacy model — the hub stores task metadata and
+// status events only), so history is recovered on demand. ReqID correlates
+// the node's MsgSessionHistoryResp.
+type SessionHistoryRequest struct {
+	ReqID             string `json:"req_id"`
+	SessionID         string `json:"session_id"`
+	AgentType         string `json:"agent_type"`
+	ExternalSessionID string `json:"external_session_id"`
+	WorkspacePath     string `json:"workspace_path"`
+}
+
+// SessionHistoryResponse carries the replayed conversation (oldest first) or
+// an Error when the node cannot replay: an adapter without history support, a
+// missing agent-side session, or a replay failure. On error Messages is empty.
+type SessionHistoryResponse struct {
+	ReqID     string    `json:"req_id"`
+	SessionID string    `json:"session_id"`
+	Messages  []Message `json:"messages"`
+	Error     string    `json:"error,omitempty"`
+}
+
 // ---- Node -> Hub events (reported up) ------------------------------------
 
 // Todo is one item in the agent's todo list, mirrored to a Subtask.

@@ -16,11 +16,15 @@ export interface StoredEvent {
 
 /**
  * SessionSnapshot is the body of GET /api/sessions/{id}: the session plus its
- * owning task (null when the task row cannot be resolved).
+ * owning task (null when the task row cannot be resolved). PendingInput is the
+ * prompt of the session's unanswered user-input ask ("" when none) — content,
+ * served from the hub's ephemeral buffer so a reload mid-pause can restore the
+ * picker.
  */
 export interface SessionSnapshot {
   session: Session
   task: Task | null
+  pending_input: string
 }
 
 export interface CreateNodeInput {

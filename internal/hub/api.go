@@ -598,22 +598,6 @@ func (h *Hub) handleListSubtasksByTask(w http.ResponseWriter, r *http.Request) {
 
 // ---- session history / gap-fill -------------------------------------------
 
-func (h *Hub) handleListMessages(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.PathValue("id")
-	limit := intQuery(r, "limit", 100)
-
-	if _, err := h.sessionVisibleTo(r.Context(), userOf(r), sessionID); err != nil {
-		writeError(w, http.StatusNotFound, "session not found")
-		return
-	}
-	messages, err := h.store.Queries().ListMessagesBySession(r.Context(), sessionID, limit)
-	if err != nil {
-		h.serverError(w, "list messages", err)
-		return
-	}
-	writeJSON(w, http.StatusOK, messages)
-}
-
 // eventDTO is store.Event shaped for the wire: Payload is emitted as raw JSON
 // (the stored JSONB payload) instead of Go's default base64 for []byte.
 type eventDTO struct {
@@ -704,37 +688,26 @@ func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resumeAwaitingSession is the original /send path: record the user reply to
-// an awaiting_user session, flip the session back to running, resume the
-// parent task in lock-step, broadcast all changes, and forward the reply to
-// the owning node. It is best-effort with respect to the node: if the node is
-// offline the message is still stored and the caller gets 202 instead of an
-// error.
+// resumeAwaitingSession is the original /send path: buffer the user reply as a
+// session message, flip the session back to running, resume the parent task in
+// lock-step, broadcast all changes, and forward the reply to the owning node.
+// The reply is content and is deliberately not persisted to Postgres (it is
+// broadcast live and held in the ephemeral text buffer). It is best-effort
+// with respect to the node: if the node is offline the caller gets 202 instead
+// of an error.
 func (h *Hub) resumeAwaitingSession(w http.ResponseWriter, r *http.Request, ctx context.Context, session protocol.Session, msgText string) {
 	id := session.ID
-	// Persist the user message and resume the session atomically.
-	var inserted protocol.Message
-	if err := h.store.WithTx(ctx, func(q *store.Queries) error {
-		msg, err := q.CreateMessage(ctx, store.CreateMessageParams{
-			SessionID: id,
-			Role:      protocol.RoleUser,
-			Content:   msgText,
-		})
-		if err != nil {
-			return err
-		}
-		inserted = msg
-		return q.UpdateSessionStatus(ctx, id, protocol.SessionRunning, nil)
-	}); err != nil {
+	if err := h.store.Queries().UpdateSessionStatus(ctx, id, protocol.SessionRunning, nil); err != nil {
 		h.serverError(w, "send message", err)
 		return
 	}
+	inserted := h.recordUserMessage(ctx, id, msgText)
 
 	// Locked decision: resume the parent task in lock-step with the session so
 	// the board clears "waiting for user" immediately.
 	h.resumeTaskOnReply(ctx, id)
 
-	// Broadcast only after the transaction commits.
+	// Broadcast only after the status update commits.
 	h.bus.Publish(protocol.Event{
 		Type: protocol.EvSessionMessage,
 		Data: protocol.SessionMessage{SessionID: id, Message: inserted},
@@ -745,8 +718,8 @@ func (h *Hub) resumeAwaitingSession(w http.ResponseWriter, r *http.Request, ctx 
 	})
 
 	// Forward the reply to the node that owns the session. An offline node is
-	// not a failure: the message is already durable and will be replayed/picked
-	// up on reconnect.
+	// not a failure: the caller is told the reply will not run until the node
+	// reconnects.
 	env := protocol.NewEnvelope(protocol.MsgSendMessage, protocol.SendMessageCommand{
 		SessionID: id,
 		Message:   msgText,
@@ -765,31 +738,21 @@ func (h *Hub) resumeAwaitingSession(w http.ResponseWriter, r *http.Request, ctx 
 }
 
 // resumeFinishedSession revives a finished (done/failed) session with the
-// user's follow-up: the message is recorded, the session flips back to
-// running, the parent task reopens (done -> running via moveTaskTo, bypassing
-// the manual PATCH table on purpose), and the owning node gets a
-// session.resume command carrying the agent-side external session id so it can
-// reattach with session/load. Like the awaiting path, an offline node yields
-// 202 with a warning, not an error.
+// user's follow-up: the reply is buffered as a session message, the session
+// flips back to running, the parent task reopens (done -> running via
+// moveTaskTo, bypassing the manual PATCH table on purpose), and the owning node
+// gets a session.resume command carrying the agent-side external session id so
+// it can reattach with session/load. Like the awaiting path, the reply is not
+// persisted to Postgres and an offline node yields 202 with a warning, not an
+// error.
 func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx context.Context, session protocol.Session, msgText string) {
 	id := session.ID
-	var inserted protocol.Message
-	if err := h.store.WithTx(ctx, func(q *store.Queries) error {
-		msg, err := q.CreateMessage(ctx, store.CreateMessageParams{
-			SessionID: id,
-			Role:      protocol.RoleUser,
-			Content:   msgText,
-		})
-		if err != nil {
-			return err
-		}
-		inserted = msg
-		// A resume clears the terminal ended_at: the session is live again.
-		return q.UpdateSessionStatus(ctx, id, protocol.SessionRunning, nil)
-	}); err != nil {
+	// A resume clears the terminal ended_at: the session is live again.
+	if err := h.store.Queries().UpdateSessionStatus(ctx, id, protocol.SessionRunning, nil); err != nil {
 		h.serverError(w, "resume session", err)
 		return
 	}
+	inserted := h.recordUserMessage(ctx, id, msgText)
 
 	h.reopenTaskOnResume(ctx, id)
 
@@ -836,9 +799,13 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 // sessionSnapshot is the body of GET /api/sessions/{id}: the session plus its
 // owning task. Task is a pointer so an unresolvable parent renders as JSON null,
 // matching the web's SessionSnapshot type ({ session, task: Task | null }).
+// PendingInput is the prompt of the session's unanswered user-input ask (empty
+// when none): it lives in the ephemeral text buffer, not the database, and
+// backs the web's reload-mid-pause rebuild.
 type sessionSnapshot struct {
-	Session protocol.Session `json:"session"`
-	Task    *protocol.Task   `json:"task"`
+	Session      protocol.Session `json:"session"`
+	Task         *protocol.Task   `json:"task"`
+	PendingInput string           `json:"pending_input"`
 }
 
 // handleGetSession returns a session and the task it belongs to in one round
@@ -853,7 +820,10 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snapshot := sessionSnapshot{Session: session}
+	snapshot := sessionSnapshot{
+		Session:      session,
+		PendingInput: h.textBuffer(ctx, id).PendingInput,
+	}
 	// The parent task should always exist (session.task_id is a FK), but resolve
 	// defensively: an unresolvable task yields JSON null rather than an error.
 	if task, err := h.store.Queries().GetTask(ctx, session.TaskID); err == nil {

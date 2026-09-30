@@ -136,6 +136,13 @@ func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message str
 	case <-a.cancelCh:
 		return context.Canceled
 	}
+	recordMessage(sessionID, protocol.Message{
+		ID:        fmt.Sprintf("%s-user-%d", sessionID, time.Now().UnixNano()),
+		SessionID: sessionID,
+		Role:      protocol.RoleUser,
+		Content:   message,
+		CreatedAt: time.Now().UTC(),
+	})
 	return nil
 }
 
@@ -169,13 +176,15 @@ func (a *Adapter) run(ctx context.Context, sessionID string, scenario Scenario, 
 	msgSeq := 0
 	emitMessage := func(content string) {
 		msgSeq++
-		sink.Message(ctx, sessionID, protocol.Message{
+		msg := protocol.Message{
 			ID:        fmt.Sprintf("%s-msg-%d", sessionID, msgSeq),
 			SessionID: sessionID,
 			Role:      protocol.RoleAssistant,
 			Content:   content,
 			CreatedAt: time.Now().UTC(),
-		})
+		}
+		recordMessage(sessionID, msg)
+		sink.Message(ctx, sessionID, msg)
 	}
 
 	sink.TodoUpdate(ctx, sessionID, snapshot(0))
@@ -301,4 +310,39 @@ func snapshot(active int) []protocol.Todo {
 		}
 	}
 	return todos
+}
+
+// ---- history replay --------------------------------------------------------
+
+var _ adapters.HistoryReader = (*Adapter)(nil)
+
+// history records what this process's fake adapters emitted per session, so
+// ReplaySession can serve it back. The fake has no agent-side session store;
+// this in-memory log (daemon lifetime only) is the closest honest equivalent.
+var (
+	historyMu sync.Mutex
+	history   = map[string][]protocol.Message{}
+)
+
+// recordMessage appends one message to a session's in-memory history.
+func recordMessage(sessionID string, msg protocol.Message) {
+	historyMu.Lock()
+	defer historyMu.Unlock()
+	history[sessionID] = append(history[sessionID], msg)
+}
+
+// ReplaySession implements adapters.HistoryReader: it returns the messages
+// this daemon recorded for the session, oldest first. Sessions it never saw
+// (e.g. across a daemon restart) report an error rather than an empty
+// transcript — absence of history is not the same as an empty conversation.
+func (a *Adapter) ReplaySession(_ context.Context, req adapters.ReplayRequest) ([]protocol.Message, error) {
+	historyMu.Lock()
+	defer historyMu.Unlock()
+	msgs, ok := history[req.SessionID]
+	if !ok {
+		return nil, fmt.Errorf("fake: no recorded history for session %q", req.SessionID)
+	}
+	out := make([]protocol.Message, len(msgs))
+	copy(out, msgs)
+	return out, nil
 }

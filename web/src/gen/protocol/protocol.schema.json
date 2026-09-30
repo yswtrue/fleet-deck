@@ -254,6 +254,98 @@
         "text"
       ]
     },
+    "SessionHistoryRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "req_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "agent_type": {
+          "type": "string"
+        },
+        "external_session_id": {
+          "type": "string"
+        },
+        "workspace_path": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "req_id",
+        "session_id",
+        "agent_type",
+        "external_session_id",
+        "workspace_path"
+      ]
+    },
+    "SessionHistoryResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Message": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "user",
+                "assistant",
+                "system"
+              ]
+            },
+            "content": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "session_id",
+            "role",
+            "content",
+            "created_at"
+          ]
+        }
+      },
+      "properties": {
+        "req_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/Message"
+          },
+          "type": "array"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "req_id",
+        "session_id",
+        "messages"
+      ]
+    },
     "SessionMessage": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "$defs": {

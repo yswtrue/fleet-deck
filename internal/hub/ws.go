@@ -229,16 +229,30 @@ func (h *Hub) handleNodeMessage(ctx context.Context, nodeID string, env protocol
 			return
 		}
 		h.applyEvent(ctx, wireEvent{Type: protocol.EvSessionMessage, Data: payload, Ts: time.Now().UTC()})
+	case protocol.MsgSessionHistoryResp:
+		var resp protocol.SessionHistoryResponse
+		if err := env.Decode(&resp); err != nil {
+			h.log.Warn("bad session.history_resp", "node_id", nodeID, "err", err)
+			return
+		}
+		h.handleHistoryResponse(resp)
 	default:
 		h.log.Debug("ignoring unknown node message", "node_id", nodeID, "type", env.Type)
 	}
 }
 
-// applyEvent persists a node-reported event against its session and applies its
-// domain effect (message row, session/task state transition) before echoing it
-// to web subscribers.
+// applyEvent applies one node-reported session event and echoes it to web
+// subscribers. Storage policy (privacy model): session content is never
+// persisted to Postgres — complete messages go to the ephemeral text buffer
+// only, text deltas are not stored at all — while status-class events are
+// persisted to the per-session event stream with text payloads stripped.
+// The agent's own session store on the node is the durable record of the
+// conversation, replayed on demand (see history.go).
 func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 	q := h.store.Queries()
+	if we.Ts.IsZero() {
+		we.Ts = time.Now().UTC()
+	}
 	sessionID := sessionIDOf(we)
 	if sessionID == "" {
 		// Every node-reported session event must carry a session id; a drop
@@ -247,29 +261,33 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 	}
 
 	if sessionID != "" {
-		if seq, err := q.MaxEventSeq(ctx, sessionID); err == nil {
-			if _, err := q.AppendEvent(ctx, sessionID, we.Type, we.Data, seq+1); err != nil {
-				h.log.Warn("persist event", "session_id", sessionID, "type", we.Type, "err", err)
-			}
-		}
 		switch we.Type {
 		case protocol.EvSessionMessage:
 			var m protocol.SessionMessage
 			if json.Unmarshal(we.Data, &m) == nil {
-				if _, err := q.CreateMessage(ctx, store.CreateMessageParams{
-					SessionID: sessionID,
-					Role:      m.Message.Role,
-					Content:   m.Message.Content,
-				}); err != nil {
-					h.log.Warn("persist message", "session_id", sessionID, "err", err)
+				m.SessionID = sessionID
+				m.Message = normalizeMessage(sessionID, m.Message, we.Ts)
+				h.appendBufferedMessage(ctx, sessionID, m.Message)
+				// Re-broadcast the normalized message so live clients and the
+				// text buffer agree on ids.
+				if payload, err := json.Marshal(m); err == nil {
+					we.Data = payload
 				}
 			}
 		case protocol.EvSessionStateChanged:
 			var s protocol.SessionStateChanged
 			if json.Unmarshal(we.Data, &s) == nil {
 				h.applySessionStatus(ctx, sessionID, s.Status)
+				if s.Status != protocol.SessionAwaitingUser {
+					h.setPendingInput(ctx, sessionID, "")
+				}
 			}
 		case protocol.EvSessionUserInputRequest:
+			var u protocol.SessionUserInputRequested
+			if json.Unmarshal(we.Data, &u) == nil {
+				h.setPendingInput(ctx, sessionID, u.Prompt)
+			}
+			// The ask drives the session's awaiting_user derivation.
 			h.applySessionStatus(ctx, sessionID, protocol.SessionAwaitingUser)
 		case protocol.EvSessionUsage:
 			var u protocol.SessionUsage
@@ -277,9 +295,44 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 				h.applyUsage(ctx, sessionID, u)
 			}
 		}
+		if persistEvent(we.Type) {
+			payload := we.Data
+			if we.Type == protocol.EvSessionUserInputRequest {
+				// The ask's prompt is content: persist only its occurrence
+				// (the empty prompt keeps the web's event contract intact; the
+				// actual ask lives in the ephemeral buffer and travels live).
+				payload = strippedUserInputPayload(sessionID)
+			}
+			if seq, err := q.MaxEventSeq(ctx, sessionID); err == nil {
+				if _, err := q.AppendEvent(ctx, sessionID, we.Type, payload, seq+1); err != nil {
+					h.log.Warn("persist event", "session_id", sessionID, "type", we.Type, "err", err)
+				}
+			}
+		}
 	}
 
 	h.bus.Publish(protocol.Event{Type: we.Type, Data: json.RawMessage(we.Data), Ts: time.Now().UTC()})
+}
+
+// persistEvent reports whether an event type belongs to the server-side event
+// stream (the status timeline used for audit and gap-fill). Text-carrying
+// events — session.delta, session.message — are deliberately excluded.
+func persistEvent(eventType string) bool {
+	switch eventType {
+	case protocol.EvSessionStateChanged, protocol.EvSessionUserInputRequest, protocol.EvSessionUsage:
+		return true
+	}
+	return false
+}
+
+// strippedUserInputPayload is the persisted form of a user_input_requested
+// event: the ask's occurrence without its prompt (content).
+func strippedUserInputPayload(sessionID string) json.RawMessage {
+	payload, _ := json.Marshal(protocol.SessionUserInputRequested{
+		SessionID: sessionID,
+		Prompt:    "",
+	})
+	return payload
 }
 
 // applyUsage persists one reported turn's token usage as a token_usage row.

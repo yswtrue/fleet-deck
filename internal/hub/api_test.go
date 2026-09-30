@@ -112,7 +112,7 @@ func TestSendMessageSuccess(t *testing.T) {
 		t.Fatalf("send response ok=false: %s", raw)
 	}
 	if body.Message.ID == "" || body.Message.Role != protocol.RoleUser || body.Message.Content != reply {
-		t.Fatalf("returned message = %+v, want a persisted user message %q", body.Message, reply)
+		t.Fatalf("returned message = %+v, want a buffered user message %q", body.Message, reply)
 	}
 
 	// Session resumed.
@@ -124,11 +124,8 @@ func TestSendMessageSuccess(t *testing.T) {
 		t.Fatalf("session status = %q, want running", sess.Status)
 	}
 
-	// Message persisted.
-	msgs, err := st.Queries().ListMessagesBySession(ctx, task.SessionID, 20)
-	if err != nil {
-		t.Fatalf("list messages: %v", err)
-	}
+	// Message buffered (privacy model: content is never persisted server-side).
+	msgs := h.textBuffer(ctx, task.SessionID).Messages
 	var found bool
 	for _, m := range msgs {
 		if m.Role == protocol.RoleUser && m.Content == reply {
@@ -136,7 +133,7 @@ func TestSendMessageSuccess(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("user message %q not persisted; got %d rows", reply, len(msgs))
+		t.Fatalf("user message %q not buffered; got %d buffered", reply, len(msgs))
 	}
 
 	// Both broadcasts emitted.
@@ -183,7 +180,7 @@ func TestSendMessageRefusesWhenNotAwaiting(t *testing.T) {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
 
-	_, st, ts, auth := newTestHub(t)
+	h, st, ts, auth := newTestHub(t)
 	c, nodeID := dialNode(t, ts, st, uniqueName("noawait-node"))
 	defer func() { _ = c.Close() }()
 
@@ -212,13 +209,9 @@ func TestSendMessageRefusesWhenNotAwaiting(t *testing.T) {
 	if err != nil || sess.Status != protocol.SessionRunning {
 		t.Fatalf("session status = %q (err %v), want running", sess.Status, err)
 	}
-	msgs, err := st.Queries().ListMessagesBySession(ctx, task.SessionID, 20)
-	if err != nil {
-		t.Fatalf("list messages: %v", err)
-	}
-	for _, m := range msgs {
+	for _, m := range h.textBuffer(ctx, task.SessionID).Messages {
 		if m.Role == protocol.RoleUser {
-			t.Fatalf("unexpected user message persisted: %+v", m)
+			t.Fatalf("unexpected buffered user message: %+v", m)
 		}
 	}
 }
@@ -331,19 +324,16 @@ func TestSendMessageNodeOffline(t *testing.T) {
 		t.Fatalf("202 body = %+v, want status=queued with a warning", body)
 	}
 
-	// The message is still durable and the session resumed.
-	msgs, err := st.Queries().ListMessagesBySession(ctx, task.SessionID, 20)
-	if err != nil {
-		t.Fatalf("list messages: %v", err)
-	}
+	// The message is buffered (not persisted) and the session resumed even
+	// while the node is unreachable.
 	var found bool
-	for _, m := range msgs {
+	for _, m := range h.textBuffer(ctx, task.SessionID).Messages {
 		if m.Role == protocol.RoleUser && m.Content == reply {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("user message %q not persisted while node offline", reply)
+		t.Fatalf("user message %q not buffered while node offline", reply)
 	}
 	sess, err := st.Queries().GetSession(ctx, task.SessionID)
 	if err != nil || sess.Status != protocol.SessionRunning {
@@ -459,13 +449,14 @@ func TestGetSessionHappy(t *testing.T) {
 		t.Fatalf("task = %+v, want id=%q", got.Task, task.ID)
 	}
 
-	// The body must carry exactly the two SessionSnapshot fields.
+	// The body must carry exactly the SessionSnapshot fields: session, task,
+	// and the pending ask's prompt (content served from the ephemeral buffer).
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &keys); err != nil {
 		t.Fatalf("decode raw keys: %v (%s)", err, raw)
 	}
-	if len(keys) != 2 || keys["session"] == nil || keys["task"] == nil {
-		t.Fatalf("response keys = %v, want exactly session+task", keys)
+	if len(keys) != 3 || keys["session"] == nil || keys["task"] == nil || keys["pending_input"] == nil {
+		t.Fatalf("response keys = %v, want exactly session+task+pending_input", keys)
 	}
 }
 
@@ -1120,19 +1111,15 @@ func TestSendMessageResumesDoneSession(t *testing.T) {
 		t.Fatalf("task status = %q, want running", got.Status)
 	}
 
-	// Follow-up persisted as a user message.
-	msgs, err := st.Queries().ListMessagesBySession(ctx, task.SessionID, 20)
-	if err != nil {
-		t.Fatalf("list messages: %v", err)
-	}
+	// Follow-up buffered as a user message (never persisted).
 	var found bool
-	for _, m := range msgs {
+	for _, m := range h.textBuffer(ctx, task.SessionID).Messages {
 		if m.Role == protocol.RoleUser && m.Content == followUp {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("follow-up %q not persisted", followUp)
+		t.Fatalf("follow-up %q not buffered", followUp)
 	}
 
 	// All three broadcasts emitted: message, session resume, task reopen.
@@ -1304,14 +1291,15 @@ func TestSendMessageResumeNodeOffline(t *testing.T) {
 
 // TestNodeResumeRoundTrip wires a scripted node that honors session.resume the
 // way the real node daemon does (reattach + prompt) and asserts the follow-up
-// reply lands in the messages table — the end-to-end proof that a resumed
-// session runs again.
+// reply lands in the session's text buffer — the end-to-end proof that a
+// resumed session runs again (session content itself is never persisted
+// server-side).
 func TestNodeResumeRoundTrip(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
 
-	_, st, ts, auth := newTestHub(t)
+	h, st, ts, auth := newTestHub(t)
 	c, nodeID := dialNode(t, ts, st, uniqueName("resume-rt-node"))
 	defer func() { _ = c.Close() }()
 
@@ -1370,16 +1358,13 @@ func TestNodeResumeRoundTrip(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		msgs, err := st.Queries().ListMessagesBySession(ctx, task.SessionID, 20)
-		if err == nil {
-			for _, m := range msgs {
-				if m.Role == protocol.RoleAssistant && m.Content == "resumed answer to: "+followUp {
-					return // the resumed session ran and answered
-				}
+		for _, m := range h.textBuffer(ctx, task.SessionID).Messages {
+			if m.Role == protocol.RoleAssistant && m.Content == "resumed answer to: "+followUp {
+				return // the resumed session ran and answered
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("resumed session's reply never landed in the messages table")
+			t.Fatalf("resumed session's reply never landed in the session text buffer")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -1902,5 +1887,191 @@ func TestTaskArchiveFlow(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("unarchived task %s missing from the default list", task.ID)
+	}
+}
+
+// TestListMessagesReplaysFromNode asserts the history proxy: a finished
+// session's GET /messages is answered by replaying the agent-side session
+// through the owning node (session content is never stored on the hub).
+func TestListMessagesReplaysFromNode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("hist-node"))
+	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	const extID = "agent-session-ext-1"
+	if err := st.Queries().UpdateSessionExternalID(ctx, task.SessionID, extID); err != nil {
+		t.Fatalf("seed external id: %v", err)
+	}
+	ended := time.Now().UTC()
+	if err := st.Queries().UpdateSessionStatus(ctx, task.SessionID, protocol.SessionDone, &ended); err != nil {
+		t.Fatalf("seed session done: %v", err)
+	}
+
+	// Scripted node: answer the history request with a replayed conversation,
+	// reporting the request it received for the assertions below.
+	reqCh := make(chan protocol.SessionHistoryRequest, 1)
+	go func() {
+		for env := range envelopes {
+			if env.Type != protocol.MsgSessionHistory {
+				continue
+			}
+			var req protocol.SessionHistoryRequest
+			if err := env.Decode(&req); err != nil {
+				continue
+			}
+			select {
+			case reqCh <- req:
+			default:
+			}
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgSessionHistoryResp, protocol.SessionHistoryResponse{
+				ReqID:     req.ReqID,
+				SessionID: req.SessionID,
+				Messages: []protocol.Message{
+					{ID: "r1", SessionID: req.SessionID, Role: protocol.RoleUser, Content: "question"},
+					{ID: "r2", SessionID: req.SessionID, Role: protocol.RoleAssistant, Content: "answer"},
+				},
+			}))
+		}
+	}()
+
+	resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/messages")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("messages status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	var msgs []protocol.Message
+	if err := json.Unmarshal(raw, &msgs); err != nil {
+		t.Fatalf("decode messages: %v (%s)", err, raw)
+	}
+	if len(msgs) != 2 || msgs[0].Content != "question" || msgs[1].Content != "answer" {
+		t.Fatalf("replayed messages = %+v, want [question answer]", msgs)
+	}
+
+	select {
+	case req := <-reqCh:
+		if req.SessionID != task.SessionID || req.ExternalSessionID != extID {
+			t.Fatalf("history request = %+v, want session %q external %q", req, task.SessionID, extID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no session.history_req reached the node")
+	}
+}
+
+// TestListMessagesFinishedUnavailable asserts the privacy trade-off: a
+// finished session whose node cannot replay yields 503 — history lives only
+// with the agent, and the hub reports that instead of inventing a transcript.
+func TestListMessagesFinishedUnavailable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("hist-off-node"))
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+
+	const extID = "agent-session-ext-gone"
+	if err := st.Queries().UpdateSessionExternalID(ctx, task.SessionID, extID); err != nil {
+		t.Fatalf("seed external id: %v", err)
+	}
+	ended := time.Now().UTC()
+	if err := st.Queries().UpdateSessionStatus(ctx, task.SessionID, protocol.SessionDone, &ended); err != nil {
+		t.Fatalf("seed session done: %v", err)
+	}
+
+	// Drop the node and wait until the hub reflects it, so the read path
+	// deterministically hits "offline" rather than racing the disconnect.
+	_ = c.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		h.nodesMu.Lock()
+		_, online := h.nodes[nodeID]
+		h.nodesMu.Unlock()
+		if !online {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("node never went offline")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/messages")
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("messages status = %d, want 503; body=%s", resp.StatusCode, raw)
+	}
+}
+
+// TestUserInputPromptStaysOutOfEventStream pins the privacy invariant: the
+// ask's prompt is content — it reaches live clients and the ephemeral buffer
+// (the session snapshot's pending_input) but is never persisted; the stored
+// event carries only its occurrence.
+func TestUserInputPromptStaysOutOfEventStream(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("ask-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+
+	const prompt = "may I run rm -rf /tmp/x?"
+	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+		Type: protocol.EvSessionUserInputRequest,
+		Data: protocol.SessionUserInputRequested{SessionID: task.SessionID, Prompt: prompt},
+		Ts:   time.Now().UTC(),
+	})); err != nil {
+		t.Fatalf("send user_input_requested: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("snapshot status = %d; body=%s", resp.StatusCode, raw)
+		}
+		var snap struct {
+			Session      protocol.Session `json:"session"`
+			PendingInput string           `json:"pending_input"`
+		}
+		if err := json.Unmarshal(raw, &snap); err != nil {
+			t.Fatalf("decode snapshot: %v (%s)", err, raw)
+		}
+		if snap.PendingInput == prompt {
+			// The persisted event stream must not contain the prompt anywhere.
+			resp2, raw2 := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/events")
+			if resp2.StatusCode != http.StatusOK {
+				t.Fatalf("events status = %d; body=%s", resp2.StatusCode, raw2)
+			}
+			if bytes.Contains(raw2, []byte("may I run")) {
+				t.Fatalf("prompt leaked into the persisted event stream: %s", raw2)
+			}
+			if snap.Session.Status != protocol.SessionAwaitingUser {
+				t.Fatalf("session status = %q, want awaiting_user", snap.Session.Status)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pending input never reached the session snapshot (got %q)", snap.PendingInput)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

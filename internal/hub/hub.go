@@ -46,6 +46,15 @@ type Hub struct {
 
 	nodesMu sync.Mutex
 	nodes   map[string]*nodeConn
+
+	// textMu guards the in-memory session text buffers (see textbuffer.go).
+	textMu sync.Mutex
+	text   map[string]textBufferEntry
+
+	// histWait correlates proxied session-history requests with the node's
+	// history responses (see history.go).
+	histMu   sync.Mutex
+	histWait map[string]chan protocol.SessionHistoryResponse
 }
 
 // nodeConn is the hub's side of a registered node connection: a buffered
@@ -76,6 +85,8 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 		cache:    c,
 		bindings: newBindingCache(),
 		nodes:    make(map[string]*nodeConn),
+		text:     make(map[string]textBufferEntry),
+		histWait: make(map[string]chan protocol.SessionHistoryResponse),
 	}
 	// Broadcast fan-out is scoped by the node that owns each event; the
 	// resolver runs once per event (see eventNodeID).

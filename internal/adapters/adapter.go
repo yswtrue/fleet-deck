@@ -65,6 +65,27 @@ type Resumable interface {
 	SetResumeSessionID(externalSessionID string)
 }
 
+// ReplayRequest is the input to HistoryReader.ReplaySession.
+type ReplayRequest struct {
+	SessionID         string
+	ExternalSessionID string
+	WorkspacePath     string
+}
+
+// HistoryReader is implemented by adapters that can replay a previous
+// agent-side session's conversation without running it. It backs the hub's
+// history proxy (privacy model: session content is stored only by the agent
+// itself, so the server fetches it on demand through the node).
+//
+// ReplaySession must not send prompts or otherwise advance the session: it
+// reads the recorded conversation and returns it oldest-first. It may spawn a
+// short-lived agent process to do so. Implementations return the returned
+// slice as protocol.Message rows with stable unique IDs and no fabricated
+// timestamps (leave CreatedAt zero when the agent reports none).
+type HistoryReader interface {
+	ReplaySession(ctx context.Context, req ReplayRequest) ([]protocol.Message, error)
+}
+
 // EventSink is the outbound channel through which adapters report what
 // happened. Implementations must be non-blocking; if the consumer is slow,
 // the adapter should drop or coalesce (the hub reads from session events

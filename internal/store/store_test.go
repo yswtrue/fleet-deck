@@ -208,14 +208,6 @@ func TestSmokeCRUDRoundTrip(t *testing.T) {
 		t.Fatalf("DeleteSubtaskByExternalID: %v", err)
 	}
 
-	// message ----------------------------------------------------------------
-	if _, err := q.CreateMessage(ctx, CreateMessageParams{SessionID: sess.ID, Role: protocol.RoleUser, Content: "hello"}); err != nil {
-		t.Fatalf("CreateMessage: %v", err)
-	}
-	if list, err := q.ListMessagesBySession(ctx, sess.ID, 10); err != nil || len(list) == 0 {
-		t.Fatalf("ListMessagesBySession: %v (%d rows)", err, len(list))
-	}
-
 	// event ------------------------------------------------------------------
 	if _, err := q.AppendEvent(ctx, sess.ID, "smoke", []byte(`{"ok":true}`), 1); err != nil {
 		t.Fatalf("AppendEvent: %v", err)

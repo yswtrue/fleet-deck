@@ -170,6 +170,12 @@ export function useSession(sessionId: string) {
         const snapshot = await apiRef.current.getSession(sessionId)
         if (cancelled) return
         setSessionStatus(snapshot.session.status)
+        // The pending ask's prompt is content: it lives in the hub's ephemeral
+        // buffer (not the event stream, which stores only its occurrence), so
+        // a reload mid-pause restores the picker from the snapshot.
+        if (snapshot.pending_input) {
+          setPendingPermission(parsePermissionRequest(snapshot.pending_input))
+        }
         const task = snapshot.task
         if (!task) return
         queryClient.setQueryData<Task[]>(['tasks', task.workspace_id], (prev) => {

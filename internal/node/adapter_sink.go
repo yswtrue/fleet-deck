@@ -27,7 +27,8 @@ func (s *connSink) TextDelta(_ context.Context, sessionID, text string) {
 
 // Message reports a complete assistant message. It travels as its own
 // MsgSessionEvent framing rather than being wrapped in a MsgEvent, because the
-// hub persists it directly as a chat-history row.
+// hub buffers it as session text (the ephemeral transcript buffer) and echoes
+// it to web clients as a chat-history line.
 func (s *connSink) Message(_ context.Context, sessionID string, msg protocol.Message) {
 	s.n.enqueue(protocol.NewEnvelope(protocol.MsgSessionEvent, protocol.SessionMessage{
 		SessionID: sessionID,

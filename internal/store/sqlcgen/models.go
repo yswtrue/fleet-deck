@@ -26,14 +26,6 @@ type Event struct {
 	Ts          time.Time
 }
 
-type Message struct {
-	ID        string
-	SessionID string
-	Role      string
-	Content   string
-	CreatedAt time.Time
-}
-
 type Node struct {
 	ID           string
 	Name         string

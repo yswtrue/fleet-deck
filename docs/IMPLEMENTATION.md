@@ -67,9 +67,14 @@ task        (id, workspace_id, title, prompt, status, agent_type,
              session_id?, sort_order, created_at, updated_at)
 subtask     (id, task_id, title, status, external_id?, sort_order)  -- external_id = agent todo id
 session     (id, task_id, node_id, agent_type, external_session_id?, status, created_at, ended_at)
-message     (id, session_id, role, content, created_at)     -- 会话历史,支持「点开进会话」
-event       (id, session_id, type, payload_json, seq, ts)   -- 事件流,支持重放/断线补齐
+event       (id, session_id, type, payload_json, seq, ts)   -- 事件流:仅状态类事件(状态/用量/ask 出现),不含正文
 ```
+
+**隐私存储模型(会话内容不落服务端)**:会话正文(消息、delta)不进 Postgres——唯一持久记录是
+agent 自己的会话存储(在 node 机器上)。`GET /api/sessions/{id}/messages` 对已结束会话通过 node 按需
+replay(`session.history_req/resp`,ACP `session/load` 全量回放)取回;活跃会话读 hub 的**内存文本缓冲**
+(24h TTL,存完整消息 + 待答 ask 的 prompt,重启即失)。`event` 表只存状态类事件的出现记录,
+`user_input_requested` 持久化时剥掉 prompt(空 prompt 占位,保持 web 事件契约)。
 
 **任务状态机**(4 状态,固定):
 
@@ -91,7 +96,7 @@ waiting ──start──▶ running ──agent_done──▶ done
 `internal/protocol` 里的 Go struct 是**唯一真源**。`cmd/fleetctl schema export` 导出 JSON Schema,`web/` 再生成 TS 类型。三端(hub/node/web)共享同一套消息形状。
 
 - **Hub ↔ Web(订阅/推送)**:事件类型如 `task.created` / `task.status_changed` / `subtask.updated` / `session.delta` / `session.user_input_requested` / `node.status_changed`。
-- **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel`;node 上报文本增量、todo 更新、状态变更、请求用户输入。
+- **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史);node 上报文本增量、todo 更新、状态变更、请求用户输入、`session.history_resp`。
 - **node 认证**:node 首次注册拿 token(存 `.devenv/state/fleetdeck/node-token`),后续连接携带 token。
 
 ### 3.4 Adapter 抽象(多 agent 的关键)
@@ -143,7 +148,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 - **账号**:`users` 表(email 唯一、小写去空白,bcrypt 密码,`role ∈ {admin,user}`)。账号由 admin 创建,**无自助注册**;首启 `POST /api/auth/setup` 建首个 admin(仅当 users 表为空,否则 409)。
 - **会话**:`auth_tokens` 存 sha256(token);token 为 32 字节随机 base64url,明文只回一次,TTL 30 天,`revoked_at` 可吊销。HTTP 用 `Authorization: Bearer`,`/ws/web` 用 `?token=`(浏览器 WebSocket 无法带 header);`/ws/node` 不变(node token 注册帧)。
-- **权限**:两档角色 `admin`(系统管理员,全权)/ `user`;授权模型是**用户↔节点绑定**(`node_members`,在用户页由 admin 绑定)+ 子树继承——绑定用户可见/可写该节点下全部 workspace/task/session/message/event。不可见的读返回 404(不泄露存在性),越权写返回 403;非 admin 的节点列表/详情只含已绑定节点。workspace/task 不单独设成员表,归属沿子树自动下传。
+- **权限**:两档角色 `admin`(系统管理员,全权)/ `user`;授权模型是**用户↔节点绑定**(`node_members`,在用户页由 admin 绑定)+ 子树继承——绑定用户可见/可写该节点下全部 workspace/task/session/event,会话正文经同一可见性检查的 history 代理按需取回。不可见的读返回 404(不泄露存在性),越权写返回 403;非 admin 的节点列表/详情只含已绑定节点。workspace/task 不单独设成员表,归属沿子树自动下传。
 - **实现**:`internal/hub/{middleware,auth_handlers}.go`;MCP 客户端经 `FLEETDECK_HUB_TOKEN` 环境变量带 Bearer。认证属 HTTP 层,不进 `internal/protocol`(node/hub wire 契约不变)。
 
 ### 3.7 node 离线事件缓冲
@@ -193,7 +198,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 ### Phase 1 — 数据库
 
 - **目标**:数据模型落地,查询可用。
-- **产出**:goose migrations(node/workspace/task/subtask/session/message/event)、sqlc 配置与生成查询。
+- **产出**:goose migrations(node/workspace/task/subtask/session/event 等;message 表已随隐私存储模型移除)、sqlc 配置与生成查询。
 - **验收**:`migrate up` 干净、`db-reset` 可重建、`go test` 通过。
 - **依赖**:P0。
 
