@@ -1,3 +1,4 @@
+import { imagetools } from 'vite-imagetools'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -9,8 +10,11 @@ if (!hubAddr) {
 }
 
 // https://vite.dev/config/
+// vite-imagetools resizes/re-encodes imported images at build time from
+// query directives (e.g. `?width=64&format=webp`); the full-res original in
+// src/assets is never served.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), imagetools()],
   // The SPA defaults to same-origin API calls; in development the dev server
   // proxies them to the hub so no CORS or VITE_HUB_URL is needed.
   server: {

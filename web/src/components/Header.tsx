@@ -10,7 +10,7 @@ import { LanguageSwitcher } from './LanguageSwitcher.tsx'
 import { useTranslation } from '../i18n/index.ts'
 import type { Node as HubNode, Workspace as HubWorkspace } from '../types.ts'
 import styles from './Header.module.css'
-
+import logoUrl from '../assets/fleetdeck-icon.png?w=64&format=webp'
 type Crumb = NonNullable<BreadcrumbProps['items']>[number]
 
 const shortId = (id: string): string => id.slice(0, 8)
@@ -72,28 +72,7 @@ function useCachedWorkspace(workspaceId: string): HubWorkspace | undefined {
 }
 
 function LogoMark() {
-  return (
-    <svg className={styles.mark} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect
-        x="1.5"
-        y="1.5"
-        width="21"
-        height="21"
-        rx="6"
-        fill="var(--accent-bg)"
-        stroke="var(--accent-border)"
-      />
-      <path
-        d="M8.6 11.2 15 7.8M8.6 12.8 15 16.2"
-        stroke="var(--accent)"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      <circle cx="7" cy="12" r="2.1" fill="var(--accent)" />
-      <circle cx="16.4" cy="7.4" r="2.1" fill="var(--accent)" />
-      <circle cx="16.4" cy="16.6" r="2.1" fill="var(--accent)" />
-    </svg>
-  )
+  return <img className={styles.mark} src={logoUrl} alt="" />
 }
 
 /**
