@@ -4,7 +4,7 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 10 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 123 Go + 90 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 13 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 132 Go + 99 web。
 
 **未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation、`task.cancelled_at` 取消审计列;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 

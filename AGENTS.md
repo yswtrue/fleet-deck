@@ -44,7 +44,7 @@ Order matters; do all of these before pushing.
 go build ./...
 go vet ./...
 gofmt -l cmd/ internal/        # must be empty
-go test -race ./...            # 127 passed / 16 packages (1 skip; live DB required)
+go test -race ./...            # 132 passed / 16 packages (1 skip; live DB required)
 go test -short ./...           # skip live-DB tests
 
 # Frontend (cd web)
