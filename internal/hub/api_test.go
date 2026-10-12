@@ -719,7 +719,7 @@ func TestCORSPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OPTIONS /api/tasks: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("preflight status = %d, want 204", resp.StatusCode)
 	}
@@ -893,7 +893,7 @@ func TestSearchTasksByTitle(t *testing.T) {
 	// Substring: both payment tasks, nothing else.
 	_, raw := getRaw(t, auth.token, ts.URL+"/api/tasks?workspace_id="+ws.ID+"&q=payment")
 	ids := decodeIDs(raw)
-	if len(ids) != 2 || !(ids[0] == report.ID || ids[1] == report.ID) || !(ids[0] == retry.ID || ids[1] == retry.ID) {
+	if len(ids) != 2 || (ids[0] != report.ID && ids[1] != report.ID) || (ids[0] != retry.ID && ids[1] != retry.ID) {
 		t.Fatalf("substring search ids = %v, want {%s %s}", ids, report.ID, retry.ID)
 	}
 

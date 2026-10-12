@@ -42,9 +42,7 @@ func mergeStats(a, b protocol.TaskStats) protocol.TaskStats {
 		Completed: a.Completed + b.Completed,
 		ByStatus:  append([]protocol.TaskStatsStatusCount(nil), a.ByStatus...),
 	}
-	for _, row := range b.ByStatus {
-		out.ByStatus = append(out.ByStatus, row)
-	}
+	out.ByStatus = append(out.ByStatus, b.ByStatus...)
 	return out
 }
 

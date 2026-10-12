@@ -47,7 +47,9 @@ func TestRedisCacheLifecycle(t *testing.T) {
 	}
 
 	// A corrupt entry is treated as a miss and removed, not an error.
-	mr.Set("bad", "{")
+	if err := mr.Set("bad", "{"); err != nil {
+		t.Fatalf("seed corrupt entry: %v", err)
+	}
 	if ok, err := c.Get(ctx, "bad", &dest); err != nil || ok {
 		t.Fatalf("corrupt get = (%v, %v), want (false, nil)", ok, err)
 	}

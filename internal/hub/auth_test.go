@@ -26,11 +26,6 @@ type testAuth struct {
 	token string
 }
 
-// header returns the Authorization header value for the provisioned token.
-func (a testAuth) header() string {
-	return "Bearer " + a.token
-}
-
 // setupUserWithRole creates a user with the given role and mints a bearer
 // token for it, returning the user and the plaintext token.
 func setupUserWithRole(t *testing.T, st *store.Store, role string) (store.User, string) {

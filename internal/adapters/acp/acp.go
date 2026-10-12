@@ -756,10 +756,10 @@ func (a *Adapter) deliverResponse(msg inbound) {
 // in initialize, so a well-behaved agent never calls them; refusing instead of
 // hanging keeps a misbehaving agent from stalling the session.
 func (a *Adapter) handleAgentRequest(ctx context.Context, sessionID string, sink adapters.EventSink, msg inbound) {
-	switch {
-	case msg.Method == "session/request_permission":
+	switch msg.Method {
+	case "session/request_permission":
 		a.handlePermissionRequest(ctx, sessionID, sink, msg)
-	case msg.Method == "fs/read_text_file" || msg.Method == "fs/write_text_file":
+	case "fs/read_text_file", "fs/write_text_file":
 		a.handleFSRequest(msg)
 	default:
 		a.respond(msg.ID, nil, &rpcError{Code: -32601, Message: "method not supported: " + msg.Method})

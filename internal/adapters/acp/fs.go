@@ -54,7 +54,7 @@ func resolveInWorkspace(workspace, p string) (string, error) {
 	}
 	cand = filepath.Clean(cand)
 
-	resolved := cand
+	var resolved string
 	if target, err := filepath.EvalSymlinks(cand); err == nil {
 		resolved = target
 	} else if !errors.Is(err, fs.ErrNotExist) {
