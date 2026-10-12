@@ -14,8 +14,8 @@
 The dev shell wires Postgres + hub + node + web as `process-compose` processes. **Everything below assumes you are inside `devenv shell` (or `nix develop`).** All ports/credentials come from `.env` (copy `.env.example` to customize; when `.env` is absent the example values are used) — `devenv.nix` derives `FLEETDECK_DATABASE_URL` / `FLEETDECK_REDIS_URL` / `FLEETDECK_HUB_ADDR` from it, nothing is hardcoded.
 
 ```sh
-devenv up            # hub + node + web (process-compose)
-devenv up fake-node  # + a second node wired to the fake adapter
+devenv up            # hub + node + web (native process manager)
+devenv up hub node web fake-node  # + a second node wired to the fake adapter
 db-up                # wait for Postgres on $FLEETDECK_DB_PORT
 migrate              # goose up
 db-reset             # dropdb + createdb + migrate (fresh schema)
@@ -102,7 +102,6 @@ web/src/{pages,components,hooks}/        # React UI (antd + Refine)
 web/src/{gen/protocol/,apiClient.ts,dataProvider.ts,providers/}
 web/src/i18n/                           # react-i18next bootstrap + locales/{en,zh-CN}/*.json
 web/src/hooks/{useWebSocket,dispatchEvent}.ts  # locked Lane C code
-integrations/pi/                         # (deferred) pi bridge
 scripts/                                 # smoke scripts
 .devenv/state/fleetdeck/                 # local: node token, event buffer (gitignored)
 docs/IMPLEMENTATION.md                   # design source of truth

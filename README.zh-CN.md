@@ -82,8 +82,8 @@ go build -o fleetdeck-node ./cmd/node
 ```sh
 cp .env.example .env    # 可选:自定义端口/凭证(默认值即可用)
 devenv shell
-devenv up              # hub + node + web,连本地 Postgres
-devenv up fake-node    # 可选:确定性的 fake agent node
+devenv up                          # hub + node + web,连本地 Postgres
+devenv up hub node web fake-node   # 可选:在上面基础上再加一个确定性的 fake agent node
 ```
 
 完整部署指南:**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**(英文)。

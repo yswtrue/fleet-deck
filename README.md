@@ -97,8 +97,8 @@ go build -o fleetdeck-node ./cmd/node
 ```sh
 cp .env.example .env    # optional: customize ports/credentials (defaults work)
 devenv shell
-devenv up              # hub + node + web against local Postgres
-devenv up fake-node    # optional: deterministic fake agent node
+devenv up                          # hub + node + web against local Postgres
+devenv up hub node web fake-node   # optional: ... plus a deterministic fake agent node
 ```
 
 Full walkthrough: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.

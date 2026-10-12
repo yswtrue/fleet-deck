@@ -25,21 +25,11 @@ let
   redisPort = pkgs.lib.toInt (envValue "FLEETDECK_REDIS_PORT");
   redisUrl = "redis://${redisHost}:${toString redisPort}/0";
 
-  hubAddr = "${envValue "FLEETDECK_HUB_HOST"}:${envValue "FLEETDECK_HUB_PORT"}"; # HTTP + WebSocket (web UI + node connections)
+  hubHost = envValue "FLEETDECK_HUB_HOST";
+  hubPort = pkgs.lib.toInt (envValue "FLEETDECK_HUB_PORT");
+  hubAddr = "${hubHost}:${toString hubPort}"; # HTTP + WebSocket (web UI + node connections)
   webHost = envValue "FLEETDECK_WEB_HOST";
   webPort = envValue "FLEETDECK_WEB_PORT"; # vite dev server
-
-  # `devenv up` processes must tolerate phases whose code does not exist yet,
-  # otherwise they restart-loop while we are still in an earlier phase.
-  # See docs/IMPLEMENTATION.md for the phase plan.
-  guarded = path: cmd: ''
-    if [ -e "${path}" ]; then
-      exec ${cmd}
-    else
-      echo "fleetdeck: ${path} not implemented yet — see docs/IMPLEMENTATION.md"
-      exec sleep infinity
-    fi
-  '';
 in
 {
   # Loads .env into config.env (and the shell/process environment). Falls back
@@ -61,8 +51,6 @@ in
     curl
     ripgrep
     fd
-    watchexec
-    just
 
     # database
     postgresql # psql, pg_dump, pg_restore
@@ -116,8 +104,9 @@ in
         pass = dbPass;
       }
     ];
-    # gen_random_uuid() is built in since PG13. Fuzzy search is deferred until
-    # Task titles actually need it; see docs/IMPLEMENTATION.md (deferred list).
+    # No extensions are declared here on purpose: migration 00008 creates
+    # pg_trgm itself (CREATE EXTENSION IF NOT EXISTS), and gen_random_uuid()
+    # is built in since PG13.
   };
 
   # Hub read-through cache (auth tokens, task lists). Cache-only: no
@@ -142,10 +131,7 @@ in
     FLEETDECK_NODE_TOKEN_FILE = "./.devenv/state/fleetdeck/node-token";
     FLEETDECK_EVENT_BUFFER_DIR = "./.devenv/state/fleetdeck/events";
 
-    # Pi adapter: path to the bundled bridge extension used by transport/rpc.
-    FLEETDECK_PI_BRIDGE = "./integrations/pi/fleetdeck-bridge.ts";
-
-    # Generated protocol artifacts consumed by web/ and the Pi bridge.
+    # Generated protocol artifacts consumed by web/.
     FLEETDECK_SCHEMA_OUT = "./web/src/gen/protocol";
 
     GODEBUG = "http2client=0";
@@ -155,38 +141,39 @@ in
   # Processes (`devenv up`)
   # ---------------------------------------------------------------------------
   processes = {
+    # The native process manager (devenv 2.x default) reads `after`, `ready`,
+    # `restart` and `start.enable`; the process-compose sub-options are ignored
+    # unless `process.manager.implementation = "process-compose"`.
     hub = {
-      exec = guarded "cmd/hub" "go run ./cmd/hub";
-      process-compose = {
-        availability.restart = "on_failure";
-        depends_on.postgres.condition = "process_healthy";
+      exec = "go run ./cmd/hub";
+      after = [ "devenv:processes:postgres" ];
+      ready = {
+        period = 1;
+        timeout = 60;
+        http.get = {
+          host = hubHost;
+          port = hubPort;
+          path = "/api/health";
+        };
       };
     };
 
     node = {
-      exec = guarded "cmd/node" "go run ./cmd/node --config ./examples/node.config.yaml";
-      process-compose = {
-        availability.restart = "on_failure";
-        depends_on.hub.condition = "process_started";
-      };
+      exec = "go run ./cmd/node --config ./examples/node.config.yaml";
+      after = [ "devenv:processes:hub" ];
     };
 
     web = {
-      exec = guarded "web/package.json" "pnpm --dir web dev --host ${webHost} --port ${toString webPort}";
-      process-compose = {
-        availability.restart = "on_failure";
-      };
+      exec = "pnpm --dir web dev --host ${webHost} --port ${toString webPort}";
     };
 
-    # A second Node wired to the Fake Adapter. Useful for integration work and
-    # for driving the UI without touching a real agent. Not started by default:
-    # run `devenv up fake-node` when you want it.
+    # A second Node wired to the fake adapter. Useful for integration work and
+    # for driving the UI without touching a real agent. Not started by default —
+    # run `devenv up hub node web fake-node` to get the whole stack plus it.
     fake-node = {
-      exec = guarded "cmd/node" "go run ./cmd/node --config ./examples/fake-node.config.yaml --adapter fake";
-      process-compose = {
-        availability.restart = "on_failure";
-        is_disabled = true;
-      };
+      exec = "go run ./cmd/node --config ./examples/fake-node.config.yaml --adapter fake";
+      after = [ "devenv:processes:hub" ];
+      start.enable = false;
     };
   };
 
@@ -328,7 +315,7 @@ in
     printf "  %-14s %s\n" "node"     "$(node --version)"
     echo "  ─────────────────────────────────────────────────────────────"
     echo "  devenv up            start hub + node + web"
-    echo "  devenv up fake-node  additionally start a Fake Adapter node"
+    echo "  devenv up hub node web fake-node   full stack + a Fake Adapter node"
     echo "  check                fmt + vet + lint + race tests"
     echo "  migrate / db-reset   apply or rebuild migrations"
     echo "  probe-adapters       report which agent CLIs are available"

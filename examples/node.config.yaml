@@ -2,8 +2,10 @@
 #
 #   go run ./cmd/node --config ./examples/node.config.yaml
 #
-# Phase 2 ships only the fake adapter, so this node advertises it too. Phase 4
-# replaces the agent_types list with the real backends available on this host.
+# The default dev node advertises the fake adapter, so the hub and UI can be
+# exercised without a real agent CLI. `probe-adapters` reports which real
+# backends this host has; list those under agent_types (e.g. codex, opencode,
+# claude, pi) to drive them from this node.
 name: node-1
 host: localhost
 capabilities:
