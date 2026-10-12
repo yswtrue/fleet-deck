@@ -59,7 +59,7 @@ AUTH_HEADER="Authorization: Bearer $SMOKE_TOKEN"
 echo "auth=ok"
 echo "health: $(curl -fsS "http://$HUB_ADDR/api/health")"
 
-"$BIN/node" --config ./examples/fake-node.config.yaml >"$BIN/node.log" 2>&1 &
+FLEETDECK_HUB_ADDR="$HUB_ADDR" "$BIN/node" --config ./examples/fake-node.config.yaml >"$BIN/node.log" 2>&1 &
 NODE_PID=$!
 
 NODE_ID=""
