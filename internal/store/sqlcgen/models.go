@@ -6,6 +6,8 @@ package sqlcgen
 
 import (
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type AuthToken struct {
@@ -34,6 +36,7 @@ type Node struct {
 	Capabilities []string
 	TokenHash    string
 	LastSeenAt   time.Time
+	MachineID    pgtype.Text
 }
 
 type NodeJoinToken struct {

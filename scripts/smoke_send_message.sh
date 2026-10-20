@@ -10,6 +10,7 @@ HUB_ADDR=${SMOKE_HUB_ADDR:-127.0.0.1:7710}
 DBURL=${FLEETDECK_DATABASE_URL:?set FLEETDECK_DATABASE_URL (run inside 'devenv shell')}
 export FLEETDECK_NODE_JOIN_TOKEN=${FLEETDECK_NODE_JOIN_TOKEN:-smoke-join-secret}
 BIN=/tmp/opencode/fd-phase3-smoke
+export FLEETDECK_NODE_LOCK_FILE="$BIN/node.lock"  # per-smoke daemon; one node per machine
 mkdir -p "$BIN"
 
 cd "$ROOT" || exit 1

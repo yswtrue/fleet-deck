@@ -113,6 +113,10 @@ type RegisterRequest struct {
 	// never registered. It is ignored once the node exists (Token authenticates
 	// reconnects).
 	JoinToken string `json:"join_token,omitempty"`
+	// MachineID is the node's stable machine fingerprint (already hashed by the
+	// daemon). The hub allows at most one node per fingerprint, so a second
+	// daemon on the same computer cannot register under another name.
+	MachineID string `json:"machine_id,omitempty"`
 }
 
 // RegisterResponse acknowledges registration and issues a node id/token.

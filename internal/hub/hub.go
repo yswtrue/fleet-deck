@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/cache"
@@ -234,6 +235,10 @@ func (h *Hub) registerNode(ctx context.Context, req protocol.RegisterRequest) (p
 	if name == "" {
 		return protocol.Node{}, "", errors.New("hub: register: name is required")
 	}
+	req.MachineID = strings.TrimSpace(req.MachineID)
+	if len(req.MachineID) > 200 {
+		return protocol.Node{}, "", errors.New("hub: register: machine_id is too long")
+	}
 	// The column is NOT NULL; a handshake that omits capabilities means none.
 	if req.Capabilities == nil {
 		req.Capabilities = []string{}
@@ -250,11 +255,70 @@ func (h *Hub) registerNode(ctx context.Context, req protocol.RegisterRequest) (p
 	return h.registerNewNode(ctx, name, req)
 }
 
+// Machine-identity errors. A machine fingerprint is claimed by exactly one
+// node row; these make the rejection understandable in the node's log.
+var (
+	errMachineIDRequired = errors.New("hub: register: machine_id is required for a new node")
+	errMachineTaken      = errors.New("hub: register: this machine is already registered with another node")
+	errMachineMismatch   = errors.New("hub: register: this node is registered from a different machine")
+)
+
+// machineTakenError names the existing node so the operator can find it.
+func machineTakenError(name string) error {
+	return fmt.Errorf("hub: register: this machine is already registered as %q", name)
+}
+
+// claimMachineID attaches the requesting machine fingerprint to a node. A node
+// that already claims the same fingerprint is idempotent; a node claiming a
+// different one, or a fingerprint already owned by another node, is rejected.
+// Callers wrap it in the same transaction as node creation.
+func (h *Hub) claimMachineID(ctx context.Context, q *store.Queries, nodeID, machineID string) error {
+	if machineID == "" {
+		// Legacy daemons that predate the fingerprint still reconnect; they
+		// adopt one on their first upgraded handshake.
+		return nil
+	}
+	current, err := q.GetNodeMachineID(ctx, nodeID)
+	if err != nil {
+		return err
+	}
+	if current == machineID {
+		return nil
+	}
+	if current != "" {
+		return errMachineMismatch
+	}
+	other, err := q.GetNodeByMachineID(ctx, machineID)
+	if err == nil && other.ID != nodeID {
+		return machineTakenError(other.Name)
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if err := q.UpdateNodeMachineID(ctx, nodeID, machineID); err != nil {
+		if isConstraintViolation(err, "node_machine_id_key") {
+			return errMachineTaken
+		}
+		return err
+	}
+	return nil
+}
+
+// isConstraintViolation reports whether err is a Postgres unique-constraint
+// violation for the given constraint/index name.
+func isConstraintViolation(err error, constraint string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == constraint
+}
+
 // registerNewNode claims an unused join token and creates the node row in one
 // transaction: the claim is burned only if the node insert succeeds, and the
 // token's creator is bound to the new node (the static deployment token has no
 // owner). The node receives a fresh node token for later reconnects.
 func (h *Hub) registerNewNode(ctx context.Context, name string, req protocol.RegisterRequest) (protocol.Node, string, error) {
+	if req.MachineID == "" {
+		return protocol.Node{}, "", errMachineIDRequired
+	}
 	token, hash, err := newToken()
 	if err != nil {
 		return protocol.Node{}, "", err
@@ -265,12 +329,20 @@ func (h *Hub) registerNewNode(ctx context.Context, name string, req protocol.Reg
 		if err != nil {
 			return err
 		}
+		// Reject a second identity for the same computer before consuming the
+		// join token; the unique index still guards the concurrent race.
+		if other, err := q.GetNodeByMachineID(ctx, req.MachineID); err == nil {
+			return machineTakenError(other.Name)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		node, err := q.CreateNode(ctx, store.CreateNodeParams{
 			Name:         name,
 			Host:         req.Host,
 			Status:       protocol.NodeOnline,
 			Capabilities: req.Capabilities,
 			TokenHash:    hash,
+			MachineID:    req.MachineID,
 		})
 		if err != nil {
 			return err
@@ -279,8 +351,12 @@ func (h *Hub) registerNewNode(ctx context.Context, name string, req protocol.Reg
 		return linkJoinToken(ctx, q, jt, static, node.ID)
 	})
 	if err != nil {
-		// Includes losing the unique-name race to a concurrent registration:
-		// the loser is rejected rather than silently taking over that node.
+		// Includes losing the unique-name or unique-machine race to a
+		// concurrent registration: the loser is rejected rather than silently
+		// taking over that node.
+		if isConstraintViolation(err, "node_machine_id_key") {
+			return protocol.Node{}, "", errMachineTaken
+		}
 		return protocol.Node{}, "", err
 	}
 	return created, token, nil
@@ -300,6 +376,11 @@ func (h *Hub) acceptExistingNode(ctx context.Context, existing protocol.Node, re
 	if !CheckToken(req.Token, hash) {
 		return protocol.Node{}, "", errors.New("hub: register: invalid token")
 	}
+	// The fingerprint travels with every handshake so legacy rows can adopt
+	// one, and a copied token file cannot move a node to another machine.
+	if err := h.claimMachineID(ctx, h.store.Queries(), existing.ID, req.MachineID); err != nil {
+		return protocol.Node{}, "", err
+	}
 	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {
 		return protocol.Node{}, "", err
 	}
@@ -317,6 +398,9 @@ func (h *Hub) claimExistingNode(ctx context.Context, existing protocol.Node, req
 	err = h.store.WithTx(ctx, func(q *store.Queries) error {
 		jt, static, err := h.authorizeJoin(ctx, q, req.JoinToken)
 		if err != nil {
+			return err
+		}
+		if err := h.claimMachineID(ctx, q, existing.ID, req.MachineID); err != nil {
 			return err
 		}
 		if err := q.UpdateNodeTokenHash(ctx, existing.ID, hash); err != nil {

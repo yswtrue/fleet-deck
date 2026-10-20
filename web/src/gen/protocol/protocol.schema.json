@@ -150,6 +150,9 @@
         },
         "join_token": {
           "type": "string"
+        },
+        "machine_id": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

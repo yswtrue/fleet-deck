@@ -42,6 +42,14 @@ func run() error {
 		cfg.Capabilities = appendUnique(cfg.Capabilities, *adapterFlag)
 	}
 
+	// One daemon per machine: a second process (any config, any hub) fails
+	// immediately instead of registering a duplicate node.
+	release, err := node.AcquireLock(cfg.LockFile)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

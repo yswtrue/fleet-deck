@@ -4,7 +4,7 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 15 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 135 Go + 101 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 16 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 138 Go + 101 web。
 
 **未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
@@ -61,7 +61,7 @@
 ### 3.2 数据模型
 
 ```
-node        (id, name, host, status, capabilities, token_hash, last_seen_at)
+node        (id, name, host, status, capabilities, token_hash, machine_id?, last_seen_at)
 workspace   (id, node_id, name, path, created_at)          -- 1:1 看板,不另设 board 表
 task        (id, workspace_id, title, prompt, status, agent_type,
              session_id?, sort_order, cancelled_at?, created_at, updated_at)
@@ -162,6 +162,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 3. `/ws/node` 首帧 `register_request.JoinToken` 校验通过后,hub 在一个事务内创建节点、绑定令牌创建者并烧掉令牌,返回 node token 写入 `token_file`;之后重连只带 node token。
 4. 令牌无效/过期/已用、或未知节点名不带令牌:hub 回 `register_response.error` 并断开,节点日志给出原因。
 5. `FLEETDECK_NODE_JOIN_TOKEN`(hub 与 node 同值)跳过数据库令牌,用于 devenv 与自动化部署,不产生所有者绑定。
+6. **一机一节点**:node 启动前获取机器级文件锁(`lock_file`,默认 `$TMPDIR/fleetdeck-node.lock`),第二个进程直接退出并打印持锁 pid;同时每次握手携带 `machine_id`(OS 机器标识的 sha256,可用 `machine_id` 覆盖),`node.machine_id` 有部分唯一索引——同一台机器换名字注册会被拒绝并报出已注册节点名,复制 node token 到另一台机器也会被拒。旧节点在下一次握手补录 machine_id。
 
 ### 3.7 node 离线事件缓冲
 

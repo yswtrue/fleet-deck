@@ -43,6 +43,15 @@ type Config struct {
 	// until token_file holds the node token. Defaults to
 	// $FLEETDECK_NODE_JOIN_TOKEN.
 	JoinToken string `yaml:"join_token"`
+	// MachineID overrides the detected machine fingerprint. The hub allows at
+	// most one node per fingerprint; leave empty in production (it is derived
+	// from the OS machine id and hashed). Defaults to
+	// $FLEETDECK_NODE_MACHINE_ID.
+	MachineID string `yaml:"machine_id"`
+	// LockFile is the machine-wide singleton lock that prevents two node
+	// daemons on one computer. Defaults to $FLEETDECK_NODE_LOCK_FILE or
+	// $TMPDIR/fleetdeck-node.lock.
+	LockFile string `yaml:"lock_file"`
 	// DefaultAdapter is used when a task's agent_type is empty.
 	DefaultAdapter string `yaml:"default_adapter"`
 }
@@ -79,6 +88,15 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.JoinToken == "" {
 		c.JoinToken = os.Getenv("FLEETDECK_NODE_JOIN_TOKEN")
+	}
+	if c.MachineID == "" {
+		c.MachineID = os.Getenv("FLEETDECK_NODE_MACHINE_ID")
+	}
+	if c.LockFile == "" {
+		c.LockFile = os.Getenv("FLEETDECK_NODE_LOCK_FILE")
+	}
+	if c.LockFile == "" {
+		c.LockFile = defaultLockFile()
 	}
 	if c.TokenFile == "" {
 		c.TokenFile = filepath.Join(".devenv", "state", "fleetdeck", "node-token")
@@ -136,6 +154,9 @@ type Node struct {
 func New(cfg Config, registry *adapters.Registry) *Node {
 	if registry == nil {
 		registry = adapters.Default
+	}
+	if cfg.MachineID == "" {
+		cfg.MachineID = detectMachineID()
 	}
 	n := &Node{
 		cfg:      cfg,
@@ -201,6 +222,7 @@ func (n *Node) runOnce(ctx context.Context) error {
 		Capabilities: n.cfg.advertisedCapabilities(),
 		Token:        n.readToken(),
 		JoinToken:    n.cfg.JoinToken,
+		MachineID:    n.cfg.MachineID,
 	})
 	if err := c.write(regEnv); err != nil {
 		return fmt.Errorf("send register_request: %w", err)

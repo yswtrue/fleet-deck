@@ -119,6 +119,15 @@ then issues the node credential, stored in `token_file` — keep that file
 private and drop the join token from the environment afterwards. Reconnects use
 `token_file` only.
 
+**One node per computer.** The daemon takes a machine-wide lock before
+connecting (`lock_file`, default `$TMPDIR/fleetdeck-node.lock`), so a second
+process exits with the first one's pid. Independently, the hub keeps
+`node.machine_id` unique: the daemon derives it from the OS machine identifier
+and hashes it, and a second node name from the same computer is rejected with
+the existing node's name. Both are overridable for dev/CI only
+(`machine_id` / `lock_file` in the YAML, or `FLEETDECK_NODE_MACHINE_ID` /
+`FLEETDECK_NODE_LOCK_FILE`); production should leave them unset.
+
 For automated deployments (no UI step), set the same
 `FLEETDECK_NODE_JOIN_TOKEN` on the hub and the node. That deployment secret
 registers nodes without a database token and does not bind an owner. The web UI shows the node as **online**;

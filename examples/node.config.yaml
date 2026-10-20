@@ -18,3 +18,9 @@ agent_types:
 # Each node needs its own token file — one shared file makes the daemons
 # overwrite each other's registration token.
 token_file: ./.devenv/state/fleetdeck/node-1.token
+
+# Optional (production leaves these unset):
+# machine_id: ...   # defaults to a hash of the OS machine id; the hub allows
+#                   # one node per machine
+# lock_file: ...    # defaults to $TMPDIR/fleetdeck-node.lock; prevents a
+#                   # second daemon on the same computer

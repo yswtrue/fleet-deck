@@ -16,6 +16,11 @@ agent_types:
 # Each node needs its own token file — one shared file makes the daemons
 # overwrite each other's registration token.
 token_file: ./.devenv/state/fleetdeck/fake-node-1.token
+# Dev-only exception: a second demo node on the same computer needs its own
+# machine identity and singleton lock. Never do this in production — one node
+# per machine is the rule.
+machine_id: dev-fake-node
+lock_file: ./.devenv/state/fleetdeck/fake-node.lock
 # First registration: the devenv shell exports FLEETDECK_NODE_JOIN_TOKEN, so
 # no join_token is needed here. For a remote hub, mint one in the UI
 # (Nodes -> Add node) and set join_token (or the env var).

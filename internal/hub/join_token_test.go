@@ -75,7 +75,9 @@ func TestJoinTokenRegistration(t *testing.T) {
 	}
 
 	// No credential: rejected, and the reason reaches the node.
-	c, resp := dialRegister(t, ts, protocol.RegisterRequest{Name: uniqueName("jt-none")})
+	c, resp := dialRegister(t, ts, protocol.RegisterRequest{
+		Name: uniqueName("jt-none"), MachineID: uniqueName("jt-machine"),
+	})
 	_ = c.Close()
 	if resp.Error == "" || resp.NodeID != "" {
 		t.Fatalf("credential-less registration = %+v, want rejection", resp)
@@ -83,8 +85,10 @@ func TestJoinTokenRegistration(t *testing.T) {
 
 	// Valid token: node created, creator bound, node token issued.
 	name := uniqueName("jt-node")
+	machineID := uniqueName("jt-machine")
 	c, resp = dialRegister(t, ts, protocol.RegisterRequest{
 		Name: name, Host: "jt-host", Capabilities: []string{"fake"}, JoinToken: token,
+		MachineID: machineID,
 	})
 	if resp.Error != "" || resp.NodeID == "" || resp.Token == "" {
 		t.Fatalf("join registration = %+v, want node id + token", resp)
@@ -100,7 +104,7 @@ func TestJoinTokenRegistration(t *testing.T) {
 
 	// The pairing token is single-use.
 	c2, resp2 := dialRegister(t, ts, protocol.RegisterRequest{
-		Name: uniqueName("jt-reuse"), JoinToken: token,
+		Name: uniqueName("jt-reuse"), JoinToken: token, MachineID: uniqueName("jt-machine"),
 	})
 	_ = c2.Close()
 	if resp2.Error == "" || resp2.NodeID != "" {
@@ -108,7 +112,9 @@ func TestJoinTokenRegistration(t *testing.T) {
 	}
 
 	// The issued node token authenticates the reconnect instead.
-	c3, resp3 := dialRegister(t, ts, protocol.RegisterRequest{Name: name, Token: resp.Token})
+	c3, resp3 := dialRegister(t, ts, protocol.RegisterRequest{
+		Name: name, Token: resp.Token, MachineID: machineID,
+	})
 	if resp3.Error != "" || resp3.NodeID != resp.NodeID {
 		t.Fatalf("node reconnect = %+v, want node %s", resp3, resp.NodeID)
 	}
@@ -119,7 +125,7 @@ func TestJoinTokenRegistration(t *testing.T) {
 		t.Fatalf("seed expired token: %v", err)
 	}
 	c4, resp4 := dialRegister(t, ts, protocol.RegisterRequest{
-		Name: uniqueName("jt-expired"), JoinToken: "expired-token",
+		Name: uniqueName("jt-expired"), JoinToken: "expired-token", MachineID: uniqueName("jt-machine"),
 	})
 	_ = c4.Close()
 	if resp4.Error == "" {
@@ -138,7 +144,7 @@ func TestStaticJoinTokenRegistration(t *testing.T) {
 	_, _, ts, _ := newTestHub(t)
 
 	c, resp := dialRegister(t, ts, protocol.RegisterRequest{
-		Name: uniqueName("static-node"), JoinToken: "static-join-secret",
+		Name: uniqueName("static-node"), JoinToken: "static-join-secret", MachineID: uniqueName("static-machine"),
 	})
 	_ = c.Close()
 	if resp.Error != "" || resp.NodeID == "" {
@@ -149,10 +155,69 @@ func TestStaticJoinTokenRegistration(t *testing.T) {
 	}
 
 	c2, resp2 := dialRegister(t, ts, protocol.RegisterRequest{
-		Name: uniqueName("static-wrong"), JoinToken: "wrong-secret",
+		Name: uniqueName("static-wrong"), JoinToken: "wrong-secret", MachineID: uniqueName("static-machine"),
 	})
 	_ = c2.Close()
 	if resp2.Error == "" {
 		t.Fatalf("wrong static token = %+v, want rejection", resp2)
+	}
+}
+
+// TestOneNodePerMachine pins the machine fingerprint rule: one node row per
+// computer, regardless of the configured node name, and a node token cannot be
+// replayed from a different machine.
+func TestOneNodePerMachine(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+	t.Setenv("FLEETDECK_NODE_JOIN_TOKEN", "static-join-secret")
+	_, _, ts, _ := newTestHub(t)
+
+	machine := uniqueName("machine")
+	name := uniqueName("machine-node")
+	c, first := dialRegister(t, ts, protocol.RegisterRequest{
+		Name: name, JoinToken: "static-join-secret", MachineID: machine,
+	})
+	_ = c.Close()
+	if first.Error != "" || first.NodeID == "" {
+		t.Fatalf("first registration = %+v, want success", first)
+	}
+
+	// A second identity on the same computer is refused, naming the existing
+	// node so the operator can find it.
+	c2, second := dialRegister(t, ts, protocol.RegisterRequest{
+		Name: uniqueName("machine-node-2"), JoinToken: "static-join-secret", MachineID: machine,
+	})
+	_ = c2.Close()
+	if !strings.Contains(second.Error, "already registered as") ||
+		!strings.Contains(second.Error, name) {
+		t.Fatalf("second identity = %+v, want machine-conflict naming %q", second, name)
+	}
+
+	// New nodes must state their machine identity.
+	c3, missing := dialRegister(t, ts, protocol.RegisterRequest{
+		Name: uniqueName("machine-node-3"), JoinToken: "static-join-secret",
+	})
+	_ = c3.Close()
+	if !strings.Contains(missing.Error, "machine_id is required") {
+		t.Fatalf("missing machine id = %+v, want machine_id-required error", missing)
+	}
+
+	// The issued node token reconnects from the same machine.
+	c4, again := dialRegister(t, ts, protocol.RegisterRequest{
+		Name: name, Token: first.Token, MachineID: machine,
+	})
+	_ = c4.Close()
+	if again.Error != "" || again.NodeID != first.NodeID {
+		t.Fatalf("same-machine reconnect = %+v, want node %s", again, first.NodeID)
+	}
+
+	// The same token from another machine is rejected (copied token_file).
+	c5, moved := dialRegister(t, ts, protocol.RegisterRequest{
+		Name: name, Token: first.Token, MachineID: uniqueName("other-machine"),
+	})
+	_ = c5.Close()
+	if moved.Error == "" {
+		t.Fatalf("cross-machine reconnect = %+v, want rejection", moved)
 	}
 }

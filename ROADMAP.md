@@ -26,7 +26,8 @@ that would move them forward.
 - **Node lifecycle** — self-registration with a single-use join token (minted
   in the UI, creator bound to the node; deployment-level
   `FLEETDECK_NODE_JOIN_TOKEN` for automation), issued node-token reconnects,
-  online status, offline cascade (running sessions fail visibly)
+  one node per computer (machine fingerprint + singleton process lock), online
+  status, offline cascade (running sessions fail visibly)
 - **Web UI internationalization** — English + Simplified Chinese via
   react-i18next (per-surface namespaces, `en` values are canonical), a
   header/login language switcher with persistence, `<html lang>` sync,
@@ -83,7 +84,7 @@ that would move them forward.
   with the embedded web UI + optional Traefik :80/:443 ingress via the
   `traefik` profile); the SPA also deploys to any static host via the runtime
   `config.js`; node daemons run locally — `docs/DEPLOYMENT.md`
-- **Test suites** — 135 Go tests (integration against live Postgres) + 101 web
+- **Test suites** — 138 Go tests (integration against live Postgres) + 101 web
   tests (Vitest + RTL: dispatcher, permission wire, auth client/login,
   components, SPA handler)
 

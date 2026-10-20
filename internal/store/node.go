@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store/sqlcgen"
 )
@@ -17,6 +19,9 @@ type CreateNodeParams struct {
 	Status       protocol.NodeStatus
 	Capabilities []string
 	TokenHash    string
+	// MachineID is the stable machine fingerprint (already hashed by the
+	// caller). Empty stores NULL, which the partial unique index ignores.
+	MachineID string
 }
 
 // CreateNode inserts a node and returns the stored row.
@@ -27,6 +32,7 @@ func (q *Queries) CreateNode(ctx context.Context, p CreateNodeParams) (protocol.
 		Status:       string(p.Status),
 		Capabilities: p.Capabilities,
 		TokenHash:    p.TokenHash,
+		MachineID:    pgtype.Text{String: p.MachineID, Valid: p.MachineID != ""},
 	})
 	if err != nil {
 		return protocol.Node{}, fmt.Errorf("store: create node: %w", err)
@@ -50,6 +56,39 @@ func (q *Queries) GetNodeByName(ctx context.Context, name string) (protocol.Node
 		return protocol.Node{}, fmt.Errorf("store: get node by name: %w", err)
 	}
 	return nodeFromRow(row), nil
+}
+
+// GetNodeByMachineID resolves the node that claimed a machine fingerprint.
+func (q *Queries) GetNodeByMachineID(ctx context.Context, machineID string) (protocol.Node, error) {
+	row, err := q.q.GetNodeByMachineID(ctx, pgtype.Text{String: machineID, Valid: true})
+	if err != nil {
+		return protocol.Node{}, fmt.Errorf("store: get node by machine id: %w", err)
+	}
+	return nodeFromRow(row), nil
+}
+
+// GetNodeMachineID returns a node's claimed machine fingerprint, or "" when
+// it has not claimed one yet.
+func (q *Queries) GetNodeMachineID(ctx context.Context, id string) (string, error) {
+	raw, err := q.q.GetNodeMachineID(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("store: get node machine id: %w", err)
+	}
+	if !raw.Valid {
+		return "", nil
+	}
+	return raw.String, nil
+}
+
+// UpdateNodeMachineID claims a machine fingerprint for a node.
+func (q *Queries) UpdateNodeMachineID(ctx context.Context, id, machineID string) error {
+	if err := q.q.UpdateNodeMachineID(ctx, sqlcgen.UpdateNodeMachineIDParams{
+		ID:        id,
+		MachineID: pgtype.Text{String: machineID, Valid: true},
+	}); err != nil {
+		return fmt.Errorf("store: update node machine id: %w", err)
+	}
+	return nil
 }
 
 // ListNodes returns all nodes ordered by name.

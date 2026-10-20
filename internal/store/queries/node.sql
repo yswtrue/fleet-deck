@@ -1,6 +1,6 @@
 -- name: CreateNode :one
-INSERT INTO node (name, host, status, capabilities, token_hash, last_seen_at)
-VALUES ($1, $2, $3, $4, $5, now())
+INSERT INTO node (name, host, status, capabilities, token_hash, machine_id, last_seen_at)
+VALUES ($1, $2, $3, $4, $5, sqlc.narg('machine_id'), now())
 RETURNING *;
 
 -- name: GetNode :one
@@ -8,6 +8,12 @@ SELECT * FROM node WHERE id = $1;
 
 -- name: GetNodeByName :one
 SELECT * FROM node WHERE name = $1;
+
+-- name: GetNodeByMachineID :one
+SELECT * FROM node WHERE machine_id = $1;
+
+-- name: GetNodeMachineID :one
+SELECT machine_id FROM node WHERE id = $1;
 
 -- name: ListNodes :many
 SELECT * FROM node ORDER BY name;
@@ -20,6 +26,11 @@ WHERE id = $1;
 -- name: UpdateNodeTokenHash :exec
 UPDATE node
 SET token_hash = $2
+WHERE id = $1;
+
+-- name: UpdateNodeMachineID :exec
+UPDATE node
+SET machine_id = $2
 WHERE id = $1;
 
 -- NOTE: This query is not the auth path; bcrypt salting prevents hash equality

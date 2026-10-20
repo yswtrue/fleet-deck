@@ -109,6 +109,7 @@ func dialNode(t *testing.T, ts *httptest.Server, st *store.Store, name string) (
 		Host:         "test-host",
 		Capabilities: []string{"fake"},
 		JoinToken:    testJoinToken,
+		MachineID:    "test-machine:" + name,
 	})
 	if err := c.WriteJSON(regEnv); err != nil {
 		t.Fatalf("send register: %v", err)

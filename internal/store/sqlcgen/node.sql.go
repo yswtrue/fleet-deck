@@ -8,12 +8,14 @@ package sqlcgen
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createNode = `-- name: CreateNode :one
-INSERT INTO node (name, host, status, capabilities, token_hash, last_seen_at)
-VALUES ($1, $2, $3, $4, $5, now())
-RETURNING id, name, host, status, capabilities, token_hash, last_seen_at
+INSERT INTO node (name, host, status, capabilities, token_hash, machine_id, last_seen_at)
+VALUES ($1, $2, $3, $4, $5, $6, now())
+RETURNING id, name, host, status, capabilities, token_hash, last_seen_at, machine_id
 `
 
 type CreateNodeParams struct {
@@ -22,6 +24,7 @@ type CreateNodeParams struct {
 	Status       string
 	Capabilities []string
 	TokenHash    string
+	MachineID    pgtype.Text
 }
 
 func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error) {
@@ -31,6 +34,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		arg.Status,
 		arg.Capabilities,
 		arg.TokenHash,
+		arg.MachineID,
 	)
 	var i Node
 	err := row.Scan(
@@ -41,6 +45,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		&i.Capabilities,
 		&i.TokenHash,
 		&i.LastSeenAt,
+		&i.MachineID,
 	)
 	return i, err
 }
@@ -77,7 +82,7 @@ func (q *Queries) CreateNodeJoinToken(ctx context.Context, arg CreateNodeJoinTok
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, host, status, capabilities, token_hash, last_seen_at FROM node WHERE id = $1
+SELECT id, name, host, status, capabilities, token_hash, last_seen_at, machine_id FROM node WHERE id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -91,12 +96,33 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.Capabilities,
 		&i.TokenHash,
 		&i.LastSeenAt,
+		&i.MachineID,
+	)
+	return i, err
+}
+
+const getNodeByMachineID = `-- name: GetNodeByMachineID :one
+SELECT id, name, host, status, capabilities, token_hash, last_seen_at, machine_id FROM node WHERE machine_id = $1
+`
+
+func (q *Queries) GetNodeByMachineID(ctx context.Context, machineID pgtype.Text) (Node, error) {
+	row := q.db.QueryRow(ctx, getNodeByMachineID, machineID)
+	var i Node
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Host,
+		&i.Status,
+		&i.Capabilities,
+		&i.TokenHash,
+		&i.LastSeenAt,
+		&i.MachineID,
 	)
 	return i, err
 }
 
 const getNodeByName = `-- name: GetNodeByName :one
-SELECT id, name, host, status, capabilities, token_hash, last_seen_at FROM node WHERE name = $1
+SELECT id, name, host, status, capabilities, token_hash, last_seen_at, machine_id FROM node WHERE name = $1
 `
 
 func (q *Queries) GetNodeByName(ctx context.Context, name string) (Node, error) {
@@ -110,12 +136,13 @@ func (q *Queries) GetNodeByName(ctx context.Context, name string) (Node, error) 
 		&i.Capabilities,
 		&i.TokenHash,
 		&i.LastSeenAt,
+		&i.MachineID,
 	)
 	return i, err
 }
 
 const getNodeByTokenHash = `-- name: GetNodeByTokenHash :one
-SELECT id, name, host, status, capabilities, token_hash, last_seen_at FROM node WHERE token_hash = $1
+SELECT id, name, host, status, capabilities, token_hash, last_seen_at, machine_id FROM node WHERE token_hash = $1
 `
 
 // NOTE: This query is not the auth path; bcrypt salting prevents hash equality
@@ -131,8 +158,20 @@ func (q *Queries) GetNodeByTokenHash(ctx context.Context, tokenHash string) (Nod
 		&i.Capabilities,
 		&i.TokenHash,
 		&i.LastSeenAt,
+		&i.MachineID,
 	)
 	return i, err
+}
+
+const getNodeMachineID = `-- name: GetNodeMachineID :one
+SELECT machine_id FROM node WHERE id = $1
+`
+
+func (q *Queries) GetNodeMachineID(ctx context.Context, id string) (pgtype.Text, error) {
+	row := q.db.QueryRow(ctx, getNodeMachineID, id)
+	var machine_id pgtype.Text
+	err := row.Scan(&machine_id)
+	return machine_id, err
 }
 
 const getOpenNodeJoinToken = `-- name: GetOpenNodeJoinToken :one
@@ -159,7 +198,7 @@ func (q *Queries) GetOpenNodeJoinToken(ctx context.Context, tokenHash string) (N
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, host, status, capabilities, token_hash, last_seen_at FROM node ORDER BY name
+SELECT id, name, host, status, capabilities, token_hash, last_seen_at, machine_id FROM node ORDER BY name
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -179,6 +218,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.Capabilities,
 			&i.TokenHash,
 			&i.LastSeenAt,
+			&i.MachineID,
 		); err != nil {
 			return nil, err
 		}
@@ -203,6 +243,22 @@ type MarkNodeJoinTokenUsedParams struct {
 
 func (q *Queries) MarkNodeJoinTokenUsed(ctx context.Context, arg MarkNodeJoinTokenUsedParams) error {
 	_, err := q.db.Exec(ctx, markNodeJoinTokenUsed, arg.ID, arg.UsedNodeID)
+	return err
+}
+
+const updateNodeMachineID = `-- name: UpdateNodeMachineID :exec
+UPDATE node
+SET machine_id = $2
+WHERE id = $1
+`
+
+type UpdateNodeMachineIDParams struct {
+	ID        string
+	MachineID pgtype.Text
+}
+
+func (q *Queries) UpdateNodeMachineID(ctx context.Context, arg UpdateNodeMachineIDParams) error {
+	_, err := q.db.Exec(ctx, updateNodeMachineID, arg.ID, arg.MachineID)
 	return err
 }
 
