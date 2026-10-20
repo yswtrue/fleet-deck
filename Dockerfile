@@ -30,7 +30,13 @@ ARG TARGETARCH
 # for the runtime platform so the copied binary matches the final stage.
 # Installed before the source copy so source changes never invalidate this layer.
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go install github.com/pressly/goose/v3/cmd/goose@v3.28.0
+    go install github.com/pressly/goose/v3/cmd/goose@v3.28.0 \
+ && mkdir -p /out \
+ && if [ -f /go/bin/${TARGETOS}_${TARGETARCH}/goose ]; then \
+      cp /go/bin/${TARGETOS}_${TARGETARCH}/goose /out/goose; \
+    else \
+      cp /go/bin/goose /out/goose; \
+    fi
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -44,7 +50,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /out/hub ./cmd/h
 FROM alpine:3.20 AS runtime
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build-go /out/hub /out/node /out/fleetctl /usr/local/bin/
-COPY --from=build-go /go/bin/goose /usr/local/bin/goose
+COPY --from=build-go /out/goose /usr/local/bin/goose
 COPY migrations/ /app/migrations/
 WORKDIR /app
 CMD ["/usr/local/bin/hub"]
