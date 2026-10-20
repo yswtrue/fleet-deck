@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Card, Table } from 'antd'
+import { Table } from 'antd'
 import type { TableColumnsType } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../apiClient.ts'
@@ -107,11 +107,11 @@ export function Dashboard() {
           <LoadingSkeleton count={2} />
         ) : (
           <>
-            <div className="fd-grid">
+            <div className={styles.taskSummary}>
               <SummaryCard label={t('dashboard.tasks.created')} value={taskStats.created} />
               <SummaryCard label={t('dashboard.tasks.completed')} value={taskStats.completed} />
             </div>
-            <Card size="small">
+            <div className={styles.statusCard}>
               <div
                 className={styles.statusRow}
                 role="group"
@@ -126,7 +126,7 @@ export function Dashboard() {
                   </div>
                 ))}
               </div>
-            </Card>
+            </div>
           </>
         )}
       </section>
@@ -141,7 +141,7 @@ export function Dashboard() {
           <LoadingSkeleton count={2} />
         ) : (
           <>
-            <div className="fd-grid">
+            <div className="fd-grid-4">
               <SummaryCard
                 label={tStats('summary.prompt')}
                 value={tokenStats.total.prompt_tokens}

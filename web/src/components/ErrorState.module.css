@@ -18,7 +18,7 @@
   height: 56px;
   margin-bottom: var(--space-1);
   border-radius: var(--radius-pill);
-  background: var(--bg);
+  background: var(--surface);
   color: var(--status-failed-text);
 }
 

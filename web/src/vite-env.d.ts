@@ -6,3 +6,7 @@ declare module '*.png?w=64&format=webp' {
   const src: string
   export default src
 }
+declare module '*.png?w=128&format=webp' {
+  const src: string
+  export default src
+}

@@ -147,7 +147,7 @@ export function Usage() {
         <EmptyState title={t('empty.title')}>{t('empty.body')}</EmptyState>
       ) : (
         <>
-          <div className="fd-grid">
+          <div className="fd-grid-4">
             <SummaryCard label={t('summary.prompt')} value={totals.prompt_tokens} />
             <SummaryCard label={t('summary.completion')} value={totals.completion_tokens} />
             <SummaryCard label={t('summary.total')} value={totals.total_tokens} />

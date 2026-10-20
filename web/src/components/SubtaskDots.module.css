@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  min-width: 0;
 }
 
 .dots {
@@ -18,11 +18,11 @@
 }
 
 .dot[data-status='in_progress'] {
-  background: var(--status-running-bg);
+  background: var(--status-running-text);
 }
 
 .dot[data-status='done'] {
-  background: var(--status-done-bg);
+  background: var(--status-done-text);
 }
 
 .more {
@@ -31,6 +31,7 @@
 }
 
 .label {
-  font-size: 0.8rem;
-  color: var(--text);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
 }

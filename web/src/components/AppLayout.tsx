@@ -2,11 +2,12 @@ import { useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Drawer, Layout, Menu } from 'antd'
 import type { MenuProps } from 'antd'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.ts'
 import { Header } from './Header.tsx'
 import { useTranslation } from '../i18n/index.ts'
 import styles from './AppLayout.module.css'
+import logoUrl from '../assets/fleetdeck-icon.png?w=64&format=webp'
 
 const { Sider } = Layout
 
@@ -148,14 +149,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <Sider
           className={styles.sider}
           theme="light"
-          width={220}
-          collapsedWidth={64}
+          width={236}
+          collapsedWidth={72}
           collapsible
           collapsed={collapsed}
           onCollapse={setCollapsed}
           trigger={null}
         >
-          <div className={styles.siderTop}>
+          <div className={styles.brandRow} data-collapsed={collapsed}>
+            <NavLink to="/" className={styles.brand} aria-label={t('brandHome')}>
+              <img className={styles.mark} src={logoUrl} alt="" />
+              {!collapsed && <span className={styles.wordmark}>{t('brand')}</span>}
+            </NavLink>
             <button
               type="button"
               className={styles.collapse}
@@ -165,7 +170,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
               {collapsed ? <UnfoldIcon /> : <FoldIcon />}
             </button>
           </div>
-          {menu}
+          <nav className={styles.nav}>{menu}</nav>
         </Sider>
       )}
       <Layout className={styles.main}>
@@ -179,6 +184,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
         onClose={() => setDrawerOpen(false)}
         styles={{ body: { padding: 0 } }}
       >
+        <div className={styles.brandRow}>
+          <NavLink to="/" className={styles.brand} aria-label={t('brandHome')}>
+            <img className={styles.mark} src={logoUrl} alt="" />
+            <span className={styles.wordmark}>{t('brand')}</span>
+          </NavLink>
+        </div>
         {menu}
       </Drawer>
     </Layout>

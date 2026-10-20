@@ -9,13 +9,13 @@
   /* antd's Layout.Header pins height/line-height at 64px; let the bar grow
      instead of letting a wrapped row overflow onto the page content. */
   height: auto;
-  min-height: 64px;
+  min-height: 58px;
   line-height: 1.5;
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-2) var(--space-6);
   border-bottom: 1px solid var(--border);
   background: var(--header-bg);
-  backdrop-filter: blur(12px) saturate(1.2);
-  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
 }
 
 .left {
@@ -78,15 +78,17 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px 14px;
+  padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
-  background: var(--code-bg);
+  background: var(--surface);
   color: var(--text);
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   cursor: pointer;
-  transition: border-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
 .health:hover {

@@ -1,0 +1,29 @@
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.value {
+  font-family: var(--heading);
+  font-size: 2rem;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.8px;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}

@@ -35,8 +35,9 @@ docker compose --profile traefik up -d
 #                  until a certificate resolver is configured)
 ```
 
-Open the UI, register a node (or run one — see below), create a workspace, and
-start a task.
+Open the UI, sign in, then add a node under **Nodes → Add node**: the dialog
+mints a single-use join token and shows the exact start command (see below).
+Create a workspace and start a task.
 
 ## Services
 
@@ -95,7 +96,9 @@ On every machine that should run agents:
 # 1. Build the node daemon (or copy a released binary)
 go build -o fleetdeck-node ./cmd/node
 
-# 2. Configure it (template: deploy/node.config.example.yaml)
+# 2. Mint a join token in the UI: Nodes -> Add node -> Generate token
+
+# 3. Configure it (template: deploy/node.config.example.yaml)
 cat > node.config.yaml <<'EOF'
 name: my-machine
 host: my-machine.example.com
@@ -106,12 +109,19 @@ hub_url: ws://localhost:7710/ws/node      # hub address as reachable from here
 token_file: ./node-token
 EOF
 
-# 3. Run it
-./fleetdeck-node --config node.config.yaml
+# 4. Run it with the one-time token (valid 15 minutes, single use)
+FLEETDECK_NODE_JOIN_TOKEN=<token from the UI> ./fleetdeck-node --config node.config.yaml
 ```
 
-On first start the node registers with the hub and stores its credential in
-`token_file` — keep that file private. The web UI shows the node as **online**;
+A node name must not be registered yet: the first handshake needs the join
+token, which is burned and binds the token's creator to the new node. The hub
+then issues the node credential, stored in `token_file` — keep that file
+private and drop the join token from the environment afterwards. Reconnects use
+`token_file` only.
+
+For automated deployments (no UI step), set the same
+`FLEETDECK_NODE_JOIN_TOKEN` on the hub and the node. That deployment secret
+registers nodes without a database token and does not bind an owner. The web UI shows the node as **online**;
 create a workspace pointing at an absolute path on that machine and tasks will
 be dispatched there.
 
@@ -170,11 +180,14 @@ End-to-end scripts (from a checkout): `scripts/smoke_send_message.sh`,
 
 ## Troubleshooting
 
-| Symptom                          | Likely cause                                                                                                                                                                                     |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| UI loads but shows "Hub offline" | `/api`/`/ws` not reachable — with the `traefik` profile check label routing (`docker compose --profile traefik logs traefik`); behind your own proxy make sure `/ws` passes the `Upgrade` header |
-| Blank page / "web UI not built"  | the hub was built without the bundle — rebuild the image (the Dockerfile embeds `web/dist`)                                                                                                      |
-| Node stuck "offline" in UI       | wrong `hub_url`, or the hub port (`FLEETDECK_HUB_PORT`, default 7710) is not reachable from the node machine                                                                                     |
-| Task stays `waiting`             | its workspace belongs to an offline node                                                                                                                                                         |
-| Session fails right after start  | agent CLI missing/not authenticated **on the node machine** — check the node's logs (`stderr` of the agent is not captured; run the CLI manually to diagnose)                                    |
-| 409 on reply                     | the session is not awaiting input (double reply) — the UI rolls the message back and warns                                                                                                       |
+| Symptom                                           | Likely cause                                                                                                                                                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| UI loads but shows "Hub offline"                  | `/api`/`/ws` not reachable — with the `traefik` profile check label routing (`docker compose --profile traefik logs traefik`); behind your own proxy make sure `/ws` passes the `Upgrade` header |
+| Blank page / "web UI not built"                   | the hub was built without the bundle — rebuild the image (the Dockerfile embeds `web/dist`)                                                                                                      |
+| Node stuck "offline" in UI                        | wrong `hub_url`, or the hub port (`FLEETDECK_HUB_PORT`, default 7710) is not reachable from the node machine                                                                                     |
+| "join token is required for a new node"           | first registration without a UI token — mint one under Nodes → Add node, or set `FLEETDECK_NODE_JOIN_TOKEN` on both hub and node                                                                 |
+| "join token is invalid, expired, or already used" | token older than 15 minutes or already claimed one node; mint a new one                                                                                                                          |
+| "invalid token" after re-registering              | `token_file` holds a credential from another hub/database — delete it and join again with a fresh join token                                                                                     |
+| Task stays `waiting`                              | its workspace belongs to an offline node                                                                                                                                                         |
+| Session fails right after start                   | agent CLI missing/not authenticated **on the node machine** — check the node's logs (`stderr` of the agent is not captured; run the CLI manually to diagnose)                                    |
+| 409 on reply                                      | the session is not awaiting input (double reply) — the UI rolls the message back and warns                                                                                                       |

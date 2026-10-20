@@ -1,19 +1,42 @@
+/* FleetDeck design tokens.
+ *
+ * One palette, two appearances: the values under `:root` are the light theme;
+ * the dark media query overrides the color tokens only, so spacing, radii and
+ * type stay identical. `providers/theme.ts` mirrors the same values for antd
+ * components, and `index.css` styles hand-rolled elements (pills, cards).
+ */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow: rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  color-scheme: light;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* Surfaces */
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #e9edf4;
+  --surface-3: #dfe5ee;
+  --border: #dfe4ec;
+  --border-strong: #c8d1de;
+  --overlay: rgba(13, 20, 36, 0.42);
+  --header-bg: rgba(255, 255, 255, 0.78);
 
+  /* Text */
+  --text: #58647a;
+  --text-dim: #6b7689;
+  --text-h: #0d1424;
+
+  /* Accent: teal (the brand's cyan family, kept distinct from the locked
+     status blue so "running" never reads as selection). */
+  --accent: #0f8f85;
+  --accent-strong: #0b6f68;
+  --accent-bg: rgba(15, 143, 133, 0.1);
+  --accent-border: rgba(15, 143, 133, 0.4);
+  --accent-contrast: #ffffff;
+  --code-bg: #f1f4f8;
+
+  --sans: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --heading: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --mono: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+
+  /* Status palette (locked 5-status set: neutral / blue / green / amber / red) */
   --status-online: #22c55e;
   --status-online-bg: rgba(34, 197, 94, 0.12);
   --status-online-text: #15803d;
@@ -46,7 +69,7 @@
 
   --status-pending-bg: #e5e7eb;
 
-  /* Design tokens: spacing scale (4px grid). */
+  /* Spacing scale (4px grid). */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -55,150 +78,155 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  /* Design tokens: corner radii. */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  /* Corner radii. */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
   --radius-pill: 999px;
 
-  /* Design tokens: elevation. `--shadow` is the resting card shadow. */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
-  --shadow-lg: rgba(0, 0, 0, 0.12) 0 20px 25px -5px, rgba(0, 0, 0, 0.08) 0 8px 10px -6px;
+  /* Elevation. */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08), 0 2px 4px rgba(16, 24, 40, 0.04);
+  --shadow-lg: 0 18px 40px rgba(16, 24, 40, 0.14), 0 6px 12px rgba(16, 24, 40, 0.06);
+  --shadow: var(--shadow-lg);
 
-  /* Translucent app chrome (header bar). */
-  --header-bg: rgba(255, 255, 255, 0.72);
-
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
+  font: 15px/1.55 var(--sans);
+  letter-spacing: 0.1px;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow: rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+    color-scheme: dark;
+
+    --bg: #0a0e14;
+    --surface: #111721;
+    --surface-2: #0d131b;
+    --surface-3: #18212d;
+    --border: #1f2a38;
+    --border-strong: #2e3d50;
+    --overlay: rgba(0, 0, 0, 0.6);
+    --header-bg: rgba(10, 14, 20, 0.78);
+
+    --text: #8b9ab0;
+    --text-dim: #7b8ca3;
+    --text-h: #e8eef7;
+
+    --accent: #2dd4bf;
+    --accent-strong: #5eead4;
+    --accent-bg: rgba(45, 212, 191, 0.12);
+    --accent-border: rgba(45, 212, 191, 0.42);
+    --accent-contrast: #06201d;
+    --code-bg: #0f1620;
 
     --status-online: #4ade80;
-    --status-online-bg: rgba(74, 222, 128, 0.15);
+    --status-online-bg: rgba(74, 222, 128, 0.14);
     --status-online-text: #86efac;
-    --status-online-border: rgba(74, 222, 128, 0.4);
+    --status-online-border: rgba(74, 222, 128, 0.38);
 
-    --status-offline: #9ca3af;
-    --status-offline-bg: rgba(156, 163, 175, 0.12);
-    --status-offline-text: #d1d5db;
-    --status-offline-border: rgba(156, 163, 175, 0.4);
+    --status-offline: #94a3b8;
+    --status-offline-bg: rgba(148, 163, 184, 0.12);
+    --status-offline-text: #cbd5e1;
+    --status-offline-border: rgba(148, 163, 184, 0.38);
 
-    --status-waiting-bg: rgba(156, 163, 175, 0.12);
-    --status-waiting-text: #d1d5db;
-    --status-waiting-border: rgba(156, 163, 175, 0.35);
+    --status-waiting-bg: rgba(148, 163, 184, 0.12);
+    --status-waiting-text: #cbd5e1;
+    --status-waiting-border: rgba(148, 163, 184, 0.34);
 
-    --status-running-bg: rgba(96, 165, 250, 0.12);
+    --status-running-bg: rgba(96, 165, 250, 0.14);
     --status-running-text: #93c5fd;
-    --status-running-border: rgba(96, 165, 250, 0.35);
+    --status-running-border: rgba(96, 165, 250, 0.36);
 
-    --status-done-bg: rgba(74, 222, 128, 0.12);
+    --status-done-bg: rgba(74, 222, 128, 0.14);
     --status-done-text: #86efac;
-    --status-done-border: rgba(74, 222, 128, 0.35);
+    --status-done-border: rgba(74, 222, 128, 0.36);
 
-    --status-awaiting-bg: rgba(251, 191, 36, 0.12);
+    --status-awaiting-bg: rgba(251, 191, 36, 0.14);
     --status-awaiting-text: #fcd34d;
-    --status-awaiting-border: rgba(251, 191, 36, 0.35);
+    --status-awaiting-border: rgba(251, 191, 36, 0.36);
 
-    --status-failed-bg: rgba(248, 113, 113, 0.1);
+    --status-failed-bg: rgba(248, 113, 113, 0.12);
     --status-failed-text: #fca5a5;
-    --status-failed-border: rgba(248, 113, 113, 0.35);
+    --status-failed-border: rgba(248, 113, 113, 0.36);
 
-    --status-pending-bg: #374151;
+    --status-pending-bg: #334155;
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);
-    --shadow-lg: rgba(0, 0, 0, 0.5) 0 20px 25px -5px, rgba(0, 0, 0, 0.35) 0 8px 10px -6px;
-
-    --header-bg: rgba(22, 23, 29, 0.72);
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.55), 0 8px 16px rgba(0, 0, 0, 0.35);
+    --shadow: var(--shadow-lg);
   }
 }
 
-#root {
-  width: 100%;
-  max-width: 1280px;
-  margin: 0 auto;
-  text-align: left;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
 }
 
 body {
   margin: 0;
+  background: var(--bg);
+}
+
+#root {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+::selection {
+  background: var(--accent-bg);
+  color: var(--text-h);
 }
 
 h1,
-h2 {
+h2,
+h3 {
   font-family: var(--heading);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-h);
 }
 
 h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+  font-size: 28px;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  margin: 0;
 }
 
 h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
+  font-size: 17px;
+  line-height: 1.35;
+  letter-spacing: -0.2px;
+  margin: 0;
 }
 
 p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
 code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
   background: var(--code-bg);
+  color: var(--text-h);
 }
 
 /* Keyboard focus must always be visible: one ring for every control,
@@ -211,7 +239,7 @@ code {
 /* Modals should never run off a narrow viewport. */
 @media (max-width: 768px) {
   body .ant-modal {
-    max-width: calc(100vw - 32px);
+    max-width: calc(100vw - 24px);
   }
 }
 
@@ -246,7 +274,8 @@ code {
   }
 }
 
-/* Page scaffolding shared by the overview pages. */
+/* ---- Page scaffolding ---------------------------------------------------- */
+
 .fd-stack {
   display: flex;
   flex-direction: column;
@@ -254,34 +283,35 @@ code {
 }
 
 .fd-stack-lg {
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 
 .fd-page-header {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  min-width: 0;
 }
 
 .fd-page-title {
   margin: 0;
   font-family: var(--heading);
-  font-size: 32px;
-  font-weight: 600;
+  font-size: 28px;
+  font-weight: 650;
   letter-spacing: -0.5px;
-  line-height: 120%;
+  line-height: 1.2;
   color: var(--text-h);
 }
 
 .fd-page-subtitle {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   color: var(--text);
 }
 
 .fd-section-header {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
@@ -290,16 +320,35 @@ code {
 .fd-section-title {
   margin: 0;
   font-family: var(--heading);
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.24px;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
   color: var(--text-h);
 }
 
 .fd-grid {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+}
+
+/* Fixed four-up grid for stat tiles; collapses to two and one column. */
+.fd-grid-4 {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1100px) {
+  .fd-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 360px) {
+  .fd-grid-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* Chip groups and inline metadata rows on cards and page headers. */
@@ -308,14 +357,15 @@ code {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .fd-chip-label {
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text);
+  letter-spacing: 0.7px;
+  color: var(--text-dim);
 }
 
 .fd-meta {
@@ -323,13 +373,13 @@ code {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-4);
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   color: var(--text);
 }
 
 .fd-meta code {
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
 /* Status pill: one shape, colors straight from the locked 5-status palette. */
@@ -340,9 +390,9 @@ code {
   padding: 2px 10px;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 600;
-  line-height: 1.6;
+  line-height: 1.7;
   white-space: nowrap;
 }
 
@@ -400,4 +450,10 @@ code {
   color: var(--text);
   background: var(--status-pending-bg);
   border-color: var(--border);
+}
+
+/* Thin, theme-aware scrollbars for the board and transcript panes. */
+.fd-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }

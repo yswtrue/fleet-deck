@@ -5,13 +5,27 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: var(--space-5) var(--space-5) var(--space-6);
+  padding: var(--space-5) var(--space-6) var(--space-7);
   box-sizing: border-box;
+}
+
+/* Keep line lengths readable on very wide monitors without shrinking the
+   board below its column grid. */
+.appMain > * {
+  width: 100%;
+  max-width: 1400px;
+  margin-inline: auto;
+}
+
+@media (max-width: 1024px) {
+  .appMain {
+    padding: var(--space-4) var(--space-4) var(--space-6);
+  }
 }
 
 @media (max-width: 768px) {
   .appMain {
     gap: var(--space-4);
-    padding: var(--space-4);
+    padding: var(--space-3) var(--space-3) var(--space-5);
   }
 }

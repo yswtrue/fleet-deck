@@ -24,6 +24,12 @@ export interface StatusPalette {
  * a white surface; the dark values are the softer media-query set. Hand-rolled
  * status pills read the CSS vars directly, so the two layers agree per mode.
  */
+/** The single interaction accent per appearance (teal; never the status blue). */
+export const accentColors: Record<ThemeMode, string> = {
+  dark: '#2dd4bf',
+  light: '#0f8f85',
+}
+
 export const statusColors: Record<ThemeMode, StatusPalette> = {
   dark: {
     neutral: '#9ca3af',
@@ -43,10 +49,11 @@ export const statusColors: Record<ThemeMode, StatusPalette> = {
 
 /** Shared shape tokens; mirrored by `--radius-*` / `--space-*` in `index.css`. */
 const shape = {
-  borderRadius: 8,
-  borderRadiusSM: 6,
-  borderRadiusLG: 14,
-  fontFamily: "system-ui, 'Segoe UI', Roboto, sans-serif",
+  borderRadius: 10,
+  borderRadiusSM: 8,
+  borderRadiusLG: 16,
+  fontFamily: "system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
+  fontSize: 15,
 } as const
 
 /**
@@ -65,7 +72,12 @@ export function fleetdeckTheme(mode: ThemeMode): ThemeConfig {
   return {
     algorithm: mode === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
     token: {
-      colorPrimary: palette.blue,
+      // Teal accent (see index.css): the locked status palette keeps blue for
+      // "running", so selection and primary actions use a distinct hue. antd
+      // derives hover/active shades by computing on this value, so it must be
+      // a concrete color, not a CSS custom property.
+      colorPrimary: accentColors[mode],
+      colorLink: accentColors[mode],
       colorInfo: palette.blue,
       colorSuccess: palette.green,
       colorWarning: palette.amber,
@@ -73,7 +85,14 @@ export function fleetdeckTheme(mode: ThemeMode): ThemeConfig {
       ...shape,
     },
     components: {
+      Layout: {
+        siderBg: 'var(--surface)',
+        headerBg: 'transparent',
+        bodyBg: 'var(--bg)',
+      },
       Card: {
+        colorBgContainer: 'var(--surface)',
+        colorBorderSecondary: 'var(--border)',
         borderRadiusLG: shape.borderRadiusLG,
         headerBg: 'transparent',
         paddingLG: 20,
@@ -87,29 +106,50 @@ export function fleetdeckTheme(mode: ThemeMode): ThemeConfig {
       },
       Menu: {
         itemBg: 'transparent',
-        itemHoverBg: 'var(--code-bg)',
+        itemHoverBg: 'var(--surface-3)',
         itemSelectedBg: 'var(--accent-bg)',
-        itemSelectedColor: 'var(--accent)',
+        itemSelectedColor: 'var(--accent-strong)',
+        itemColor: 'var(--text)',
+        itemHeight: 42,
+        itemMarginInline: 10,
         itemBorderRadius: shape.borderRadius,
         subMenuItemBg: 'transparent',
       },
       Modal: {
         borderRadiusLG: shape.borderRadiusLG,
-        contentBg: 'var(--bg)',
-        headerBg: 'var(--bg)',
+        contentBg: 'var(--surface)',
+        headerBg: 'var(--surface)',
         titleFontSize: 18,
       },
+      Input: {
+        colorBgContainer: 'var(--surface)',
+        activeBorderColor: 'var(--accent)',
+        hoverBorderColor: 'var(--accent-border)',
+      },
+      Select: {
+        colorBgContainer: 'var(--surface)',
+        optionSelectedBg: 'var(--accent-bg)',
+      },
       Table: {
-        headerBg: 'var(--code-bg)',
-        headerColor: 'var(--text-h)',
+        headerBg: 'var(--surface-2)',
+        headerColor: 'var(--text-dim)',
         headerSplitColor: 'transparent',
         borderColor: 'var(--border)',
-        rowHoverBg: 'var(--code-bg)',
+        rowHoverBg: 'var(--surface-3)',
+        colorBgContainer: 'var(--surface)',
       },
       Tag: {
-        defaultBg: 'var(--status-pending-bg)',
+        defaultBg: 'var(--surface-2)',
         defaultColor: 'var(--text-h)',
         borderRadiusSM: 999,
+      },
+      Statistic: {
+        contentFontSize: 28,
+        titleFontSize: 13,
+      },
+      Dropdown: {
+        colorBgElevated: 'var(--surface)',
+        controlItemBgHover: 'var(--surface-3)',
       },
     },
   }

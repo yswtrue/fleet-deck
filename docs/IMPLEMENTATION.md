@@ -4,7 +4,7 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 14 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 133 Go + 99 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 15 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 135 Go + 101 web。
 
 **未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
@@ -99,7 +99,7 @@ waiting ──start──▶ running ──agent_done──▶ done
 
 - **Hub ↔ Web(订阅/推送)**:事件类型如 `task.created` / `task.status_changed` / `subtask.updated` / `session.delta` / `session.user_input_requested` / `node.status_changed`。
 - **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史);node 上报文本增量、todo 更新、状态变更、请求用户输入、`session.history_resp`。
-- **node 认证**:node 首次注册拿 token(存 `.devenv/state/fleetdeck/node-token`),后续连接携带 token。
+- **node 注册**:未知节点名必须出示一次性加入令牌(`POST /api/nodes/join-tokens` 生成,任何已登录用户可生成;或部署级 `FLEETDECK_NODE_JOIN_TOKEN`)。hub 在创建节点行的同一事务里烧掉令牌,并把令牌创建者绑定到该节点;随后签发 node token(存 `token_file`),后续重连只用 node token。`POST /api/nodes` 已移除,不能凭空预建可被抢注的节点行。
 
 ### 3.4 Adapter 抽象(多 agent 的关键)
 
@@ -150,8 +150,18 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 - **账号**:`users` 表(email 唯一、小写去空白,bcrypt 密码,`role ∈ {admin,user}`)。账号由 admin 创建,**无自助注册**;首启 `POST /api/auth/setup` 建首个 admin(仅当 users 表为空,否则 409)。
 - **会话**:`auth_tokens` 存 sha256(token);token 为 32 字节随机 base64url,明文只回一次,TTL 30 天,`revoked_at` 可吊销。HTTP 用 `Authorization: Bearer`,`/ws/web` 用 `?token=`(浏览器 WebSocket 无法带 header);`/ws/node` 不变(node token 注册帧)。
+- **节点接入**:未知节点名需要一次性加入令牌;令牌创建者自动获得该节点绑定(admin 仍全局可见)。加入令牌明文只显示一次,库里只存 sha256、15 分钟有效、单次使用;`FLEETDECK_NODE_JOIN_TOKEN` 供自动化部署,不绑定所有者。
 - **权限**:两档角色 `admin`(系统管理员,全权)/ `user`;授权模型是**用户↔节点绑定**(`node_members`,在用户页由 admin 绑定)+ 子树继承——绑定用户可见/可写该节点下全部 workspace/task/session/event,会话正文经同一可见性检查的 history 代理按需取回。不可见的读返回 404(不泄露存在性),越权写返回 403;非 admin 的节点列表/详情只含已绑定节点。workspace/task 不单独设成员表,归属沿子树自动下传。
 - **实现**:`internal/hub/{middleware,auth_handlers}.go`;MCP 客户端经 `FLEETDECK_HUB_TOKEN` 环境变量带 Bearer。认证属 HTTP 层,不进 `internal/protocol`(node/hub wire 契约不变)。
+
+### 3.6.1 节点加入流程
+
+1. 登录后在 Nodes 页点 “Add node”,生成一次性加入令牌(15 分钟、单次)。
+2. 在节点机器的 `node.config.yaml` 填 `hub_url` / `name` / `token_file`,以
+   `FLEETDECK_NODE_JOIN_TOKEN=<token> ./fleetdeck-node --config node.config.yaml` 启动。
+3. `/ws/node` 首帧 `register_request.JoinToken` 校验通过后,hub 在一个事务内创建节点、绑定令牌创建者并烧掉令牌,返回 node token 写入 `token_file`;之后重连只带 node token。
+4. 令牌无效/过期/已用、或未知节点名不带令牌:hub 回 `register_response.error` 并断开,节点日志给出原因。
+5. `FLEETDECK_NODE_JOIN_TOKEN`(hub 与 node 同值)跳过数据库令牌,用于 devenv 与自动化部署,不产生所有者绑定。
 
 ### 3.7 node 离线事件缓冲
 

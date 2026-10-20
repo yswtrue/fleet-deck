@@ -177,10 +177,12 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
             </svg>
           </button>
         )}
-        <NavLink to="/" className={styles.brand} aria-label={t('brandHome')}>
-          <LogoMark />
-          <span className={styles.wordmark}>FleetDeck</span>
-        </NavLink>
+        {onMenuClick && (
+          <NavLink to="/" className={styles.brand} aria-label={t('brandHome')}>
+            <LogoMark />
+            <span className={styles.wordmark}>FleetDeck</span>
+          </NavLink>
+        )}
         <Breadcrumb
           className={styles.breadcrumb}
           items={[{ key: 'home', title: <NavLink to="/">{t('home')}</NavLink> }, ...crumbs]}

@@ -326,12 +326,10 @@ export function Users() {
   }
 
   return (
-    <div>
+    <div className="fd-stack fd-stack-lg">
       {messageHolder}
       <div className={styles.toolbar}>
-        <Typography.Title level={2} style={{ margin: 0 }}>
-          {t('users.title')}
-        </Typography.Title>
+        <h1 className="fd-page-title">{t('users.title')}</h1>
         <Button
           type="primary"
           onClick={() => {
@@ -342,16 +340,20 @@ export function Users() {
           {t('users.new')}
         </Button>
       </div>
-      <Table<AuthUser>
-        rowKey="id"
-        columns={columns}
-        dataSource={users.data ?? []}
-        scroll={{ x: true }}
-        pagination={false}
-        locale={{
-          emptyText: <EmptyState title={t('users.emptyTitle')}>{t('users.emptyBody')}</EmptyState>,
-        }}
-      />
+      <div className={styles.tableCard}>
+        <Table<AuthUser>
+          rowKey="id"
+          columns={columns}
+          dataSource={users.data ?? []}
+          scroll={{ x: true }}
+          pagination={false}
+          locale={{
+            emptyText: (
+              <EmptyState title={t('users.emptyTitle')}>{t('users.emptyBody')}</EmptyState>
+            ),
+          }}
+        />
+      </div>
       <UserFormModal open={modalOpen} editing={editing} onClose={() => setModalOpen(false)} />
     </div>
   )

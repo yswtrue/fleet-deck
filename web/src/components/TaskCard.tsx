@@ -14,6 +14,53 @@ import { useTranslation } from '../i18n/index.ts'
 import styles from './TaskCard.module.css'
 import type { Task, Subtask } from '../types.ts'
 
+function Icon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {children}
+    </svg>
+  )
+}
+
+const StartIcon = () => (
+  <Icon>
+    <path d="M8 5.5v13l10-6.5z" />
+  </Icon>
+)
+
+const ArchiveIcon = () => (
+  <Icon>
+    <rect x="3.5" y="4.5" width="17" height="4" rx="1" />
+    <path d="M5 8.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8.5M10 13h4" />
+  </Icon>
+)
+
+const UnarchiveIcon = () => (
+  <Icon>
+    <rect x="3.5" y="4.5" width="17" height="4" rx="1" />
+    <path d="M5 8.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8.5M12 16v-5M9.5 13.5 12 11l2.5 2.5" />
+  </Icon>
+)
+
+const MoreIcon = () => (
+  <Icon>
+    <circle cx="5" cy="12" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="19" cy="12" r="1" />
+  </Icon>
+)
+
 export function TaskCard({
   task,
   subtasks = [],
@@ -148,81 +195,84 @@ export function TaskCard({
     >
       {externalMessageApi ? null : localMessageHolder}
       <div className={styles.top}>
-        <span className={styles.statusChip} data-status={task.status}>
-          {statusLabel(task.status)}
-        </span>
-        <span className={styles.agentChip}>{task.agent_type}</span>
-        {!task.session_id && !isBacklog && (
-          <span className={styles.noSessionChip} title={t('card.noSessionHint')}>
-            {t('card.noSession')}
+        <div className={styles.chips}>
+          <span className={styles.statusChip} data-status={task.status}>
+            {statusLabel(task.status)}
           </span>
-        )}
-        {isBacklog && (
-          <span className={styles.noSessionChip} title={t('card.backlogHint')}>
-            {t('card.backlog')}
-          </span>
-        )}
-        {canStart && (
-          <Button
-            size="small"
-            type="text"
-            className={styles.moveButton}
-            aria-label={t('card.startAria', { title: task.title })}
-            onClick={handleStart}
-            loading={startMutation.isPending}
-          >
-            {t('card.startButton')}
-          </Button>
-        )}
-        {canArchive && (
-          <Button
-            size="small"
-            type="text"
-            className={styles.moveButton}
-            aria-label={t('card.archiveAria', { title: task.title })}
-            onClick={handleArchiveToggle}
-            loading={archiveMutation.isPending}
-          >
-            {t('card.archiveButton')}
-          </Button>
-        )}
-        {isArchived && (
-          <Button
-            size="small"
-            type="text"
-            className={styles.moveButton}
-            aria-label={t('card.unarchiveAria', { title: task.title })}
-            onClick={handleArchiveToggle}
-            loading={archiveMutation.isPending}
-          >
-            {t('card.unarchiveButton')}
-          </Button>
-        )}
-        {transitions.length > 0 && (
-          <Dropdown
-            menu={{ items: menuItems, onClick: handleMenuClick }}
-            trigger={['click']}
-            placement="bottomRight"
-          >
+          <span className={styles.agentChip}>{task.agent_type}</span>
+          {!task.session_id && !isBacklog && (
+            <span className={styles.noSessionChip} title={t('card.noSessionHint')}>
+              {t('card.noSession')}
+            </span>
+          )}
+          {isBacklog && (
+            <span className={styles.noSessionChip} title={t('card.backlogHint')}>
+              {t('card.backlog')}
+            </span>
+          )}
+        </div>
+        <span className={styles.actions}>
+          {canStart && (
             <Button
               size="small"
               type="text"
-              className={styles.moveButton}
-              aria-label={t('card.moveAria', { title: task.title })}
-              title={t('card.moveTitle')}
-              onClick={(event) => event.stopPropagation()}
+              className={styles.iconButton}
+              aria-label={t('card.startAria', { title: task.title })}
+              title={t('card.startButton')}
+              onClick={handleStart}
+              loading={startMutation.isPending}
+              icon={<StartIcon />}
+            />
+          )}
+          {canArchive && (
+            <Button
+              size="small"
+              type="text"
+              className={styles.iconButton}
+              aria-label={t('card.archiveAria', { title: task.title })}
+              title={t('card.archiveButton')}
+              onClick={handleArchiveToggle}
+              loading={archiveMutation.isPending}
+              icon={<ArchiveIcon />}
+            />
+          )}
+          {isArchived && (
+            <Button
+              size="small"
+              type="text"
+              className={styles.iconButton}
+              aria-label={t('card.unarchiveAria', { title: task.title })}
+              title={t('card.unarchiveButton')}
+              onClick={handleArchiveToggle}
+              loading={archiveMutation.isPending}
+              icon={<UnarchiveIcon />}
+            />
+          )}
+          {transitions.length > 0 && (
+            <Dropdown
+              menu={{ items: menuItems, onClick: handleMenuClick }}
+              trigger={['click']}
+              placement="bottomRight"
             >
-              {t('card.moveButton')}
-            </Button>
-          </Dropdown>
-        )}
+              <Button
+                size="small"
+                type="text"
+                className={styles.iconButton}
+                aria-label={t('card.moveAria', { title: task.title })}
+                title={t('card.moveTitle')}
+                onClick={(event) => event.stopPropagation()}
+                icon={<MoreIcon />}
+              />
+            </Dropdown>
+          )}
+        </span>
       </div>
       <p className={styles.title}>{task.title}</p>
       {task.prompt && <p className={styles.prompt}>{task.prompt}</p>}
-      <SubtaskDots subtasks={subtasks} />
-      <p className={styles.footer}>
-        {t('card.updated', { time: formatRelative(task.updated_at) })}
-      </p>
+      <div className={styles.footer}>
+        <SubtaskDots subtasks={subtasks} />
+        <span>{t('card.updated', { time: formatRelative(task.updated_at) })}</span>
+      </div>
     </Card>
   )
 }

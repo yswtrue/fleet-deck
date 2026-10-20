@@ -83,14 +83,20 @@ export function NodeCard({ node }: { node: Node }) {
         )}
       </div>
       <div className={styles.meta}>
-        <span>{t('nodeCard.workspaces', { count: workspaceCount })}</span>
-        <span>{t('nodeCard.activeTasks', { count: activeTaskCount })}</span>
+        <span className={styles.metric}>
+          <strong>{workspaceCount}</strong>{' '}
+          {t('nodeCard.workspaceLabel', { count: workspaceCount })}
+        </span>
+        <span className={styles.metric}>
+          <strong>{activeTaskCount}</strong>{' '}
+          {t('nodeCard.activeTaskLabel', { count: activeTaskCount })}
+        </span>
+        {node.last_seen_at && (
+          <span className={styles.lastSeen} title={new Date(node.last_seen_at).toLocaleString()}>
+            {t('node.lastSeen', { time: formatRelative(node.last_seen_at) })}
+          </span>
+        )}
       </div>
-      {node.last_seen_at && (
-        <div className={styles.lastSeen} title={new Date(node.last_seen_at).toLocaleString()}>
-          {t('node.lastSeen', { time: formatRelative(node.last_seen_at) })}
-        </div>
-      )}
     </Card>
   )
 }

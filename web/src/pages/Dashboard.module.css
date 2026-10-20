@@ -1,25 +1,69 @@
+.statusCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  padding: 6px 8px;
+}
+
 .statusRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-5);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .statusItem {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
-  min-width: 72px;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 18px;
+  border-left: 1px solid var(--border);
+}
+
+.statusItem:first-child {
+  border-left: 0;
 }
 
 .statusLabel {
-  font-size: 0.85rem;
-  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-dim);
 }
 
 .statusCount {
   font-family: var(--heading);
-  font-size: 1.4rem;
-  font-weight: 700;
+  font-size: 1.55rem;
+  font-weight: 650;
   line-height: 1.2;
+  letter-spacing: -0.4px;
   color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .statusRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .statusItem {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .statusItem:first-child,
+  .statusItem:nth-child(2) {
+    border-top: 0;
+  }
+}
+
+.taskSummary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+@media (max-width: 360px) {
+  .taskSummary {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
