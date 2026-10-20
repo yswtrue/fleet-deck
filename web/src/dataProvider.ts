@@ -13,12 +13,7 @@ import type {
   UpdateResponse,
 } from '@refinedev/core'
 import { apiClient } from './apiClient.ts'
-import type {
-  CreateNodeInput,
-  CreateTaskInput,
-  CreateWorkspaceInput,
-  PatchTaskInput,
-} from './apiClient.ts'
+import type { CreateTaskInput, CreateWorkspaceInput, PatchTaskInput } from './apiClient.ts'
 
 const asString = (value: unknown): string =>
   typeof value === 'string' ? value : value == null ? '' : String(value)
@@ -84,12 +79,6 @@ const provider: DataProvider = {
     variables,
   }: CreateParams<TVariables>): Promise<CreateResponse<TData>> => {
     switch (resource) {
-      case 'nodes':
-        return {
-          data: (await apiClient.createNode(
-            variables as unknown as CreateNodeInput
-          )) as unknown as TData,
-        }
       case 'workspaces':
         return {
           data: (await apiClient.createWorkspace(

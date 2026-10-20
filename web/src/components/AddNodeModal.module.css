@@ -1,0 +1,67 @@
+.intro {
+  margin: 0 0 var(--space-4);
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.steps {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.generated {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.command {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--code-bg);
+}
+
+.command code {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.expiry {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.configHint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.configHint pre {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--code-bg);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}

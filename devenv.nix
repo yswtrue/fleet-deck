@@ -129,6 +129,10 @@ in
 
     # Node-side secrets / buffers. Kept out of the repo.
     FLEETDECK_NODE_TOKEN_FILE = "./.devenv/state/fleetdeck/node-token";
+    # Dev-only pairing secret so freshly-created local nodes can register
+    # without minting a token in the UI. Production deployments leave this
+    # unset and use Nodes -> Add node instead.
+    FLEETDECK_NODE_JOIN_TOKEN = "dev-join-token";
     FLEETDECK_EVENT_BUFFER_DIR = "./.devenv/state/fleetdeck/events";
 
     # Generated protocol artifacts consumed by web/.

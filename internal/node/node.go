@@ -38,6 +38,11 @@ type Config struct {
 	// TokenFile is where the issued node token is persisted between runs.
 	// Defaults to $FLEETDECK_NODE_TOKEN_FILE or .devenv/state/fleetdeck/node-token.
 	TokenFile string `yaml:"token_file"`
+	// JoinToken is the single-use pairing token a first registration must
+	// present (minted in the UI under Nodes -> Add node). It is only needed
+	// until token_file holds the node token. Defaults to
+	// $FLEETDECK_NODE_JOIN_TOKEN.
+	JoinToken string `yaml:"join_token"`
 	// DefaultAdapter is used when a task's agent_type is empty.
 	DefaultAdapter string `yaml:"default_adapter"`
 }
@@ -71,6 +76,9 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.TokenFile == "" {
 		c.TokenFile = os.Getenv("FLEETDECK_NODE_TOKEN_FILE")
+	}
+	if c.JoinToken == "" {
+		c.JoinToken = os.Getenv("FLEETDECK_NODE_JOIN_TOKEN")
 	}
 	if c.TokenFile == "" {
 		c.TokenFile = filepath.Join(".devenv", "state", "fleetdeck", "node-token")
@@ -192,6 +200,7 @@ func (n *Node) runOnce(ctx context.Context) error {
 		Host:         n.cfg.Host,
 		Capabilities: n.cfg.advertisedCapabilities(),
 		Token:        n.readToken(),
+		JoinToken:    n.cfg.JoinToken,
 	})
 	if err := c.write(regEnv); err != nil {
 		return fmt.Errorf("send register_request: %w", err)
@@ -207,6 +216,9 @@ func (n *Node) runOnce(ctx context.Context) error {
 	var resp protocol.RegisterResponse
 	if err := respEnv.Decode(&resp); err != nil {
 		return fmt.Errorf("decode register_response: %w", err)
+	}
+	if resp.Error != "" {
+		return fmt.Errorf("hub rejected registration: %s", resp.Error)
 	}
 	if resp.Token != "" {
 		if err := n.writeToken(resp.Token); err != nil {

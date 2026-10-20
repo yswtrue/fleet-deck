@@ -18,7 +18,8 @@
     "subtitle": "已注册到此中枢的机器。打开任意一台以管理其工作区和任务。",
     "loadError": "无法加载节点",
     "emptyTitle": "暂无节点",
-    "emptyBody": "在任意机器上启动节点，它将自动注册到这里："
+    "emptyBody": "用一次性加入令牌添加机器：守护进程会主动连接、完成注册并出现在这里。",
+    "addNode": "添加节点"
   },
   "node": {
     "invalid": "无效的节点",
@@ -34,10 +35,10 @@
   },
   "nodeCard": {
     "ariaLabel": "节点 {{name}}",
-    "workspaces_one": "{{count}} 个工作区",
-    "workspaces_other": "{{count}} 个工作区",
-    "activeTasks_one": "{{count}} 个活跃任务",
-    "activeTasks_other": "{{count}} 个活跃任务"
+    "workspaceLabel_one": "个工作区",
+    "workspaceLabel_other": "个工作区",
+    "activeTaskLabel_one": "个活跃任务",
+    "activeTaskLabel_other": "个活跃任务"
   },
   "workspace": {
     "new": "新建工作区",
@@ -65,5 +66,22 @@
   },
   "loading": {
     "label": "加载中"
+  },
+  "addNode": {
+    "title": "添加节点",
+    "intro": "生成一次性加入令牌，然后用它启动节点守护进程。令牌 15 分钟后过期。",
+    "generate": "生成令牌",
+    "onceTitle": "请立即复制",
+    "onceBody": "令牌只显示一次，且只能注册一个节点。",
+    "copy": "复制命令",
+    "copied": "命令已复制",
+    "copyError": "复制命令失败",
+    "expires": "有效期至 {{time}}。",
+    "configBody": "在 node.config.yaml 中把 hub_url 指向此中枢，并为节点设置唯一名称：",
+    "step1": "生成加入令牌。",
+    "step2": "在 node.config.yaml 中填写 hub_url、name 和 token_file。",
+    "step3": "通过 FLEETDECK_NODE_JOIN_TOKEN 把令牌传给守护进程并启动。",
+    "done": "完成",
+    "error": "无法创建加入令牌"
   }
 }

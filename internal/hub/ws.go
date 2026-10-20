@@ -133,6 +133,13 @@ func (h *Hub) handleNodeWS(w http.ResponseWriter, r *http.Request) {
 	registered, issued, err := h.registerNode(ctx, req)
 	if err != nil {
 		h.log.Warn("node registration rejected", "name", req.Name, "err", err)
+		// Tell the node why so its log shows an actionable cause instead of a
+		// bare disconnect; the socket closes right after.
+		respEnv := protocol.NewEnvelope(protocol.MsgRegisterResponse, protocol.RegisterResponse{
+			Error: err.Error(),
+		})
+		_ = c.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+		_ = c.WriteJSON(respEnv)
 		return
 	}
 

@@ -34,6 +34,7 @@ set -uo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 HUB_ADDR=${SMOKE_HUB_ADDR:-127.0.0.1:7710}
 DBURL=${FLEETDECK_DATABASE_URL:?set FLEETDECK_DATABASE_URL (run inside 'devenv shell')}
+export FLEETDECK_NODE_JOIN_TOKEN=${FLEETDECK_NODE_JOIN_TOKEN:-smoke-join-secret}
 BIN=/tmp/opencode/fd-acp-opencode-smoke
 NODE_NAME=acp-opencode-node
 mkdir -p "$BIN"

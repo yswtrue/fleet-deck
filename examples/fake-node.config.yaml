@@ -16,3 +16,6 @@ agent_types:
 # Each node needs its own token file — one shared file makes the daemons
 # overwrite each other's registration token.
 token_file: ./.devenv/state/fleetdeck/fake-node-1.token
+# First registration: the devenv shell exports FLEETDECK_NODE_JOIN_TOKEN, so
+# no join_token is needed here. For a remote hub, mint one in the UI
+# (Nodes -> Add node) and set join_token (or the env var).

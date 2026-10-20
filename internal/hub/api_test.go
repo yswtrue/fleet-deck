@@ -828,30 +828,6 @@ func TestListTasksFilterValidation(t *testing.T) {
 	}
 }
 
-// TestCreateNodeWithoutCapabilities pins the optional-capabilities contract: a
-// missing capabilities field stores as an empty list, not a 500.
-func TestCreateNodeWithoutCapabilities(t *testing.T) {
-	if testing.Short() {
-		t.Skip("hub integration test needs a live Postgres; skipped under -short")
-	}
-
-	_, st, ts, auth := newTestHub(t)
-
-	node := postJSON[protocol.Node](t, auth.token, ts.URL+"/api/nodes", map[string]string{
-		"name": uniqueName("it-node"),
-	})
-	t.Cleanup(func() {
-		bg, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, err := st.Pool().Exec(bg, "DELETE FROM node WHERE id = $1", node.ID); err != nil {
-			t.Logf("cleanup: delete node: %v", err)
-		}
-	})
-	if len(node.Capabilities) != 0 {
-		t.Fatalf("capabilities = %#v, want empty list (omitted on the wire)", node.Capabilities)
-	}
-}
-
 // ---- task title fuzzy search (pg_trgm) --------------------------------------
 
 // TestSearchTasksByTitle pins the search contract: substring matches, typo
@@ -970,9 +946,7 @@ func TestPatchTaskTransitionValidation(t *testing.T) {
 	}
 
 	// A task on an offline node is never dispatched: it really is waiting.
-	offline := postJSON[protocol.Node](t, auth.token, ts.URL+"/api/nodes", map[string]string{
-		"name": uniqueName("it-offline"),
-	})
+	offline := seedNode(t, st, uniqueName("it-offline"))
 	offWS := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
 		"node_id": offline.ID, "name": uniqueName("it-ws"), "path": "/tmp/it-ws",
 	})
@@ -1020,9 +994,7 @@ func TestGetNodeByID(t *testing.T) {
 	_, st, ts, auth := newTestHub(t)
 	user, userToken := setupUserWithRole(t, st, "user")
 
-	node := postJSON[protocol.Node](t, auth.token, ts.URL+"/api/nodes", map[string]string{
-		"name": uniqueName("it-node-get"),
-	})
+	node := seedNode(t, st, uniqueName("it-node-get"))
 
 	resp, raw := getRaw(t, auth.token, ts.URL+"/api/nodes/"+node.ID)
 	requireStatus(t, "get node (admin)", resp, raw, http.StatusOK)

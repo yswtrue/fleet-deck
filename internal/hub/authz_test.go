@@ -199,7 +199,7 @@ func TestAuthRequired(t *testing.T) {
 		path   string
 	}{
 		{"GET", "/api/nodes"},
-		{"POST", "/api/nodes"},
+		{"POST", "/api/nodes/join-tokens"},
 		{"GET", "/api/users"},
 		{"GET", "/api/workspaces?node_id=x"},
 		{"GET", "/api/tasks?node_id=x"},
@@ -239,7 +239,6 @@ func TestNonAdminForbidden(t *testing.T) {
 		method string
 		path   string
 	}{
-		{"POST", "/api/nodes"},
 		{"GET", "/api/users"},
 		{"POST", "/api/users"},
 		{"PATCH", "/api/users/" + auth.user.ID},

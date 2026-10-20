@@ -2,7 +2,6 @@ import { apiClient } from '../apiClient.ts'
 
 export { apiClient, HUB_URL } from '../apiClient.ts'
 export type {
-  CreateNodeInput,
   CreateTaskInput,
   CreateWorkspaceInput,
   HubApi,

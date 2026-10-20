@@ -18,7 +18,8 @@
     "subtitle": "Machines registered with this hub. Open one to manage its workspaces and tasks.",
     "loadError": "Could not load nodes",
     "emptyTitle": "No nodes yet",
-    "emptyBody": "Start a node on any machine and it will register itself here:"
+    "emptyBody": "Add a machine with a one-time join token: the daemon dials out, registers itself, and appears here.",
+    "addNode": "Add node"
   },
   "node": {
     "invalid": "Invalid node",
@@ -34,10 +35,10 @@
   },
   "nodeCard": {
     "ariaLabel": "Node {{name}}",
-    "workspaces_one": "{{count}} workspace",
-    "workspaces_other": "{{count}} workspaces",
-    "activeTasks_one": "{{count}} active task",
-    "activeTasks_other": "{{count}} active tasks"
+    "workspaceLabel_one": "workspace",
+    "workspaceLabel_other": "workspaces",
+    "activeTaskLabel_one": "active task",
+    "activeTaskLabel_other": "active tasks"
   },
   "workspace": {
     "new": "New workspace",
@@ -65,5 +66,22 @@
   },
   "loading": {
     "label": "Loading"
+  },
+  "addNode": {
+    "title": "Add a node",
+    "intro": "Generate a single-use join token, then start the node daemon with it. The token expires in 15 minutes.",
+    "generate": "Generate token",
+    "onceTitle": "Copy this token now",
+    "onceBody": "It is shown only once and can register exactly one node.",
+    "copy": "Copy command",
+    "copied": "Command copied",
+    "copyError": "Could not copy the command",
+    "expires": "Valid until {{time}}.",
+    "configBody": "In node.config.yaml, point hub_url at this hub and give the node a unique name:",
+    "step1": "Generate a join token.",
+    "step2": "Add hub_url, name and token_file to node.config.yaml.",
+    "step3": "Start the daemon with the token in FLEETDECK_NODE_JOIN_TOKEN.",
+    "done": "Done",
+    "error": "Could not create a join token"
   }
 }

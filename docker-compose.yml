@@ -60,6 +60,8 @@ services:
       FLEETDECK_HUB_ADDR: ':${FLEETDECK_HUB_PORT:?set in .env}'
       FLEETDECK_DATABASE_URL: *hub-dsn
       FLEETDECK_REDIS_URL: redis://redis:6379/0
+      # Optional automation secret; the UI's single-use join tokens need no env.
+      FLEETDECK_NODE_JOIN_TOKEN: ${FLEETDECK_NODE_JOIN_TOKEN:-}
     ports:
       # UI + API + WS on one port (the hub serves the embedded SPA). Also the
       # endpoint node daemons dial (ws://host:<FLEETDECK_HUB_PORT>/ws/node).

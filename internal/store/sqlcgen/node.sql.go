@@ -45,6 +45,37 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 	return i, err
 }
 
+const createNodeJoinToken = `-- name: CreateNodeJoinToken :one
+
+INSERT INTO node_join_token (token_hash, created_by, expires_at)
+VALUES ($1, $2, $3)
+RETURNING id, token_hash, created_by, expires_at, used_at, used_node_id, created_at
+`
+
+type CreateNodeJoinTokenParams struct {
+	TokenHash string
+	CreatedBy string
+	ExpiresAt time.Time
+}
+
+// Join tokens: single-use pairing credentials for a node's first registration.
+// The row lock in GetOpenNodeJoinToken serializes concurrent claims, so exactly
+// one registration can consume a token.
+func (q *Queries) CreateNodeJoinToken(ctx context.Context, arg CreateNodeJoinTokenParams) (NodeJoinToken, error) {
+	row := q.db.QueryRow(ctx, createNodeJoinToken, arg.TokenHash, arg.CreatedBy, arg.ExpiresAt)
+	var i NodeJoinToken
+	err := row.Scan(
+		&i.ID,
+		&i.TokenHash,
+		&i.CreatedBy,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.UsedNodeID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getNode = `-- name: GetNode :one
 SELECT id, name, host, status, capabilities, token_hash, last_seen_at FROM node WHERE id = $1
 `
@@ -104,6 +135,29 @@ func (q *Queries) GetNodeByTokenHash(ctx context.Context, tokenHash string) (Nod
 	return i, err
 }
 
+const getOpenNodeJoinToken = `-- name: GetOpenNodeJoinToken :one
+SELECT id, token_hash, created_by, expires_at, used_at, used_node_id, created_at FROM node_join_token
+WHERE token_hash = $1
+  AND used_at IS NULL
+  AND expires_at > now()
+FOR UPDATE
+`
+
+func (q *Queries) GetOpenNodeJoinToken(ctx context.Context, tokenHash string) (NodeJoinToken, error) {
+	row := q.db.QueryRow(ctx, getOpenNodeJoinToken, tokenHash)
+	var i NodeJoinToken
+	err := row.Scan(
+		&i.ID,
+		&i.TokenHash,
+		&i.CreatedBy,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.UsedNodeID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listNodes = `-- name: ListNodes :many
 SELECT id, name, host, status, capabilities, token_hash, last_seen_at FROM node ORDER BY name
 `
@@ -134,6 +188,22 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const markNodeJoinTokenUsed = `-- name: MarkNodeJoinTokenUsed :exec
+UPDATE node_join_token
+SET used_at = now(), used_node_id = $2
+WHERE id = $1
+`
+
+type MarkNodeJoinTokenUsedParams struct {
+	ID         string
+	UsedNodeID *string
+}
+
+func (q *Queries) MarkNodeJoinTokenUsed(ctx context.Context, arg MarkNodeJoinTokenUsedParams) error {
+	_, err := q.db.Exec(ctx, markNodeJoinTokenUsed, arg.ID, arg.UsedNodeID)
+	return err
 }
 
 const updateNodeStatus = `-- name: UpdateNodeStatus :exec

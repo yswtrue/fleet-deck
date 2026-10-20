@@ -18,6 +18,10 @@ import (
 	"fleetdeck/internal/store"
 )
 
+// testJoinToken is the deployment-level pairing secret newTestHub installs, so
+// every scripted node handshake in the suite is authorized.
+const testJoinToken = "test-join-token"
+
 // testDSN returns FLEETDECK_DATABASE_URL for live-DB tests. Credentials are
 // env-only (no baked-in DSN): the caller's test skips when it is unset.
 func testDSN(t *testing.T) string {
@@ -35,6 +39,13 @@ func testDSN(t *testing.T) string {
 // pass auth.token to the HTTP helpers.
 func newTestHub(t *testing.T) (*Hub, *store.Store, *httptest.Server, testAuth) {
 	t.Helper()
+
+	// Nodes must present a pairing credential. Tests use the deployment-level
+	// secret so dialNode needs no per-test token row; the single-use database
+	// tokens have their own tests in join_token_test.go.
+	if os.Getenv("FLEETDECK_NODE_JOIN_TOKEN") == "" {
+		t.Setenv("FLEETDECK_NODE_JOIN_TOKEN", testJoinToken)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
@@ -63,6 +74,24 @@ func newTestHub(t *testing.T) (*Hub, *store.Store, *httptest.Server, testAuth) {
 	return h, st, ts, testAuth{user: user, token: token}
 }
 
+// seedNode inserts an offline node row directly. Node creation is not an HTTP
+// action anymore: nodes claim themselves with a join token, so tests that need
+// a pre-existing offline node (visibility, offline dispatch) seed the row.
+func seedNode(t *testing.T, st *store.Store, name string) protocol.Node {
+	t.Helper()
+	node, err := st.Queries().CreateNode(context.Background(), store.CreateNodeParams{
+		Name:         name,
+		Host:         "test-host",
+		Status:       protocol.NodeOffline,
+		Capabilities: []string{"fake"},
+		TokenHash:    "",
+	})
+	if err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	return node
+}
+
 // dialNode registers a scripted node over the real /ws/node endpoint and
 // returns its connection plus the hub-issued node id. The returned node does
 // not read commands unless the caller does.
@@ -79,6 +108,7 @@ func dialNode(t *testing.T, ts *httptest.Server, st *store.Store, name string) (
 		Name:         name,
 		Host:         "test-host",
 		Capabilities: []string{"fake"},
+		JoinToken:    testJoinToken,
 	})
 	if err := c.WriteJSON(regEnv); err != nil {
 		t.Fatalf("send register: %v", err)

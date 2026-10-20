@@ -36,6 +36,16 @@ type Node struct {
 	LastSeenAt   time.Time
 }
 
+type NodeJoinToken struct {
+	ID         string
+	TokenHash  string
+	CreatedBy  string
+	ExpiresAt  time.Time
+	UsedAt     *time.Time
+	UsedNodeID *string
+	CreatedAt  time.Time
+}
+
 type NodeMember struct {
 	UserID  string
 	NodeID  string

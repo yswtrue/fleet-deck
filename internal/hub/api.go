@@ -23,9 +23,9 @@ import (
 //
 //   - Open (no auth): GET /api/health, GET /api/auth/status,
 //     POST /api/auth/setup, POST /api/auth/login, the SPA static files, and
-//     /ws/node (node auth is the register-frame token, unchanged).
+//     /ws/node (join tokens authorize first registration; node tokens reconnect).
 //   - requireAuth: every /api/* endpoint below plus /ws/web (?token=).
-//   - requireAdmin: POST /api/nodes and the /api/users* management plane
+//   - requireAdmin: the /api/users* management plane
 //     (including node bindings). Non-admin access follows the user<->node
 //     binding with subtree inheritance; see canReadNode / canReadWorkspace.
 func (h *Hub) routes(mux *http.ServeMux) {
@@ -39,7 +39,7 @@ func (h *Hub) routes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/nodes", h.requireAuth(h.handleListNodes))
 	mux.HandleFunc("GET /api/nodes/{id}", h.requireAuth(h.handleGetNode))
-	mux.HandleFunc("POST /api/nodes", h.requireAdmin(h.handleCreateNode))
+	mux.HandleFunc("POST /api/nodes/join-tokens", h.requireAuth(h.handleCreateNodeJoinToken))
 
 	mux.HandleFunc("GET /api/users", h.requireAdmin(h.handleListUsers))
 	mux.HandleFunc("POST /api/users", h.requireAdmin(h.handleCreateUser))
@@ -156,39 +156,6 @@ func (h *Hub) handleGetNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, node)
-}
-
-func (h *Hub) handleCreateNode(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name         string   `json:"name"`
-		Host         string   `json:"host"`
-		Capabilities []string `json:"capabilities"`
-	}
-	if err := decodeBody(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	// A missing `capabilities` field decodes to nil; the column is NOT NULL,
-	// so normalize rather than 500 on a nil array parameter.
-	if req.Capabilities == nil {
-		req.Capabilities = []string{}
-	}
-	node, err := h.store.Queries().CreateNode(r.Context(), store.CreateNodeParams{
-		Name:         req.Name,
-		Host:         req.Host,
-		Status:       protocol.NodeOffline,
-		Capabilities: req.Capabilities,
-		TokenHash:    "",
-	})
-	if err != nil {
-		h.serverError(w, "create node", err)
-		return
-	}
-	writeJSON(w, http.StatusCreated, node)
 }
 
 // ---- workspaces ------------------------------------------------------------

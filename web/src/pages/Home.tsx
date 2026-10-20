@@ -1,17 +1,18 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Button } from 'antd'
 import { useHubApi } from '../hooks/useHubApi.ts'
+import { AddNodeModal } from '../components/AddNodeModal.tsx'
 import { NodeCard } from '../components/NodeCard.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
 import { useTranslation } from '../i18n/index.ts'
 
-/** Command a new node runs to register itself with the hub. */
-const NODE_SNIPPET = 'go run ./cmd/node --config examples/node.config.yaml'
-
 export function Home() {
   const api = useHubApi()
   const { t } = useTranslation('pages')
+  const [addOpen, setAddOpen] = useState(false)
   const nodesQuery = useQuery({
     queryKey: ['nodes'],
     queryFn: () => api.listNodes(),
@@ -21,9 +22,14 @@ export function Home() {
 
   return (
     <div className="fd-stack fd-stack-lg">
-      <header className="fd-page-header">
-        <h1 className="fd-page-title">{t('home.title')}</h1>
-        <p className="fd-page-subtitle">{t('home.subtitle')}</p>
+      <header className="fd-section-header">
+        <div className="fd-page-header">
+          <h1 className="fd-page-title">{t('home.title')}</h1>
+          <p className="fd-page-subtitle">{t('home.subtitle')}</p>
+        </div>
+        <Button type="primary" onClick={() => setAddOpen(true)}>
+          {t('home.addNode')}
+        </Button>
       </header>
       {nodesQuery.isLoading ? (
         <LoadingSkeleton count={6} />
@@ -32,7 +38,14 @@ export function Home() {
           {nodesQuery.error.message}
         </ErrorState>
       ) : nodes.length === 0 ? (
-        <EmptyState title={t('home.emptyTitle')} snippet={NODE_SNIPPET}>
+        <EmptyState
+          title={t('home.emptyTitle')}
+          action={
+            <Button type="primary" onClick={() => setAddOpen(true)}>
+              {t('home.addNode')}
+            </Button>
+          }
+        >
           {t('home.emptyBody')}
         </EmptyState>
       ) : (
@@ -42,6 +55,7 @@ export function Home() {
           ))}
         </div>
       )}
+      <AddNodeModal open={addOpen} onClose={() => setAddOpen(false)} />
     </div>
   )
 }

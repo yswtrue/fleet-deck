@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/cache"
@@ -55,6 +55,12 @@ type Hub struct {
 	// history responses (see history.go).
 	histMu   sync.Mutex
 	histWait map[string]chan protocol.SessionHistoryResponse
+
+	// joinToken is the optional deployment-level pairing secret
+	// (FLEETDECK_NODE_JOIN_TOKEN). It lets automated deployments register
+	// nodes without a database-backed token; UI-minted tokens remain the
+	// normal path.
+	joinToken string
 }
 
 // nodeConn is the hub's side of a registered node connection: a buffered
@@ -87,6 +93,9 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 		nodes:    make(map[string]*nodeConn),
 		text:     make(map[string]textBufferEntry),
 		histWait: make(map[string]chan protocol.SessionHistoryResponse),
+		// Deployment-level pairing secret for automated nodes; unset means only
+		// UI-minted single-use tokens can register a new node.
+		joinToken: os.Getenv("FLEETDECK_NODE_JOIN_TOKEN"),
 	}
 	// Broadcast fan-out is scoped by the node that owns each event; the
 	// resolver runs once per event (see eventNodeID).
@@ -216,95 +225,113 @@ func (h *Hub) storedTokenHash(ctx context.Context, nodeID string) (string, error
 	return hash, nil
 }
 
-// registerNode authenticates or creates a node from a RegisterRequest. When a
-// node is new (or had no token yet) it issues a fresh token; the caller must
-// return it to the node exactly once. On success the node is marked online.
+// registerNode authenticates an existing node or claims a new one. A name that
+// has never registered requires a valid join token; an existing node must
+// present the node token it was issued. On success the node is marked online
+// and a freshly issued token is returned exactly once.
 func (h *Hub) registerNode(ctx context.Context, req protocol.RegisterRequest) (protocol.Node, string, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return protocol.Node{}, "", errors.New("hub: register: name is required")
 	}
+	// The column is NOT NULL; a handshake that omits capabilities means none.
+	if req.Capabilities == nil {
+		req.Capabilities = []string{}
+	}
 	q := h.store.Queries()
 
 	existing, err := q.GetNodeByName(ctx, name)
 	if err == nil {
-		return h.acceptExistingNode(ctx, existing, req.Token)
+		return h.acceptExistingNode(ctx, existing, req)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return protocol.Node{}, "", err
 	}
+	return h.registerNewNode(ctx, name, req)
+}
 
-	// New node: issue a token and create the row.
+// registerNewNode claims an unused join token and creates the node row in one
+// transaction: the claim is burned only if the node insert succeeds, and the
+// token's creator is bound to the new node (the static deployment token has no
+// owner). The node receives a fresh node token for later reconnects.
+func (h *Hub) registerNewNode(ctx context.Context, name string, req protocol.RegisterRequest) (protocol.Node, string, error) {
 	token, hash, err := newToken()
 	if err != nil {
 		return protocol.Node{}, "", err
 	}
-	created, cerr := q.CreateNode(ctx, store.CreateNodeParams{
-		Name:         name,
-		Host:         req.Host,
-		Status:       protocol.NodeOnline,
-		Capabilities: req.Capabilities,
-		TokenHash:    hash,
-	})
-	if cerr == nil {
-		return created, token, nil
-	}
-
-	// Lost the create race: a concurrent registration inserted the same name.
-	// The node_name_key unique violation means the row now exists; fall back to
-	// it so both registrations converge on one identity.
-	var pgErr *pgconn.PgError
-	if errors.As(cerr, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "node_name_key" {
-		existing, lerr := q.GetNodeByName(ctx, name)
-		if lerr != nil {
-			return protocol.Node{}, "", cerr
+	var created protocol.Node
+	err = h.store.WithTx(ctx, func(q *store.Queries) error {
+		jt, static, err := h.authorizeJoin(ctx, q, req.JoinToken)
+		if err != nil {
+			return err
 		}
-		return h.acceptExistingNode(ctx, existing, req.Token)
+		node, err := q.CreateNode(ctx, store.CreateNodeParams{
+			Name:         name,
+			Host:         req.Host,
+			Status:       protocol.NodeOnline,
+			Capabilities: req.Capabilities,
+			TokenHash:    hash,
+		})
+		if err != nil {
+			return err
+		}
+		created = node
+		return linkJoinToken(ctx, q, jt, static, node.ID)
+	})
+	if err != nil {
+		// Includes losing the unique-name race to a concurrent registration:
+		// the loser is rejected rather than silently taking over that node.
+		return protocol.Node{}, "", err
 	}
-	return protocol.Node{}, "", cerr
+	return created, token, nil
 }
 
 // acceptExistingNode authenticates a reconnecting node against its stored token
-// hash, or issues the node's first token, then marks it online. It returns the
-// plaintext token only when a new one was issued.
-func (h *Hub) acceptExistingNode(ctx context.Context, existing protocol.Node, presentedToken string) (protocol.Node, string, error) {
-	q := h.store.Queries()
-
+// hash. A row without a hash (legacy pre-provisioning) is still unclaimed and
+// needs a join token, exactly like a brand-new name.
+func (h *Hub) acceptExistingNode(ctx context.Context, existing protocol.Node, req protocol.RegisterRequest) (protocol.Node, string, error) {
 	hash, err := h.storedTokenHash(ctx, existing.ID)
 	if err != nil {
 		return protocol.Node{}, "", err
 	}
-	issued := ""
-	if hash != "" {
-		if !CheckToken(presentedToken, hash) {
-			return protocol.Node{}, "", errors.New("hub: register: invalid token")
-		}
-	} else {
-		// Known node that never received a token: issue one now.
-		token, _, err := h.issueToken(ctx, existing.ID)
-		if err != nil {
-			return protocol.Node{}, "", err
-		}
-		issued = token
+	if hash == "" {
+		return h.claimExistingNode(ctx, existing, req)
 	}
-	if err := q.UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {
+	if !CheckToken(req.Token, hash) {
+		return protocol.Node{}, "", errors.New("hub: register: invalid token")
+	}
+	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {
 		return protocol.Node{}, "", err
 	}
 	existing.Status = protocol.NodeOnline
-	return existing, issued, nil
+	return existing, "", nil
 }
 
-// issueToken generates a token, stores its hash on the node, and returns the
-// plaintext token (returned to the node once).
-func (h *Hub) issueToken(ctx context.Context, nodeID string) (string, string, error) {
+// claimExistingNode issues the first node token for a legacy hash-less row and
+// burns the presented join token in the same transaction.
+func (h *Hub) claimExistingNode(ctx context.Context, existing protocol.Node, req protocol.RegisterRequest) (protocol.Node, string, error) {
 	token, hash, err := newToken()
 	if err != nil {
-		return "", "", err
+		return protocol.Node{}, "", err
 	}
-	if err := h.store.Queries().UpdateNodeTokenHash(ctx, nodeID, hash); err != nil {
-		return "", "", err
+	err = h.store.WithTx(ctx, func(q *store.Queries) error {
+		jt, static, err := h.authorizeJoin(ctx, q, req.JoinToken)
+		if err != nil {
+			return err
+		}
+		if err := q.UpdateNodeTokenHash(ctx, existing.ID, hash); err != nil {
+			return err
+		}
+		return linkJoinToken(ctx, q, jt, static, existing.ID)
+	})
+	if err != nil {
+		return protocol.Node{}, "", err
 	}
-	return token, hash, nil
+	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {
+		return protocol.Node{}, "", err
+	}
+	existing.Status = protocol.NodeOnline
+	return existing, token, nil
 }
 
 func newToken() (token, hash string, err error) {

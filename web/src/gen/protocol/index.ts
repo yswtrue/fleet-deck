@@ -70,10 +70,12 @@ export interface RegisterRequest {
   host?: string;
   capabilities: string[];
   token?: string;
+  join_token?: string;
 }
 export interface RegisterResponse {
-  node_id: string;
+  node_id?: string;
   token?: string;
+  error?: string;
 }
 export interface SendMessageCommand {
   session_id: string;

@@ -26,3 +26,24 @@ WHERE id = $1;
 -- lookup. Used by tests and future token revocation.
 -- name: GetNodeByTokenHash :one
 SELECT * FROM node WHERE token_hash = $1;
+
+-- Join tokens: single-use pairing credentials for a node's first registration.
+-- The row lock in GetOpenNodeJoinToken serializes concurrent claims, so exactly
+-- one registration can consume a token.
+
+-- name: CreateNodeJoinToken :one
+INSERT INTO node_join_token (token_hash, created_by, expires_at)
+VALUES ($1, $2, $3)
+RETURNING *;
+
+-- name: GetOpenNodeJoinToken :one
+SELECT * FROM node_join_token
+WHERE token_hash = $1
+  AND used_at IS NULL
+  AND expires_at > now()
+FOR UPDATE;
+
+-- name: MarkNodeJoinTokenUsed :exec
+UPDATE node_join_token
+SET used_at = now(), used_node_id = $2
+WHERE id = $1;

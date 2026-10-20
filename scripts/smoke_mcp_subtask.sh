@@ -55,9 +55,7 @@ echo "auth=ok"
 echo "health: $(curl -fsS "$HUB_URL/api/health")"
 
 # Offline node: no daemon, so dispatchTask leaves the task in waiting.
-NODE_ID=$(curl -fsS -H "$AUTH_HEADER" -X POST "$HUB_URL/api/nodes" -H 'Content-Type: application/json' \
-  -d '{"name":"mcp-subtask-smoke-node","host":"localhost","capabilities":["fake"]}' \
-  | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+NODE_ID=$(psql "$DBURL" -qAtc "INSERT INTO node (name, host, capabilities) VALUES ('mcp-subtask-smoke-node', 'localhost', ARRAY['fake']) RETURNING id")
 [ -n "$NODE_ID" ] || { echo "SMOKE_FAIL: node create"; exit 1; }
 
 WS_ID=$(curl -fsS -H "$AUTH_HEADER" -X POST "$HUB_URL/api/workspaces" -H 'Content-Type: application/json' \

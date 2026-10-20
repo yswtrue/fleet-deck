@@ -27,10 +27,10 @@ export interface SessionSnapshot {
   pending_input: string
 }
 
-export interface CreateNodeInput {
-  name: string
-  host?: string
-  capabilities: string[]
+/** POST /api/nodes/join-tokens response: the plaintext token is shown once. */
+export interface NodeJoinTokenResponse {
+  token: string
+  expires_at: string
 }
 
 export interface CreateWorkspaceInput {
@@ -373,8 +373,9 @@ export const apiClient = {
 
   getNode: (id: string) => fetchJson<Node>(`/api/nodes/${id}`),
 
-  createNode: (node: CreateNodeInput) =>
-    fetchJson<Node>('/api/nodes', { method: 'POST', body: JSON.stringify(node) }),
+  /** Mint a single-use pairing token for a node's first registration. */
+  createNodeJoinToken: () =>
+    fetchJson<NodeJoinTokenResponse>('/api/nodes/join-tokens', { method: 'POST' }),
 
   listWorkspaces: (nodeId: string) =>
     fetchJson<Workspace[]>(`/api/workspaces?node_id=${encodeURIComponent(nodeId)}`),

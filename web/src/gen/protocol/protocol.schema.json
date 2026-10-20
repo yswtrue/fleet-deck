@@ -147,6 +147,9 @@
         },
         "token": {
           "type": "string"
+        },
+        "join_token": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -164,13 +167,13 @@
         },
         "token": {
           "type": "string"
+        },
+        "error": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "node_id"
-      ]
+      "type": "object"
     },
     "SendMessageCommand": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

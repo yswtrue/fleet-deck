@@ -107,13 +107,21 @@ type RegisterRequest struct {
 	Name         string   `json:"name"`
 	Host         string   `json:"host,omitempty"`
 	Capabilities []string `json:"capabilities"`
-	Token        string   `json:"token,omitempty"`
+	// Token is the node credential issued by a previous registration.
+	Token string `json:"token,omitempty"`
+	// JoinToken is the single-use pairing token required for a node that has
+	// never registered. It is ignored once the node exists (Token authenticates
+	// reconnects).
+	JoinToken string `json:"join_token,omitempty"`
 }
 
 // RegisterResponse acknowledges registration and issues a node id/token.
+// Error is set when the hub rejects the handshake (e.g. a missing or spent
+// join token); the hub closes the socket after sending it.
 type RegisterResponse struct {
-	NodeID string `json:"node_id"`
+	NodeID string `json:"node_id,omitempty"`
 	Token  string `json:"token,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // ---- Hub -> Node commands -------------------------------------------------
