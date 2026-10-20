@@ -38,10 +38,13 @@ describe('AddNodeModal', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/nodes/join-tokens')
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' })
 
-    // The plaintext token is only ever visible in this one-time command.
+    // The plaintext token is only ever visible in this one-time command, and it
+    // travels as a flag (no environment variable).
     await screen.findByText(/join-abc/)
-    expect(document.body.textContent).toContain('FLEETDECK_NODE_JOIN_TOKEN=join-abc')
+    expect(document.body.textContent).toContain('--join-token join-abc')
+    expect(document.body.textContent).toContain('--hub-url')
     expect(document.body.textContent).toContain('/ws/node')
+    expect(document.body.textContent).not.toContain('FLEETDECK_NODE_JOIN_TOKEN')
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy command' }))
     await waitFor(() =>

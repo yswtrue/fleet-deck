@@ -163,7 +163,9 @@ in
     };
 
     node = {
-      exec = "go run ./cmd/node --config ./examples/node.config.yaml";
+      # The dev pairing secret is passed as a flag: the daemon takes the join
+      # token from --join-token, never from the environment.
+      exec = "go run ./cmd/node --config ./examples/node.config.yaml --join-token \"$FLEETDECK_NODE_JOIN_TOKEN\"";
       after = [ "devenv:processes:hub" ];
     };
 
@@ -175,7 +177,7 @@ in
     # for driving the UI without touching a real agent. Not started by default —
     # run `devenv up hub node web fake-node` to get the whole stack plus it.
     fake-node = {
-      exec = "go run ./cmd/node --config ./examples/fake-node.config.yaml --adapter fake";
+      exec = "go run ./cmd/node --config ./examples/fake-node.config.yaml --adapter fake --join-token \"$FLEETDECK_NODE_JOIN_TOKEN\"";
       after = [ "devenv:processes:hub" ];
       start.enable = false;
     };

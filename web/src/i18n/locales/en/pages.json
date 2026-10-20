@@ -77,10 +77,12 @@
     "copied": "Command copied",
     "copyError": "Could not copy the command",
     "expires": "Valid until {{time}}.",
-    "configBody": "In node.config.yaml, point hub_url at this hub and give the node a unique name:",
+    "commandHint": "The hub URL and the token travel as flags (--hub-url, --join-token) — no environment variables. The token is single-use and is never written to disk.",
+    "configBody": "node.config.yaml only needs the node identity; hub_url is added automatically after the first successful registration:",
+    "persistHint": "Later starts only need ./fleetdeck-node --config node.config.yaml.",
     "step1": "Generate a join token.",
-    "step2": "Add hub_url, name and token_file to node.config.yaml.",
-    "step3": "Start the daemon with the token in FLEETDECK_NODE_JOIN_TOKEN.",
+    "step2": "Give the node a unique name and a token_file in node.config.yaml.",
+    "step3": "Start the daemon with --hub-url and --join-token.",
     "done": "Done",
     "error": "Could not create a join token"
   }

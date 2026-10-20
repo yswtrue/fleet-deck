@@ -21,6 +21,7 @@ token_file: ./.devenv/state/fleetdeck/fake-node-1.token
 # per machine is the rule.
 machine_id: dev-fake-node
 lock_file: ./.devenv/state/fleetdeck/fake-node.lock
-# First registration: the devenv shell exports FLEETDECK_NODE_JOIN_TOKEN, so
-# no join_token is needed here. For a remote hub, mint one in the UI
-# (Nodes -> Add node) and set join_token (or the env var).
+# First registration: the devenv shell passes its dev join token as
+# --join-token, so no join_token is needed here. For a remote hub, mint one in
+# the UI (Nodes -> Add node) and pass it with --join-token (or set the
+# join_token key in this file).

@@ -102,7 +102,7 @@ fi
 AUTH_HEADER="Authorization: Bearer $SMOKE_TOKEN"
 echo "auth=ok"
 
-"$BIN/node" --config "$BIN/opencode-node.config.yaml" >"$BIN/node.log" 2>&1 &
+"$BIN/node" --config "$BIN/opencode-node.config.yaml" --join-token "$FLEETDECK_NODE_JOIN_TOKEN" >"$BIN/node.log" 2>&1 &
 NODE_PID=$!
 
 NODE_ID=""

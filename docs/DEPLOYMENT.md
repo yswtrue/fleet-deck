@@ -137,19 +137,25 @@ host: my-machine.example.com
 capabilities: [opencode]
 agent_types: [opencode]
 default_adapter: opencode
-hub_url: ws://localhost:7710/ws/node      # hub address as reachable from here
 token_file: ./node-token
 EOF
 
-# 4. Run it with the one-time token (valid 15 minutes, single use)
-FLEETDECK_NODE_JOIN_TOKEN=<token from the UI> ./fleetdeck-node --config node.config.yaml
+# 4. Run it with the hub endpoint and the one-time token (valid 15 minutes,
+#    single use). Both travel as flags; hub_url is written into the config
+#    after the hub accepts the registration.
+./fleetdeck-node --config node.config.yaml \
+  --hub-url ws://localhost:7710/ws/node \
+  --join-token <token from the UI>
+
+# 5. Later starts need only the config file:
+./fleetdeck-node --config node.config.yaml
 ```
 
 A node name must not be registered yet: the first handshake needs the join
 token, which is burned and binds the token's creator to the new node. The hub
 then issues the node credential, stored in `token_file` — keep that file
-private and drop the join token from the environment afterwards. Reconnects use
-`token_file` only.
+private. Reconnects use `token_file` only, and the join token is never written
+to the config file.
 
 **One node per computer.** The daemon takes a machine-wide lock before
 connecting (`lock_file`, default `$TMPDIR/fleetdeck-node.lock`), so a second
@@ -160,9 +166,9 @@ the existing node's name. Both are overridable for dev/CI only
 (`machine_id` / `lock_file` in the YAML, or `FLEETDECK_NODE_MACHINE_ID` /
 `FLEETDECK_NODE_LOCK_FILE`); production should leave them unset.
 
-For automated deployments (no UI step), set the same
-`FLEETDECK_NODE_JOIN_TOKEN` on the hub and the node. That deployment secret
-registers nodes without a database token and does not bind an owner. The web UI shows the node as **online**;
+For automated deployments (no UI step), set `FLEETDECK_NODE_JOIN_TOKEN` on the
+hub and pass the same value as `--join-token` on the node. That deployment
+secret registers nodes without a database token and does not bind an owner. The web UI shows the node as **online**;
 create a workspace pointing at an absolute path on that machine and tasks will
 be dispatched there.
 
@@ -226,7 +232,7 @@ End-to-end scripts (from a checkout): `scripts/smoke_send_message.sh`,
 | UI loads but shows "Hub offline"                  | `/api`/`/ws` not reachable — with the `traefik` profile check label routing (`docker compose --profile traefik logs traefik`); behind your own proxy make sure `/ws` passes the `Upgrade` header |
 | Blank page / "web UI not built"                   | the hub was built without the bundle — rebuild the image (the Dockerfile embeds `web/dist`)                                                                                                      |
 | Node stuck "offline" in UI                        | wrong `hub_url`, or the hub port (`FLEETDECK_HUB_PORT`, default 7710) is not reachable from the node machine                                                                                     |
-| "join token is required for a new node"           | first registration without a UI token — mint one under Nodes → Add node, or set `FLEETDECK_NODE_JOIN_TOKEN` on both hub and node                                                                 |
+| "join token is required for a new node"           | first registration without a UI token — mint one under Nodes → Add node, or set `FLEETDECK_NODE_JOIN_TOKEN` on the hub and pass the same value as `--join-token`                                 |
 | "join token is invalid, expired, or already used" | token older than 15 minutes or already claimed one node; mint a new one                                                                                                                          |
 | "invalid token" after re-registering              | `token_file` holds a credential from another hub/database — delete it and join again with a fresh join token                                                                                     |
 | Task stays `waiting`                              | its workspace belongs to an offline node                                                                                                                                                         |

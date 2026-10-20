@@ -59,8 +59,10 @@ export function AddNodeModal({ open, onClose }: { open: boolean; onClose: () => 
     onClose()
   }
 
+  // The daemon writes hub_url into the config file after this first
+  // registration, so later starts need only --config <file>.
   const command = token
-    ? `FLEETDECK_NODE_JOIN_TOKEN=${token.token} ./fleetdeck-node --config node.config.yaml`
+    ? `./fleetdeck-node --config node.config.yaml --hub-url ${nodeHubURL()} --join-token ${token.token}`
     : ''
 
   const copy = async () => {
@@ -109,8 +111,10 @@ export function AddNodeModal({ open, onClose }: { open: boolean; onClose: () => 
             {t('addNode.expires', { time: new Date(token.expires_at).toLocaleTimeString() })}
           </p>
           <div className={styles.configHint}>
+            <p>{t('addNode.commandHint')}</p>
             <p>{t('addNode.configBody')}</p>
-            <pre>{`hub_url: ${nodeHubURL()}\nname: my-machine\ntoken_file: ./node-token`}</pre>
+            <pre>{`name: my-machine\ntoken_file: ./node-token`}</pre>
+            <p>{t('addNode.persistHint')}</p>
           </div>
         </div>
       ) : (

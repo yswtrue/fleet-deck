@@ -4,7 +4,8 @@
 # no inbound port is needed on the node machine:
 #
 #   go build -o fleetdeck-node ./cmd/node     # or `go run ./cmd/node`
-#   ./fleetdeck-node --config node.config.yaml
+#   ./fleetdeck-node --config node.config.yaml \
+#     --hub-url ws://localhost:7710/ws/node --join-token <token from the UI>
 #
 # See docs/DEPLOYMENT.md for the full walkthrough.
 name: my-machine # unique per node; shown in the web UI
@@ -14,12 +15,12 @@ capabilities:
 agent_types:
   - opencode # any of: fake, opencode, codex, claude, pi
 default_adapter: opencode
+# Optional: --hub-url fills this in after the first successful registration.
 hub_url: ws://localhost:7710/ws/node # or wss://hub.example.com/ws/node
 token_file: ./node-token # created on first registration; keep it secret
-# First registration only: a single-use pairing token from the UI
-# (Nodes -> Add node) or $FLEETDECK_NODE_JOIN_TOKEN. Remove it after the node
-# has stored its credential in token_file.
-# join_token: <token>
+# First registration only: the single-use pairing token from the UI
+# (Nodes -> Add node) is passed as --join-token. The daemon uses the credential
+# in token_file afterwards and never stores the join token.
 
 # Optional (production leaves these unset):
 # machine_id: ...   # defaults to a hash of the OS machine id; the hub allows

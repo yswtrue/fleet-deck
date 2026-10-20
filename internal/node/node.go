@@ -40,8 +40,8 @@ type Config struct {
 	TokenFile string `yaml:"token_file"`
 	// JoinToken is the single-use pairing token a first registration must
 	// present (minted in the UI under Nodes -> Add node). It is only needed
-	// until token_file holds the node token. Defaults to
-	// $FLEETDECK_NODE_JOIN_TOKEN.
+	// until token_file holds the node token; set it with --join-token (or the
+	// join_token key). It is never written back to the file.
 	JoinToken string `yaml:"join_token"`
 	// MachineID overrides the detected machine fingerprint. The hub allows at
 	// most one node per fingerprint; leave empty in production (it is derived
@@ -54,10 +54,19 @@ type Config struct {
 	LockFile string `yaml:"lock_file"`
 	// DefaultAdapter is used when a task's agent_type is empty.
 	DefaultAdapter string `yaml:"default_adapter"`
+
+	// path is the config file LoadConfig read ("" when none). It is the target
+	// of the hub_url write-back after a --hub-url registration.
+	path string
+	// persistHubURL records that HubURL came from --hub-url, so a successful
+	// registration writes it into path.
+	persistHubURL bool
 }
 
 // LoadConfig reads and defaults a node configuration file. An empty path yields
-// a fully-defaulted config.
+// a fully-defaulted config. Hub endpoint overrides (--hub-url) are applied by
+// the caller, so LoadConfig does not reject a config without one — Validate
+// does, after the overrides.
 func LoadConfig(path string) (Config, error) {
 	var cfg Config
 	if path != "" {
@@ -68,12 +77,26 @@ func LoadConfig(path string) (Config, error) {
 		if err := yaml.Unmarshal(raw, &cfg); err != nil {
 			return Config{}, fmt.Errorf("node: parse config %s: %w", path, err)
 		}
+		cfg.path = path
 	}
 	cfg.ApplyDefaults()
-	if cfg.HubURL == "" {
-		return Config{}, errors.New("node: hub_url is not set in the config and FLEETDECK_HUB_ADDR is unset")
-	}
 	return cfg, nil
+}
+
+// Validate rejects a config that cannot connect to a hub. Call it after
+// applying flag overrides.
+func (c Config) Validate() error {
+	if c.HubURL == "" {
+		return errors.New("node: no hub endpoint: set hub_url in the config, pass --hub-url, or set FLEETDECK_HUB_ADDR")
+	}
+	return nil
+}
+
+// SetHubURL applies --hub-url and schedules a write-back to the config file
+// once the hub accepts the registration, so later runs need only --config.
+func (c *Config) SetHubURL(url string) {
+	c.HubURL = url
+	c.persistHubURL = true
 }
 
 // ApplyDefaults fills empty fields with their documented defaults.
@@ -85,9 +108,6 @@ func (c *Config) ApplyDefaults() {
 	}
 	if c.TokenFile == "" {
 		c.TokenFile = os.Getenv("FLEETDECK_NODE_TOKEN_FILE")
-	}
-	if c.JoinToken == "" {
-		c.JoinToken = os.Getenv("FLEETDECK_NODE_JOIN_TOKEN")
 	}
 	if c.MachineID == "" {
 		c.MachineID = os.Getenv("FLEETDECK_NODE_MACHINE_ID")
@@ -248,6 +268,17 @@ func (n *Node) runOnce(ctx context.Context) error {
 		}
 	}
 	n.log.Info("registered with hub", "node_id", resp.NodeID, "hub", n.cfg.HubURL)
+
+	// --hub-url is a one-time bootstrap: once the hub accepted us, remember the
+	// endpoint in the config file so the next start needs only --config.
+	if n.cfg.persistHubURL {
+		if err := persistHubURL(n.cfg.path, n.cfg.HubURL); err != nil {
+			n.log.Warn("could not write hub_url back to the config file", "err", err, "path", n.cfg.path)
+		} else {
+			n.log.Info("hub_url written to the config file", "path", n.cfg.path)
+			n.cfg.persistHubURL = false
+		}
+	}
 
 	stop := n.startWriter(c)
 	defer stop()

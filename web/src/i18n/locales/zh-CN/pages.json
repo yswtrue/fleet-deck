@@ -77,10 +77,12 @@
     "copied": "命令已复制",
     "copyError": "复制命令失败",
     "expires": "有效期至 {{time}}。",
-    "configBody": "在 node.config.yaml 中把 hub_url 指向此中枢，并为节点设置唯一名称：",
+    "commandHint": "中枢地址和令牌都通过参数传入（--hub-url、--join-token），不使用环境变量。令牌一次性使用，不会写入磁盘。",
+    "configBody": "node.config.yaml 只需填节点身份；首次注册成功后 hub_url 会自动写入该文件：",
+    "persistHint": "之后启动只需 ./fleetdeck-node --config node.config.yaml。",
     "step1": "生成加入令牌。",
-    "step2": "在 node.config.yaml 中填写 hub_url、name 和 token_file。",
-    "step3": "通过 FLEETDECK_NODE_JOIN_TOKEN 把令牌传给守护进程并启动。",
+    "step2": "在 node.config.yaml 中为节点设置唯一 name 和 token_file。",
+    "step3": "用 --hub-url 和 --join-token 启动守护进程。",
     "done": "完成",
     "error": "无法创建加入令牌"
   }
