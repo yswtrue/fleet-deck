@@ -60,6 +60,18 @@ SET status = $2, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateTaskStatusManual :one
+UPDATE task
+SET status = $2,
+    cancelled_at = CASE
+        WHEN status IN ('running', 'awaiting_user') AND $2 = 'done'
+        THEN COALESCE(cancelled_at, now())
+        ELSE cancelled_at
+    END,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: UpdateTaskSessionID :exec
 UPDATE task
 SET session_id = sqlc.narg('session_id'), updated_at = now()

@@ -75,6 +75,7 @@ type Task struct {
 	UpdatedAt   time.Time
 	ArchivedAt  *time.Time
 	AutoStart   bool
+	CancelledAt *time.Time
 }
 
 type TokenUsage struct {

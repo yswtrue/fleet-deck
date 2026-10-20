@@ -484,7 +484,7 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("invalid task transition %s -> %s", task.Status, *req.Status))
 			return
 		}
-		updated, err := h.store.Queries().UpdateTaskStatus(ctx, id, *req.Status)
+		updated, err := h.store.Queries().UpdateTaskStatusManual(ctx, id, *req.Status)
 		if err != nil {
 			h.serverError(w, "update task status", err)
 			return

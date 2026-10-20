@@ -145,6 +145,7 @@ func taskFromRow(r sqlcgen.Task) protocol.Task {
 		SortOrder:   int(r.SortOrder),
 		AutoStart:   r.AutoStart,
 		ArchivedAt:  r.ArchivedAt,
+		CancelledAt: r.CancelledAt,
 		CreatedAt:   r.CreatedAt,
 		UpdatedAt:   r.UpdatedAt,
 	}

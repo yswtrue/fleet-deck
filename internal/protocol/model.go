@@ -91,8 +91,10 @@ type Task struct {
 	AutoStart bool `json:"auto_start"`
 	// ArchivedAt marks a finished task hidden from the default board view.
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	// CancelledAt records the first manual termination, retained across resumes.
+	CancelledAt *time.Time `json:"cancelled_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // Subtask is a task's sub-step, mirrored from the agent session's todo list.

@@ -157,6 +157,7 @@ export interface Task {
   sort_order: number;
   auto_start: boolean;
   archived_at?: string;
+  cancelled_at?: string;
   created_at: string;
   updated_at: string;
 }

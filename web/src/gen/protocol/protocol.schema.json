@@ -637,6 +637,10 @@
           "type": "string",
           "format": "date-time"
         },
+        "cancelled_at": {
+          "type": "string",
+          "format": "date-time"
+        },
         "created_at": {
           "type": "string",
           "format": "date-time"
@@ -699,6 +703,10 @@
               "type": "boolean"
             },
             "archived_at": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "cancelled_at": {
               "type": "string",
               "format": "date-time"
             },

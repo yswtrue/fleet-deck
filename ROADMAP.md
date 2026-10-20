@@ -71,25 +71,28 @@ that would move them forward.
   `awaiting_user` for review)
 - **Task transition state machine** — PATCH enforces the 4-state table
   (`done` terminal, idempotent writes, 409 on illegal moves)
+- **Cancellation audit** — nullable `task.cancelled_at` records the first manual
+  running/awaiting_user → done transition atomically; retained across resumes,
+  retries and archiving. Natural completion/failure does not set it. Exposed
+  in task JSON; no historical backfill or change to agent stop behavior.
 - **Accessibility** — keyboard-reachable cards (Tab + Enter), distinct role
   labels, WCAG-AA status palette in dark and light themes
 - **Deployment** — Docker Compose control plane (Postgres + migrations + hub
   with the embedded web UI + optional Traefik :80/:443 ingress via the
   `traefik` profile); the SPA also deploys to any static host via the runtime
   `config.js`; node daemons run locally — `docs/DEPLOYMENT.md`
-- **Test suites** — 132 Go tests (integration against live Postgres) + 99 web
+- **Test suites** — 133 Go tests (integration against live Postgres) + 99 web
   tests (Vitest + RTL: dispatcher, permission wire, auth client/login,
   components, SPA handler)
 
 ## 🗓 Later (known gaps, with triggers)
 
-| Item                             | What it is                                             | Trigger to build it                                                                  |
-| -------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| Subtask reverse-writeback        | edits on the board flow back into the agent's plan     | product decision on semantics (there is no standard ACP method for this)             |
-| ACP `terminal/*` / elicitation   | host-managed terminals and structured forms for agents | an agent that cannot work without host terminals; needs a sandbox threat model first |
-| `task.cancelled_at` audit column | audit trail for cancellations                          | compliance/audit need (4-state model does not require it)                            |
-| Broader web test coverage        | component/hook tests beyond the current 4 files        | as the UI surface grows — infra (Vitest + jsdom + RTL) is in place                   |
-| Multi-hub / HA                   | replicated control plane                               | single-hub is fine for the current scale                                             |
+| Item                           | What it is                                             | Trigger to build it                                                                  |
+| ------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| Subtask reverse-writeback      | edits on the board flow back into the agent's plan     | product decision on semantics (there is no standard ACP method for this)             |
+| ACP `terminal/*` / elicitation | host-managed terminals and structured forms for agents | an agent that cannot work without host terminals; needs a sandbox threat model first |
+| Broader web test coverage      | component/hook tests beyond the current 4 files        | as the UI surface grows — infra (Vitest + jsdom + RTL) is in place                   |
+| Multi-hub / HA                 | replicated control plane                               | single-hub is fine for the current scale                                             |
 
 ## ❌ Non-goals (for now)
 

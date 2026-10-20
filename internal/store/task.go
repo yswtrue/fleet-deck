@@ -160,6 +160,19 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, id string, status protoc
 	return taskFromRow(row), nil
 }
 
+// UpdateTaskStatusManual records the first manual termination atomically with
+// the status change. Agent-derived transitions use UpdateTaskStatus instead.
+func (q *Queries) UpdateTaskStatusManual(ctx context.Context, id string, status protocol.TaskStatus) (protocol.Task, error) {
+	row, err := q.q.UpdateTaskStatusManual(ctx, sqlcgen.UpdateTaskStatusManualParams{
+		ID:     id,
+		Status: string(status),
+	})
+	if err != nil {
+		return protocol.Task{}, fmt.Errorf("store: update task status manually: %w", err)
+	}
+	return taskFromRow(row), nil
+}
+
 // UpdateTaskSessionID points a task at its active session. An empty sessionID
 // clears the forward pointer (stored as NULL).
 func (q *Queries) UpdateTaskSessionID(ctx context.Context, id, sessionID string) error {

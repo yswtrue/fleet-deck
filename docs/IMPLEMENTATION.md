@@ -4,9 +4,9 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 13 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 132 Go + 99 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 14 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 133 Go + 99 web。
 
-**未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation、`task.cancelled_at` 取消审计列;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
+**未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
 ## 1. 目标
 
@@ -64,7 +64,7 @@
 node        (id, name, host, status, capabilities, token_hash, last_seen_at)
 workspace   (id, node_id, name, path, created_at)          -- 1:1 看板,不另设 board 表
 task        (id, workspace_id, title, prompt, status, agent_type,
-             session_id?, sort_order, created_at, updated_at)
+             session_id?, sort_order, cancelled_at?, created_at, updated_at)
 subtask     (id, task_id, title, status, external_id?, sort_order)  -- external_id = agent todo id
 session     (id, task_id, node_id, agent_type, external_session_id?, status, created_at, ended_at)
 event       (id, session_id, type, payload_json, seq, ts)   -- 事件流:仅状态类事件(状态/用量/ask 出现),不含正文
@@ -84,8 +84,10 @@ waiting ──start──▶ running ──agent_done──▶ done
                        ├──agent_requests_input──▶ awaiting_user
                        │                                │
                        └────◀──user_replies(send_msg)────┘
-取消:running / awaiting_user ──cancel──▶ done(取消审计列 cancelled_at 未建,见 §5)
+取消:running / awaiting_user ──手动 PATCH done──▶ done(首次时间记录于 cancelled_at)
 ```
+
+**取消审计**:迁移 `00014_task_cancelled_at.sql` 添加可空 `task.cancelled_at`。手动 PATCH 将 `running` / `awaiting_user` 结束为 `done` 时,与状态更新原子记录首次取消时间;重复 PATCH、续跑、再次结束及归档均保留该时间。agent 自然完成、失败和节点离线不设置此列;历史数据保持 NULL,不推断回填。任务 JSON 在有值时返回 `cancelled_at`,生成的 TypeScript 类型同步包含该字段。本项仅审计已有手动结束操作,不新增取消端点,也不改变 agent 的停止行为。
 
 手动状态修改(`PATCH /api/tasks/{id}`)遵循同一状态机的**迁移表**:done 为终态、同状态幂等、非法迁移 409(`canTransitionTask`);session→task 的内部派生走自己的映射,不经过该表。
 
@@ -243,7 +245,6 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 - **子任务反向写回 agent**(现为 session→看板单向镜像)——触发:产品定下反向语义(ACP 无标准方法)
 - **ACP `terminal/*` 与 elicitation**(现不广告、调用即拒)——触发:出现必须宿主终端的 agent,且先定沙箱威胁模型
-- **`task.cancelled_at` 取消审计列**(现取消直接进 done,无审计痕迹)——触发:合规/审计需求
 - **自定义 pi bridge** —— **弃用方案**,由 `pi-acp` 取代(§3.4);仅当 pi-acp 能力不足时重启
 
 ## 6. 约定
