@@ -75,6 +75,10 @@ FleetDeck pulls these sessions into one control plane:
 
 ### Control plane (Docker Compose)
 
+Tagged releases publish a multi-arch hub image (`linux/amd64` + `linux/arm64`);
+`docker-compose.yml` still builds from source, or point the `hub`/`migrate`
+services at `ghcr.io/yswtrue/fleet-deck:vX.Y.Z`.
+
 ```sh
 cp .env.example .env        # ports + DB credentials live here; edit as needed
 docker compose up -d --build
@@ -91,6 +95,9 @@ docker compose --profile traefik up -d
 go build -o fleetdeck-node ./cmd/node
 ./fleetdeck-node --config node.config.yaml   # template: deploy/node.config.example.yaml
 ```
+
+Prebuilt daemons are attached to every [release](https://github.com/yswtrue/fleet-deck/releases)
+(`fleetdeck-node_vX.Y.Z_{linux,darwin,windows}_{amd64,arm64}`).
 
 ### Development (devenv)
 

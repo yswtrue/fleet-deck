@@ -46,6 +46,10 @@ services:
     restart: unless-stopped
 
   migrate:
+    # Same image for migrations and the hub. Set FLEETDECK_HUB_IMAGE in .env to
+    # run a published release (ghcr.io/yswtrue/fleet-deck:vX.Y.Z) instead of
+    # building locally; `docker compose up --build` keeps using the source tree.
+    image: ${FLEETDECK_HUB_IMAGE:-fleetdeck-hub:local}
     build: { context: ., target: runtime }
     command: ['goose', '-dir', '/app/migrations', 'postgres', *hub-dsn, 'up']
     depends_on:
@@ -54,6 +58,7 @@ services:
     restart: 'no'
 
   hub:
+    image: ${FLEETDECK_HUB_IMAGE:-fleetdeck-hub:local}
     build: { context: ., target: runtime }
     command: ['/usr/local/bin/hub']
     environment:

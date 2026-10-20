@@ -88,6 +88,38 @@ resolver (e.g. ACME) to the `hub-secure` router — see the
 [Traefik docs](https://doc.traefik.io/traefik/https/overview/). Node URLs
 become `wss://…/ws/node` once TLS is on.
 
+## Releases (prebuilt artifacts)
+
+Push a tag (`v1.2.3`, or `v1.2.3-rc.1` for a pre-release) and
+`.github/workflows/release.yml` publishes:
+
+| Artifact                | Where                                                                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| hub image               | `ghcr.io/yswtrue/fleet-deck:v1.2.3` (also `1.2`, `1`, and `latest` for stable tags); `linux/amd64` + `linux/arm64`                  |
+| node daemons            | release assets `fleetdeck-node_v1.2.3_{linux,darwin,windows}_{amd64,arm64}.{tar.gz,zip}` — binary plus `node.config.example.yaml`   |
+| checksums + release log | `SHA256SUMS` and GitHub-generated release notes (categorised by `.github/release.yml` labels; add `skip-changelog` to omit an item) |
+
+The image is the same `runtime` stage as the local compose build (hub, node,
+fleetctl, goose + migrations), so it can be swapped in without changing the
+deployment:
+
+```sh
+# .env next to docker-compose.yml: use the release instead of building
+FLEETDECK_HUB_IMAGE=ghcr.io/yswtrue/fleet-deck:v1.2.3
+```
+
+```sh
+docker compose pull hub migrate
+docker compose up -d          # no --build: the pulled image is used as-is
+```
+
+Verify node archives before running them on a machine:
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+tar -xzf fleetdeck-node_v1.2.3_darwin_arm64.tar.gz   # Windows: unzip
+```
+
 ## Running node daemons locally
 
 On every machine that should run agents:

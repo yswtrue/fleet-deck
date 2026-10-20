@@ -1,0 +1,154 @@
+name: release
+
+# Publishing a tag (`v1.2.3`, `v1.2.3-rc.1`) cuts a release:
+#   - hub image -> ghcr.io/<owner>/<repo> (linux/amd64 + linux/arm64)
+#   - node daemon binaries -> linux/darwin/windows archives, amd64 + arm64
+#   - GitHub release with generated release notes (see .github/release.yml)
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  node:
+    name: node ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build node daemon
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          bin=fleetdeck-node
+          if [ "$GOOS" = windows ]; then bin=fleetdeck-node.exe; fi
+          mkdir -p stage
+          # Pure Go (no cgo): cross-compiling from the Linux runner is enough.
+          go build -trimpath -ldflags='-s -w' -o "stage/$bin" ./cmd/node
+          cp deploy/node.config.example.yaml stage/
+          chmod +x "stage/$bin"
+
+      - name: Package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          name="fleetdeck-node_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
+          if [ "$GOOS" = windows ]; then
+            (cd stage && zip -q -9 "../$name.zip" fleetdeck-node.exe node.config.example.yaml)
+          else
+            tar -C stage -czf "$name.tar.gz" fleetdeck-node node.config.example.yaml
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            fleetdeck-node_*.tar.gz
+            fleetdeck-node_*.zip
+          if-no-files-found: error
+
+  docker:
+    name: hub image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile builds the web bundle and the Go binaries on
+      # $BUILDPLATFORM and cross-compiles to $TARGETARCH, so no slow emulation.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{major}},enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: github release
+    needs: [node, docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: node-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum -- * > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          # Pre-releases (`v1.2.3-rc.1`) skip the `latest` image tag above.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            **Hub image:** `ghcr.io/${{ github.repository }}:${{ github.ref_name }}`
+
+            ```sh
+            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            # multi-arch: linux/amd64 + linux/arm64
+            ```
+
+            **Node daemons:** `fleetdeck-node_*_<os>_<arch>.tar.gz` (Linux, macOS)
+            and `.zip` (Windows), amd64 + arm64. Each archive holds the binary and
+            a `node.config.example.yaml` template; see docs/DEPLOYMENT.md.
+            Verify downloads with `SHA256SUMS`.
+          files: dist/*
+          fail_on_unmatched_files: true
