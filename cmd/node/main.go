@@ -7,6 +7,7 @@
 //	node --config examples/node.config.yaml --adapter fake
 //	node --config node.config.yaml --hub-url ws://hub.example.com/ws/node \
 //	     --join-token <token from the UI>
+//	node config --config node.config.yaml   # choose the agents to advertise
 package main
 
 import (
@@ -30,6 +31,10 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 && os.Args[1] == "config" {
+		return runConfig(os.Args[2:])
+	}
+
 	configPath := flag.String("config", "examples/fake-node.config.yaml", "path to node YAML config")
 	adapterFlag := flag.String("adapter", "", "advertise/force a single adapter type (overrides config)")
 	hubURL := flag.String("hub-url", "", "hub node WebSocket endpoint (ws://host:7710/ws/node); written to the config file after the first successful registration")

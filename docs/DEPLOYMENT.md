@@ -130,26 +130,54 @@ go build -o fleetdeck-node ./cmd/node
 
 # 2. Mint a join token in the UI: Nodes -> Add node -> Generate token
 
-# 3. Configure it (template: deploy/node.config.example.yaml)
+# 3. Configure the node identity (template: deploy/node.config.example.yaml)
 cat > node.config.yaml <<'EOF'
 name: my-machine
 host: my-machine.example.com
-capabilities: [opencode]
-agent_types: [opencode]
-default_adapter: opencode
 token_file: ./node-token
 EOF
 
-# 4. Run it with the hub endpoint and the one-time token (valid 15 minutes,
+# 4. Pick the agents this machine offers (re-run whenever you install a new
+#    agent CLI); writes agent_types + default_adapter into the file:
+./fleetdeck-node config --config node.config.yaml
+
+# 5. Run it with the hub endpoint and the one-time token (valid 15 minutes,
 #    single use). Both travel as flags; hub_url is written into the config
 #    after the hub accepts the registration.
 ./fleetdeck-node --config node.config.yaml \
   --hub-url ws://localhost:7710/ws/node \
   --join-token <token from the UI>
 
-# 5. Later starts need only the config file:
+# 6. Later starts need only the config file:
 ./fleetdeck-node --config node.config.yaml
 ```
+
+### Choosing the agents
+
+`fleetdeck-node config` lists every agent type the build knows, marks which
+launchers are actually on this machine (`ready`, `built-in`, or
+`missing: <binary>`), and writes the selection back as `agent_types` plus a
+`default_adapter`. Everything else in the file is left byte-for-byte intact,
+so comments and hand-written settings survive.
+
+```sh
+./fleetdeck-node config --config node.config.yaml
+#   Agent types this node can run:
+#     1) claude     ready
+#     2) codex      ready
+#     3) fake       built-in
+#     4) opencode   ready
+#     5) pi         missing: pi
+#   Select agents by number ("all", "none"; Enter keeps the current binding): 2,4
+#   Default adapter [codex]:
+
+# Non-interactive (CI, provisioning scripts):
+./fleetdeck-node config --config node.config.yaml --agents codex,opencode --default codex
+```
+
+Selecting an agent whose launcher is missing is allowed (the CLI can be
+installed later) and prints a warning. The daemon reads the binding at startup,
+so restart it after re-running the wizard to advertise the new agents.
 
 A node name must not be registered yet: the first handshake needs the join
 token, which is burned and binds the token's creator to the new node. The hub

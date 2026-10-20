@@ -1,0 +1,170 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node.config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func readConfig(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func TestParseSelection(t *testing.T) {
+	cases := []struct {
+		in      string
+		n       int
+		want    []int
+		wantErr bool
+	}{
+		{in: "1,3", n: 5, want: []int{0, 2}},
+		{in: "1 3", n: 5, want: []int{0, 2}},
+		{in: "3,1,3", n: 5, want: []int{2, 0}},
+		{in: "all", n: 3, want: []int{0, 1, 2}},
+		{in: "NONE", n: 3, want: nil},
+		{in: "0", n: 3, wantErr: true},
+		{in: "4", n: 3, wantErr: true},
+		{in: "fake", n: 3, wantErr: true},
+	}
+	for _, tc := range cases {
+		got, err := parseSelection(tc.in, tc.n)
+		if tc.wantErr {
+			if err == nil {
+				t.Fatalf("parseSelection(%q) = %v, want error", tc.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("parseSelection(%q): %v", tc.in, err)
+		}
+		if len(got) != len(tc.want) {
+			t.Fatalf("parseSelection(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Fatalf("parseSelection(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		}
+	}
+}
+
+// Every registered adapter is selectable by name; the built-in fake one proves
+// the registry wiring without depending on installed CLIs.
+func TestSelectByName(t *testing.T) {
+	choices := detectAgents([]string{"fake", "opencode"})
+	selected, err := selectByName(choices, "opencode,fake,opencode")
+	if err != nil {
+		t.Fatalf("selectByName: %v", err)
+	}
+	if got := types(selected); strings.Join(got, ",") != "opencode,fake" {
+		t.Fatalf("selected = %v, want [opencode fake]", got)
+	}
+	if _, err := selectByName(choices, "nope"); err == nil {
+		t.Fatal("expected an error for an unknown agent")
+	}
+	all, err := selectByName(choices, "all")
+	if err != nil || len(all) != 2 {
+		t.Fatalf("all = %v, %v", types(all), err)
+	}
+	none, err := selectByName(choices, "none")
+	if err != nil || len(none) != 0 {
+		t.Fatalf("none = %v, %v", types(none), err)
+	}
+}
+
+func TestConfigureNonInteractiveRebindsAgents(t *testing.T) {
+	path := writeConfig(t, `# my node
+name: my-machine
+capabilities:
+  - custom-label
+agent_types:
+  - fake
+default_adapter: fake
+token_file: ./node-token
+`)
+	var out bytes.Buffer
+	err := configure(bufio.NewReader(strings.NewReader("")), &out, path, "fake,opencode", "opencode", false)
+	if err != nil {
+		t.Fatalf("configure: %v\n%s", err, out.String())
+	}
+
+	text := readConfig(t, path)
+	for _, want := range []string{"# my node", "name: my-machine", "custom-label", "token_file: ./node-token"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("config lost %q:\n%s", want, text)
+		}
+	}
+	if !strings.Contains(text, "agent_types:\n  - fake\n  - opencode\n") {
+		t.Fatalf("agent_types not rewritten:\n%s", text)
+	}
+	if !strings.Contains(text, "default_adapter: opencode") {
+		t.Fatalf("default_adapter not rewritten:\n%s", text)
+	}
+	if !strings.Contains(out.String(), "Wrote agent_types=[fake opencode]") {
+		t.Fatalf("unexpected output:\n%s", out.String())
+	}
+}
+
+func TestConfigureRejectsAgentOutsideSelection(t *testing.T) {
+	path := writeConfig(t, "name: my-machine\nagent_types: [fake]\n")
+	err := configure(bufio.NewReader(strings.NewReader("")), &bytes.Buffer{}, path, "fake", "opencode", false)
+	if err == nil || !strings.Contains(err.Error(), "not among the selected agents") {
+		t.Fatalf("err = %v, want a default-outside-selection error", err)
+	}
+	if text := readConfig(t, path); !strings.Contains(text, "agent_types: [fake]") {
+		t.Fatalf("config modified despite the error:\n%s", text)
+	}
+}
+
+// Enter keeps the current binding and the current default, so re-running the
+// wizard to inspect the choices is a no-op write.
+func TestConfigureInteractiveEnterKeepsCurrent(t *testing.T) {
+	path := writeConfig(t, "name: my-machine\nagent_types:\n  - fake\ndefault_adapter: fake\n")
+	var out bytes.Buffer
+	if err := configure(bufio.NewReader(strings.NewReader("\n")), &out, path, "", "", true); err != nil {
+		t.Fatalf("configure: %v\n%s", err, out.String())
+	}
+	text := readConfig(t, path)
+	if !strings.Contains(text, "agent_types:\n  - fake\n") || !strings.Contains(text, "default_adapter: fake") {
+		t.Fatalf("binding changed on Enter:\n%s", text)
+	}
+	if !strings.Contains(out.String(), "Agent types this node can run:") {
+		t.Fatalf("wizard did not list the choices:\n%s", out.String())
+	}
+}
+
+// Selecting every agent then accepting the default prompt binds the whole
+// registry, which is how a newly installed CLI gets added.
+func TestConfigureInteractiveSelectAll(t *testing.T) {
+	path := writeConfig(t, "name: my-machine\nagent_types:\n  - fake\ndefault_adapter: fake\n")
+	var out bytes.Buffer
+	if err := configure(bufio.NewReader(strings.NewReader("all\n\n")), &out, path, "", "", true); err != nil {
+		t.Fatalf("configure: %v\n%s", err, out.String())
+	}
+	text := readConfig(t, path)
+	for _, agent := range []string{"fake", "opencode", "codex", "claude", "pi"} {
+		if !strings.Contains(text, "  - "+agent+"\n") {
+			t.Fatalf("%s missing from the binding:\n%s", agent, text)
+		}
+	}
+	if !strings.Contains(text, "default_adapter: fake") {
+		t.Fatalf("current default should survive:\n%s", text)
+	}
+}

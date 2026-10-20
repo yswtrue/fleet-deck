@@ -10,10 +10,12 @@
 # See docs/DEPLOYMENT.md for the full walkthrough.
 name: my-machine # unique per node; shown in the web UI
 host: my-machine.example.com
-capabilities:
-  - opencode
+# Pick these with `fleetdeck-node config --config node.config.yaml` (it probes
+# installed launchers and writes both keys); any of: fake, opencode, codex,
+# claude, pi. Agent types are advertised as capabilities automatically, so
+# `capabilities` is only for extra labels.
 agent_types:
-  - opencode # any of: fake, opencode, codex, claude, pi
+  - opencode
 default_adapter: opencode
 # Optional: --hub-url fills this in after the first successful registration.
 hub_url: ws://localhost:7710/ws/node # or wss://hub.example.com/ws/node

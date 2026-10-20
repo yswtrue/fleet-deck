@@ -93,6 +93,7 @@ docker compose --profile traefik up -d
 
 ```sh
 go build -o fleetdeck-node ./cmd/node
+./fleetdeck-node config --config node.config.yaml   # pick the agents to offer
 # first start: --hub-url ws://<hub>:7710/ws/node --join-token <from the UI>;
 # hub_url is written into the config, so later starts need only the file
 ./fleetdeck-node --config node.config.yaml   # template: deploy/node.config.example.yaml

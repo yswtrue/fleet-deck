@@ -74,6 +74,7 @@ docker compose --profile traefik up -d
 
 ```sh
 go build -o fleetdeck-node ./cmd/node
+./fleetdeck-node config --config node.config.yaml   # 选择要提供的 agent
 # 首次启动:--hub-url ws://<hub>:7710/ws/node --join-token <UI 里生成的令牌>;
 # 注册成功后 hub_url 会写入配置文件,之后只需指定配置文件
 ./fleetdeck-node --config node.config.yaml   # 模板:deploy/node.config.example.yaml

@@ -103,6 +103,9 @@ type agentConfig struct {
 	args       []string
 	env        []string
 	mcpServers []mcpServer
+	// requires are extra executables the launcher shells out to (beyond
+	// command itself), used by Requirements.
+	requires []string
 }
 
 // agentInventory maps an agent_type to the canonical ACP launcher from the
@@ -126,7 +129,19 @@ var agentInventory = map[string]agentConfig{
 		command: "npx",
 		args:    []string{"-y", "pi-acp"},
 		// Requires pi >= 0.81.0 on PATH; `pi-acp` drives `pi --mode rpc`.
+		requires: []string{"pi"},
 	},
+}
+
+// Requirements returns the executables agentType is launched through: its ACP
+// launcher plus anything that launcher shells out to. It is empty for agent
+// types the node runs in-process (e.g. fake) and for unknown types.
+func Requirements(agentType string) []string {
+	cfg, ok := agentInventory[agentType]
+	if !ok {
+		return nil
+	}
+	return append([]string{cfg.command}, cfg.requires...)
 }
 
 // Adapter is the shared ACP Adapter implementation. One Adapter drives one

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestSetHubURL(t *testing.T) {
+func TestSetTopLevelScalar(t *testing.T) {
 	const url = "ws://new.example:7710/ws/node"
 	cases := []struct {
 		name    string
@@ -45,17 +45,76 @@ func TestSetHubURL(t *testing.T) {
 			want:    "# hub_url is omitted: derived from the environment\nname: n1\nhub_url: " + url + "\n",
 			changed: true,
 		},
+		{
+			name:    "does not match a longer key",
+			in:      "hub_urls: [ws://other]\n",
+			want:    "hub_urls: [ws://other]\nhub_url: " + url + "\n",
+			changed: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, changed := setHubURL([]byte(tc.in), url)
+			got, changed := setTopLevel([]byte(tc.in), "hub_url", "hub_url: "+url)
 			if string(got) != tc.want {
-				t.Fatalf("setHubURL =\n%q\nwant\n%q", got, tc.want)
+				t.Fatalf("setTopLevel =\n%q\nwant\n%q", got, tc.want)
 			}
 			if changed != tc.changed {
 				t.Fatalf("changed = %v, want %v", changed, tc.changed)
 			}
 		})
+	}
+}
+
+func TestSetAgentTypesReplacesBlock(t *testing.T) {
+	in := `# my node
+name: n1
+capabilities:
+  - custom
+agent_types:
+  - fake # dev only
+  - opencode
+default_adapter: fake
+token_file: ./t
+`
+	want := `# my node
+name: n1
+capabilities:
+  - custom
+agent_types:
+  - codex
+  - fake
+default_adapter: codex
+token_file: ./t
+`
+	got, changed := setAgentTypes([]byte(in), []string{"codex", "fake"}, "codex")
+	if !changed {
+		t.Fatal("expected a change")
+	}
+	if string(got) != want {
+		t.Fatalf("setAgentTypes =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSetAgentTypesInsertsAndClears(t *testing.T) {
+	got, changed := setAgentTypes([]byte("name: n1\n"), []string{"opencode"}, "opencode")
+	want := "name: n1\nagent_types:\n  - opencode\ndefault_adapter: opencode\n"
+	if !changed || string(got) != want {
+		t.Fatalf("insert =\n%s\nwant\n%s", got, want)
+	}
+
+	got, changed = setAgentTypes([]byte("agent_types:\n  - fake\n\n# trailing note\nname: n1\n"), nil, "")
+	want = "agent_types: []\n\n# trailing note\nname: n1\n"
+	if !changed || string(got) != want {
+		t.Fatalf("clear =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSetAgentTypesKeepsFollowingTopLevelKeys(t *testing.T) {
+	in := "agent_types: [fake]\nhub_url: ws://h/ws/node\n"
+	got, _ := setAgentTypes([]byte(in), []string{"fake", "claude"}, "")
+	want := "agent_types:\n  - fake\n  - claude\nhub_url: ws://h/ws/node\n"
+	if string(got) != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -100,5 +159,24 @@ func TestPersistHubURLCreatesNoStrayFilesAndKeepsMode(t *testing.T) {
 func TestPersistHubURLWithoutConfigFile(t *testing.T) {
 	if err := persistHubURL("", "ws://hub:7710/ws/node"); err == nil {
 		t.Fatal("want an error when the daemon has no config file to update")
+	}
+}
+
+func TestPersistAgents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "node.config.yaml")
+	if err := os.WriteFile(path, []byte("name: n1\nagent_types: [fake]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := PersistAgents(path, []string{"fake", "codex"}, "fake"); err != nil {
+		t.Fatalf("PersistAgents: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"agent_types:\n  - fake\n  - codex\n", "default_adapter: fake"} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("config missing %q:\n%s", want, raw)
+		}
 	}
 }
