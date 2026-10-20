@@ -1,19 +1,24 @@
 # FleetDeck node daemon configuration (template for a LOCAL node).
 #
 # Nodes run on the machines where the agent CLIs live and dial OUT to the hub —
-# no inbound port is needed on the node machine:
+# no inbound port is needed on the node machine.
+#
+# Starting without --config creates and uses the platform config file
+# (Linux: ~/.config/fleetdeck/node.yaml, macOS:
+# ~/Library/Application Support/fleetdeck/node.yaml, Windows:
+# %AppData%\fleetdeck\node.yaml); copy this template there to customize it, or
+# pass --config <file>.
 #
 #   go build -o fleetdeck-node ./cmd/node     # or `go run ./cmd/node`
-#   ./fleetdeck-node --config node.config.yaml \
-#     --hub-url ws://localhost:7710/ws/node --join-token <token from the UI>
+#   ./fleetdeck-node --hub-url ws://localhost:7710/ws/node --join-token <token from the UI>
 #
 # See docs/DEPLOYMENT.md for the full walkthrough.
 name: my-machine # unique per node; shown in the web UI
 host: my-machine.example.com
-# Pick these with `fleetdeck-node config --config node.config.yaml` (it probes
-# installed launchers and writes both keys); any of: fake, opencode, codex,
-# claude, pi. Agent types are advertised as capabilities automatically, so
-# `capabilities` is only for extra labels.
+# Pick these with `fleetdeck-node config` (it probes installed launchers and
+# writes both keys); any of: fake, opencode, codex, claude, pi. Agent types are
+# advertised as capabilities automatically, so `capabilities` is only for extra
+# labels.
 agent_types:
   - opencode
 default_adapter: opencode

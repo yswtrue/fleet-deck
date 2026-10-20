@@ -130,27 +130,36 @@ go build -o fleetdeck-node ./cmd/node
 
 # 2. Mint a join token in the UI: Nodes -> Add node -> Generate token
 
-# 3. Configure the node identity (template: deploy/node.config.example.yaml)
-cat > node.config.yaml <<'EOF'
-name: my-machine
-host: my-machine.example.com
-token_file: ./node-token
-EOF
+# 3. Pick the agents this machine offers. With no --config the daemon creates
+#    the platform config file with this machine's name (Linux ~/.config, macOS
+#    ~/Library/Application Support, Windows %AppData%); re-run this whenever
+#    you install a new agent CLI:
+./fleetdeck-node config
 
-# 4. Pick the agents this machine offers (re-run whenever you install a new
-#    agent CLI); writes agent_types + default_adapter into the file:
-./fleetdeck-node config --config node.config.yaml
-
-# 5. Run it with the hub endpoint and the one-time token (valid 15 minutes,
+# 4. Run it with the hub endpoint and the one-time token (valid 15 minutes,
 #    single use). Both travel as flags; hub_url is written into the config
-#    after the hub accepts the registration.
-./fleetdeck-node --config node.config.yaml \
-  --hub-url ws://localhost:7710/ws/node \
-  --join-token <token from the UI>
+#    file after the hub accepts the registration.
+./fleetdeck-node --hub-url ws://localhost:7710/ws/node --join-token <token from the UI>
 
-# 6. Later starts need only the config file:
-./fleetdeck-node --config node.config.yaml
+# 5. Later starts need no flags:
+./fleetdeck-node
 ```
+
+### Config file location
+
+| OS        | node config                                            | node credential                                             |
+| --------- | ------------------------------------------------------ | ----------------------------------------------------------- |
+| Linux/BSD | `$XDG_CONFIG_HOME/fleetdeck/node.yaml` (`~/.config/…`) | `$XDG_STATE_HOME/fleetdeck/node-token` (`~/.local/state/…`) |
+| macOS     | `~/Library/Application Support/fleetdeck/node.yaml`    | `~/Library/Application Support/fleetdeck/node-token`        |
+| Windows   | `%AppData%\fleetdeck\node.yaml`                        | `%LocalAppData%\fleetdeck\node-token`                       |
+
+`XDG_CONFIG_HOME` / `XDG_STATE_HOME` are honored on every OS when they hold an
+absolute path; `--config <file>` and `token_file:` override everything. The
+daemon creates the config (directory `0700`, file `0600`, `name` = hostname)
+when it is missing and logs the path; it never overwrites an existing file. An
+explicit `--config` path that does not exist is an error — a typo must not
+silently start a second, empty node. To customize the defaults, copy
+`deploy/node.config.example.yaml` there (or point `--config` at it).
 
 ### Choosing the agents
 
@@ -161,7 +170,7 @@ launchers are actually on this machine (`ready`, `built-in`, or
 so comments and hand-written settings survive.
 
 ```sh
-./fleetdeck-node config --config node.config.yaml
+./fleetdeck-node config
 #   Agent types this node can run:
 #     1) claude     ready
 #     2) codex      ready
@@ -172,7 +181,7 @@ so comments and hand-written settings survive.
 #   Default adapter [codex]:
 
 # Non-interactive (CI, provisioning scripts):
-./fleetdeck-node config --config node.config.yaml --agents codex,opencode --default codex
+./fleetdeck-node config --agents codex,opencode --default codex
 ```
 
 Selecting an agent whose launcher is missing is allowed (the CLI can be

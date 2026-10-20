@@ -93,10 +93,10 @@ docker compose --profile traefik up -d
 
 ```sh
 go build -o fleetdeck-node ./cmd/node
-./fleetdeck-node config --config node.config.yaml   # pick the agents to offer
+./fleetdeck-node config   # creates the OS config file, pick the agents
 # first start: --hub-url ws://<hub>:7710/ws/node --join-token <from the UI>;
-# hub_url is written into the config, so later starts need only the file
-./fleetdeck-node --config node.config.yaml   # template: deploy/node.config.example.yaml
+# hub_url is written into the config, so later starts need only the binary
+./fleetdeck-node
 ```
 
 Prebuilt daemons are attached to every [release](https://github.com/yswtrue/fleet-deck/releases)

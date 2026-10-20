@@ -3,11 +3,10 @@
 //
 // Usage:
 //
+//	node                                   # ~/.config/fleetdeck/node.yaml
 //	node --config examples/fake-node.config.yaml
-//	node --config examples/node.config.yaml --adapter fake
-//	node --config node.config.yaml --hub-url ws://hub.example.com/ws/node \
-//	     --join-token <token from the UI>
-//	node config --config node.config.yaml   # choose the agents to advertise
+//	node config                            # choose the agents to advertise
+//	node --hub-url ws://hub.example.com/ws/node --join-token <token from the UI>
 package main
 
 import (
@@ -35,13 +34,21 @@ func run() error {
 		return runConfig(os.Args[2:])
 	}
 
-	configPath := flag.String("config", "examples/fake-node.config.yaml", "path to node YAML config")
+	configPath := flag.String("config", "", "path to node YAML config (default: the platform config file, created when missing)")
 	adapterFlag := flag.String("adapter", "", "advertise/force a single adapter type (overrides config)")
 	hubURL := flag.String("hub-url", "", "hub node WebSocket endpoint (ws://host:7710/ws/node); written to the config file after the first successful registration")
 	joinToken := flag.String("join-token", "", "single-use join token for the first registration (never written to disk)")
 	flag.Parse()
 
-	cfg, err := node.LoadConfig(*configPath)
+	path, created, err := node.ConfigPath(*configPath)
+	if err != nil {
+		return err
+	}
+	if created {
+		slog.Info("created default config", "path", path,
+			"next", "run `fleetdeck-node config` to pick agents, then start with --hub-url and --join-token")
+	}
+	cfg, err := node.LoadConfig(path)
 	if err != nil {
 		return err
 	}

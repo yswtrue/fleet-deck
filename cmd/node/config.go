@@ -52,17 +52,24 @@ func detectAgents(types []string) []agentChoice {
 // agent CLI is the documented way to add that agent.
 func runConfig(args []string) error {
 	fs := flag.NewFlagSet("config", flag.ContinueOnError)
-	configPath := fs.String("config", "node.config.yaml", "node config file to update")
+	configPath := fs.String("config", "", "node config file (default: the platform config file, created when missing)")
 	agentsFlag := fs.String("agents", "", "comma-separated agent types to bind (skips the prompt)")
 	defaultFlag := fs.String("default", "", "default adapter (must be one of --agents)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	path, created, err := node.ConfigPath(*configPath)
+	if err != nil {
+		return err
+	}
+	if created {
+		fmt.Fprintf(os.Stdout, "Created %s\n", path)
+	}
 	interactive := *agentsFlag == ""
 	if interactive && !isTerminal(os.Stdin) {
 		return errors.New("config: stdin is not a terminal; pass --agents opencode,codex (and optionally --default)")
 	}
-	return configure(bufio.NewReader(os.Stdin), os.Stdout, *configPath, *agentsFlag, *defaultFlag, interactive)
+	return configure(bufio.NewReader(os.Stdin), os.Stdout, path, *agentsFlag, *defaultFlag, interactive)
 }
 
 // configure is the testable wizard body: it reads prompts from in and reports
@@ -98,7 +105,9 @@ func configure(in *bufio.Reader, out io.Writer, path, agentsFlag, defaultFlag st
 			fmt.Fprintf(out, "warning: %s needs %q on PATH; tasks for it will fail until the CLI is installed\n", choice.Type, choice.Missing)
 		}
 	}
-	fmt.Fprintf(out, "Restart the node to advertise them: fleetdeck-node --config %s\n", path)
+	// The path may contain spaces (macOS Application Support), so quote it in
+	// the copy-ready command.
+	fmt.Fprintf(out, "Restart the node to advertise them: fleetdeck-node --config \"%s\"\n", path)
 	return nil
 }
 

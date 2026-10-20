@@ -119,6 +119,9 @@ func (c *Config) ApplyDefaults() {
 		c.LockFile = defaultLockFile()
 	}
 	if c.TokenFile == "" {
+		c.TokenFile = DefaultTokenFile()
+	}
+	if c.TokenFile == "" {
 		c.TokenFile = filepath.Join(".devenv", "state", "fleetdeck", "node-token")
 	}
 	if c.Host == "" {

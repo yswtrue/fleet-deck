@@ -168,3 +168,24 @@ func TestConfigureInteractiveSelectAll(t *testing.T) {
 		t.Fatalf("current default should survive:\n%s", text)
 	}
 }
+
+// `node config` without --config creates the XDG file and binds into it.
+func TestRunConfigCreatesXDGConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "state"))
+
+	if err := runConfig([]string{"--agents", "fake"}); err != nil {
+		t.Fatalf("runConfig: %v", err)
+	}
+
+	path := filepath.Join(dir, "config", "fleetdeck", "node.yaml")
+	text := readConfig(t, path)
+	if !strings.Contains(text, "agent_types:\n  - fake\n") {
+		t.Fatalf("binding not written:\n%s", text)
+	}
+	tokenFile := filepath.Join(dir, "state", "fleetdeck", "node-token")
+	if !strings.Contains(text, "token_file: "+tokenFile) {
+		t.Fatalf("token file is not the XDG state path:\n%s", text)
+	}
+}

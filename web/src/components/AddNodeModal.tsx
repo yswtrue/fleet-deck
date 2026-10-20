@@ -59,10 +59,10 @@ export function AddNodeModal({ open, onClose }: { open: boolean; onClose: () => 
     onClose()
   }
 
-  // The daemon writes hub_url into the config file after this first
-  // registration, so later starts need only --config <file>.
+  // Without --config the daemon uses (and creates) the XDG config file, then
+  // writes hub_url into it after this first registration.
   const command = token
-    ? `./fleetdeck-node --config node.config.yaml --hub-url ${nodeHubURL()} --join-token ${token.token}`
+    ? `./fleetdeck-node --hub-url ${nodeHubURL()} --join-token ${token.token}`
     : ''
 
   const copy = async () => {
@@ -112,8 +112,7 @@ export function AddNodeModal({ open, onClose }: { open: boolean; onClose: () => 
           </p>
           <div className={styles.configHint}>
             <p>{t('addNode.commandHint')}</p>
-            <p>{t('addNode.configBody')}</p>
-            <pre>{`name: my-machine\ntoken_file: ./node-token`}</pre>
+            <p>{t('addNode.defaultConfigHint')}</p>
             <p>{t('addNode.persistHint')}</p>
           </div>
         </div>

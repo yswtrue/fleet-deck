@@ -78,10 +78,10 @@
     "copyError": "复制命令失败",
     "expires": "有效期至 {{time}}。",
     "commandHint": "中枢地址和令牌都通过参数传入（--hub-url、--join-token），不使用环境变量。令牌一次性使用，不会写入磁盘。",
-    "configBody": "node.config.yaml 只需填节点身份；首次注册成功后 hub_url 会自动写入该文件：",
-    "persistHint": "之后启动只需 ./fleetdeck-node --config node.config.yaml。",
+    "defaultConfigHint": "不传 --config 时，守护进程使用系统配置目录并在文件不存在时自动创建：Linux 为 ~/.config/fleetdeck/node.yaml，macOS 为 ~/Library/Application Support/fleetdeck/node.yaml，Windows 为 %AppData%\\fleetdeck\\node.yaml（设置了 XDG_CONFIG_HOME 时优先使用）。签发的凭据放在同目录（Linux 为 ~/.local/state/fleetdeck/node-token，Windows 为 %LocalAppData%\\fleetdeck\\node-token）。用 `fleetdeck-node config` 选择要提供的 agent（装了新 agent 后重跑即可）。",
+    "persistHint": "首次注册成功后 hub_url 会写入该文件，之后启动无需参数。",
     "step1": "生成加入令牌。",
-    "step2": "在 node.config.yaml 中为节点设置唯一 name 和 token_file。",
+    "step2": "运行 fleetdeck-node config 选择这台机器提供的 agent。",
     "step3": "用 --hub-url 和 --join-token 启动守护进程。",
     "done": "完成",
     "error": "无法创建加入令牌"

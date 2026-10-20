@@ -157,8 +157,8 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 ### 3.6.1 节点加入流程
 
 1. 登录后在 Nodes 页点 “Add node”,生成一次性加入令牌(15 分钟、单次)。
-2. 在节点机器的 `node.config.yaml` 填 `name` / `token_file`,用 `./fleetdeck-node config --config node.config.yaml` 选择要提供的 agent(探测 PATH 中已安装的 launcher,写回 `agent_types` / `default_adapter`;装了新 agent 后重跑即可),再以
-   `./fleetdeck-node --config node.config.yaml --hub-url ws://host:7710/ws/node --join-token <token>` 启动;注册成功后 `hub_url` 回写到配置文件,后续只需 `--config`。
+2. 节点机器上直接运行 `./fleetdeck-node config`:不带 `--config` 时使用并自动创建 `$XDG_CONFIG_HOME/fleetdeck/node.yaml`(`~/.config/fleetdeck/node.yaml`,目录 0700、文件 0600,`name` 取主机名,凭据落在 `$XDG_STATE_HOME/fleetdeck/node-token`),向导探测 PATH 中已安装的 launcher 并写回 `agent_types` / `default_adapter`;装了新 agent 后重跑即可。随后以
+   `./fleetdeck-node --hub-url ws://host:7710/ws/node --join-token <token>` 启动;注册成功后 `hub_url` 回写到该文件,后续直接运行 `./fleetdeck-node`。
 3. `/ws/node` 首帧 `register_request.JoinToken` 校验通过后,hub 在一个事务内创建节点、绑定令牌创建者并烧掉令牌,返回 node token 写入 `token_file`;之后重连只带 node token。加入令牌只走 `--join-token`(或配置里的 `join_token`),不落盘。
 4. 令牌无效/过期/已用、或未知节点名不带令牌:hub 回 `register_response.error` 并断开,节点日志给出原因。
 5. hub 侧的 `FLEETDECK_NODE_JOIN_TOKEN` 是部署级密钥:节点把它作为 `--join-token` 传入即可跳过数据库令牌,不产生所有者绑定,用于 devenv 与自动化部署。

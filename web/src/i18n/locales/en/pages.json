@@ -78,10 +78,10 @@
     "copyError": "Could not copy the command",
     "expires": "Valid until {{time}}.",
     "commandHint": "The hub URL and the token travel as flags (--hub-url, --join-token) — no environment variables. The token is single-use and is never written to disk.",
-    "configBody": "node.config.yaml only needs the node identity; hub_url is added automatically after the first successful registration:",
-    "persistHint": "Later starts only need ./fleetdeck-node --config node.config.yaml.",
+    "defaultConfigHint": "Without --config the daemon uses the platform config directory and creates the file when missing: ~/.config/fleetdeck/node.yaml on Linux, ~/Library/Application Support/fleetdeck/node.yaml on macOS, %AppData%\\fleetdeck\\node.yaml on Windows (XDG_CONFIG_HOME is honored when set). The issued credential lives beside it (Linux: ~/.local/state/fleetdeck/node-token, Windows: %LocalAppData%\\fleetdeck\\node-token). Pick the agents it offers with `fleetdeck-node config` (re-run it after installing a new agent CLI).",
+    "persistHint": "hub_url is written into that file after the first successful registration, so later starts need no flags.",
     "step1": "Generate a join token.",
-    "step2": "Give the node a unique name and a token_file in node.config.yaml.",
+    "step2": "Run fleetdeck-node config to pick the agents this machine offers.",
     "step3": "Start the daemon with --hub-url and --join-token.",
     "done": "Done",
     "error": "Could not create a join token"

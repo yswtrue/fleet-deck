@@ -44,6 +44,7 @@ describe('AddNodeModal', () => {
     expect(document.body.textContent).toContain('--join-token join-abc')
     expect(document.body.textContent).toContain('--hub-url')
     expect(document.body.textContent).toContain('/ws/node')
+    expect(document.body.textContent).toContain('Application Support/fleetdeck')
     expect(document.body.textContent).not.toContain('FLEETDECK_NODE_JOIN_TOKEN')
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy command' }))
