@@ -57,7 +57,16 @@
     "pathHelp": "在节点上检出的路径，例如 /home/you/code/my-project",
     "pathRequired": "请输入工作区路径",
     "pathAbsolute": "路径必须为绝对路径（以 / 或盘符开头）",
-    "pathPlaceholder": "/home/you/code/my-project"
+    "pathPlaceholder": "/home/you/code/my-project",
+    "browse": "浏览…",
+    "pickerTitle": "选择节点上的文件夹",
+    "pickerUp": "上一级",
+    "pickerHome": "主目录",
+    "pickerSelect": "使用此文件夹",
+    "pickerLoading": "正在加载文件夹…",
+    "pickerEmpty": "没有子文件夹",
+    "pickerTip": "仅显示节点上的目录。",
+    "pickerError": "无法列出文件夹：{{message}}"
   },
   "empty": {
     "copy": "复制",

@@ -6,6 +6,7 @@
 //	node                                   # ~/.config/fleetdeck/node.yaml
 //	node --config examples/fake-node.config.yaml
 //	node config                            # choose the agents to advertise
+//	node workspace add --path /srv/app     # register a workspace on this node
 //	node --hub-url ws://hub.example.com/ws/node --join-token <token from the UI>
 package main
 
@@ -30,8 +31,13 @@ func main() {
 }
 
 func run() error {
-	if len(os.Args) > 1 && os.Args[1] == "config" {
-		return runConfig(os.Args[2:])
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "config":
+			return runConfig(os.Args[2:])
+		case "workspace":
+			return runWorkspace(os.Args[2:])
+		}
 	}
 
 	configPath := flag.String("config", "", "path to node YAML config (default: the platform config file, created when missing)")

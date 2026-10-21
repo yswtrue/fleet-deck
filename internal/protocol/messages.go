@@ -187,6 +187,32 @@ type SessionHistoryResponse struct {
 	Error     string    `json:"error,omitempty"`
 }
 
+// FSListRequest asks a node to enumerate the directories under Path so the
+// web UI can offer a folder picker instead of a blind absolute path. An empty
+// Path means the node's home directory. ReqID correlates MsgFSListResp.
+type FSListRequest struct {
+	ReqID string `json:"req_id"`
+	Path  string `json:"path,omitempty"`
+}
+
+// FSDirEntry is one directory inside a listed path. Only directories are
+// reported: workspace paths must be directories, so file names are noise.
+type FSDirEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// FSListResponse carries one directory listing. Path is the absolute,
+// symlink-resolved directory that was listed and Parent its parent (empty at
+// a filesystem root). Error is set when the node could not read the path.
+type FSListResponse struct {
+	ReqID   string       `json:"req_id"`
+	Path    string       `json:"path,omitempty"`
+	Parent  string       `json:"parent,omitempty"`
+	Entries []FSDirEntry `json:"entries"`
+	Error   string       `json:"error,omitempty"`
+}
+
 // ---- Node -> Hub events (reported up) ------------------------------------
 
 // Todo is one item in the agent's todo list, mirrored to a Subtask.

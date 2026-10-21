@@ -70,6 +70,15 @@ func (n *Node) handle(ctx context.Context, env protocol.Envelope) {
 		// hub-message read loop on it.
 		go n.replayHistory(cmd)
 
+	case protocol.MsgFSList:
+		var cmd protocol.FSListRequest
+		if err := env.Decode(&cmd); err != nil {
+			n.log.Warn("bad fs.list_req payload", "err", err)
+			return
+		}
+		// A slow file server (network mount) must not stall adapter traffic.
+		go n.listDir(cmd)
+
 	default:
 		n.log.Debug("ignoring unknown hub message", "type", env.Type)
 	}

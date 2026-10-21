@@ -98,8 +98,9 @@ waiting ──start──▶ running ──agent_done──▶ done
 `internal/protocol` 里的 Go struct 是**唯一真源**。`cmd/fleetctl schema export` 导出 JSON Schema,`web/` 再生成 TS 类型。三端(hub/node/web)共享同一套消息形状。
 
 - **Hub ↔ Web(订阅/推送)**:事件类型如 `task.created` / `task.status_changed` / `subtask.updated` / `session.delta` / `session.user_input_requested` / `node.status_changed`。
-- **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史);node 上报文本增量、todo 更新、状态变更、请求用户输入、`session.history_resp`。
+- **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史)/ `fs.list_req`(目录浏览);node 上报文本增量、todo 更新、状态变更、请求用户输入、`session.history_resp`、`fs.list_resp`。
 - **node 注册**:未知节点名必须出示一次性加入令牌(`POST /api/nodes/join-tokens` 生成,任何已登录用户可生成;或部署级 `FLEETDECK_NODE_JOIN_TOKEN`)。hub 在创建节点行的同一事务里烧掉令牌,并把令牌创建者绑定到该节点;随后签发 node token(存 `token_file`),后续重连只用 node token。`POST /api/nodes` 已移除,不能凭空预建可被抢注的节点行。
+- **工作空间创建**:web「新建工作区」的目录选择器经 `GET /api/nodes/{id}/fs?path=` 把 `fs.list_req` / `fs.list_resp` 转发给节点(只列目录、返回 symlink 解析后的绝对路径;空 `path` 从节点用户 home 开始;节点离线 503,路径不可读 400)。`fleetdeck-node workspace add|list` 从节点机器经 hub REST 管理工作空间,使用**用户** Bearer(`--token` / `FLEETDECK_HUB_TOKEN`,或 `--email`/`--password`;hub 地址取 `FLEETDECK_HUB_URL` 或配置里的 `hub_url`)——node token 从不用于 REST。hub 仍是唯一 DB 写入者。
 
 ### 3.4 Adapter 抽象(多 agent 的关键)
 

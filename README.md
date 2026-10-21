@@ -97,6 +97,11 @@ go build -o fleetdeck-node ./cmd/node
 # first start: --hub-url ws://<hub>:7710/ws/node --join-token <from the UI>;
 # hub_url is written into the config, so later starts need only the binary
 ./fleetdeck-node
+
+# Workspaces can be registered from the node host itself (the hub REST API
+# authenticates as a user: --token / FLEETDECK_HUB_TOKEN, or --email/--password):
+FLEETDECK_HUB_TOKEN=<bearer token> ./fleetdeck-node workspace add --path /srv/app
+./fleetdeck-node workspace list
 ```
 
 Prebuilt daemons are attached to every [release](https://github.com/yswtrue/fleet-deck/releases)

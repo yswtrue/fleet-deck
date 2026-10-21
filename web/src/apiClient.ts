@@ -39,6 +39,22 @@ export interface CreateWorkspaceInput {
   path: string
 }
 
+/** One directory the node's folder picker can descend into. */
+export interface NodeDirEntry {
+  name: string
+  path: string
+}
+
+/**
+ * GET /api/nodes/{id}/fs response: one directory on the node, its parent
+ * (absent at a filesystem root) and the subdirectories inside it.
+ */
+export interface NodeDirListing {
+  path: string
+  parent?: string
+  entries: NodeDirEntry[]
+}
+
 export interface CreateTaskInput {
   workspace_id: string
   title: string
@@ -372,6 +388,15 @@ export const apiClient = {
   listNodes: () => fetchJson<Node[]>('/api/nodes'),
 
   getNode: (id: string) => fetchJson<Node>(`/api/nodes/${id}`),
+
+  /**
+   * GET /api/nodes/{id}/fs lists the directories on the node; an empty path
+   * starts at the node user's home directory. 503 when the node is offline.
+   */
+  listNodeDirs: (nodeId: string, path?: string) =>
+    fetchJson<NodeDirListing>(
+      `/api/nodes/${encodeURIComponent(nodeId)}/fs${path ? `?path=${encodeURIComponent(path)}` : ''}`
+    ),
 
   /** Mint a single-use pairing token for a node's first registration. */
   createNodeJoinToken: () =>

@@ -57,7 +57,16 @@
     "pathHelp": "Checked out on the node, e.g. /home/you/code/my-project",
     "pathRequired": "Enter the workspace path",
     "pathAbsolute": "Path must be absolute (start with / or a drive letter)",
-    "pathPlaceholder": "/home/you/code/my-project"
+    "pathPlaceholder": "/home/you/code/my-project",
+    "browse": "Browse…",
+    "pickerTitle": "Choose a folder on the node",
+    "pickerUp": "Up",
+    "pickerHome": "Home",
+    "pickerSelect": "Use this folder",
+    "pickerLoading": "Loading folders…",
+    "pickerEmpty": "No subfolders",
+    "pickerTip": "Only directories on the node are shown.",
+    "pickerError": "Could not list folders: {{message}}"
   },
   "empty": {
     "copy": "Copy",

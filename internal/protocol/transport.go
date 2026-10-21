@@ -42,7 +42,9 @@ const (
 	MsgSessionResume    = "session.resume"
 	MsgCancel           = "session.cancel"
 	MsgSessionHistory   = "session.history_req"
+	MsgFSList           = "fs.list_req"
 
 	// Node -> Hub (responses to hub requests).
 	MsgSessionHistoryResp = "session.history_resp"
+	MsgFSListResp         = "fs.list_resp"
 )

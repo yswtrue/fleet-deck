@@ -243,6 +243,13 @@ func (h *Hub) handleNodeMessage(ctx context.Context, nodeID string, env protocol
 			return
 		}
 		h.handleHistoryResponse(resp)
+	case protocol.MsgFSListResp:
+		var resp protocol.FSListResponse
+		if err := env.Decode(&resp); err != nil {
+			h.log.Warn("bad fs.list_resp", "node_id", nodeID, "err", err)
+			return
+		}
+		h.handleFSListResponse(resp)
 	default:
 		h.log.Debug("ignoring unknown node message", "node_id", nodeID, "type", env.Type)
 	}
@@ -291,11 +298,14 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 			}
 		case protocol.EvSessionUserInputRequest:
 			var u protocol.SessionUserInputRequested
+			// Derive the awaiting_user status before exposing the prompt:
+			// handleGetSession reads the text buffer before the session row, so
+			// a snapshot that carries the ask always carries the matching
+			// status (no prompt on a still-running session).
+			h.applySessionStatus(ctx, sessionID, protocol.SessionAwaitingUser)
 			if json.Unmarshal(we.Data, &u) == nil {
 				h.setPendingInput(ctx, sessionID, u.Prompt)
 			}
-			// The ask drives the session's awaiting_user derivation.
-			h.applySessionStatus(ctx, sessionID, protocol.SessionAwaitingUser)
 		case protocol.EvSessionUsage:
 			var u protocol.SessionUsage
 			if json.Unmarshal(we.Data, &u) == nil {

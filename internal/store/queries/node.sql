@@ -23,6 +23,11 @@ UPDATE node
 SET status = $2, last_seen_at = $3
 WHERE id = $1;
 
+-- name: MarkNodesOffline :exec
+UPDATE node
+SET status = 'offline'
+WHERE status <> 'offline';
+
 -- name: UpdateNodeTokenHash :exec
 UPDATE node
 SET token_hash = $2

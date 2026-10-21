@@ -57,6 +57,11 @@ type Hub struct {
 	histMu   sync.Mutex
 	histWait map[string]chan protocol.SessionHistoryResponse
 
+	// fsWait correlates proxied directory-listing requests with the node's
+	// fs.list_resp payloads (see fs.go).
+	fsMu   sync.Mutex
+	fsWait map[string]chan protocol.FSListResponse
+
 	// joinToken is the optional deployment-level pairing secret
 	// (FLEETDECK_NODE_JOIN_TOKEN). It lets automated deployments register
 	// nodes without a database-backed token; UI-minted tokens remain the
@@ -78,7 +83,6 @@ func (nc *nodeConn) close() { nc.once.Do(func() { close(nc.done) }) }
 // New builds a Hub. A nil registry falls back to an empty one; a nil cache
 // falls back to a no-op cache (every read goes to Postgres).
 func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c cache.Cache) *Hub {
-	_ = ctx
 	if registry == nil {
 		registry = adapters.NewRegistry()
 	}
@@ -94,6 +98,7 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 		nodes:    make(map[string]*nodeConn),
 		text:     make(map[string]textBufferEntry),
 		histWait: make(map[string]chan protocol.SessionHistoryResponse),
+		fsWait:   make(map[string]chan protocol.FSListResponse),
 		// Deployment-level pairing secret for automated nodes; unset means only
 		// UI-minted single-use tokens can register a new node.
 		joinToken: os.Getenv("FLEETDECK_NODE_JOIN_TOKEN"),
@@ -101,6 +106,13 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 	// Broadcast fan-out is scoped by the node that owns each event; the
 	// resolver runs once per event (see eventNodeID).
 	h.bus = NewBroadcaster(h.eventNodeID)
+	// A fresh hub has no connections: any row still marked online belongs to
+	// a previous process that died or restarted without disconnect frames.
+	// Reset the persisted status (sessions are untouched so a node that
+	// reconnects keeps its live adapters).
+	if err := st.Queries().MarkNodesOffline(ctx); err != nil {
+		h.log.Warn("reset node statuses", "err", err)
+	}
 	return h
 }
 
@@ -178,6 +190,33 @@ func (h *Hub) removeNode(id string) {
 	h.nodesMu.Unlock()
 }
 
+// liveNodeStatus reports a node's actual connectivity. The in-memory
+// connection registry is authoritative; the database column is only the last
+// written state, so a hub restart (or a missed disconnect) must not make a
+// node look online. Callers that render node rows overlay this on the row.
+func (h *Hub) liveNodeStatus(id string) protocol.NodeStatus {
+	if h.nodeOnline(id) {
+		return protocol.NodeOnline
+	}
+	return protocol.NodeOffline
+}
+
+// nodeOnline reports whether a node currently has a live WebSocket.
+func (h *Hub) nodeOnline(id string) bool {
+	h.nodesMu.Lock()
+	nc, ok := h.nodes[id]
+	h.nodesMu.Unlock()
+	if !ok {
+		return false
+	}
+	select {
+	case <-nc.done:
+		return false
+	default:
+		return true
+	}
+}
+
 // sendToNode enqueues an outbound message for node id. It reports false when the
 // node is not connected or its queue is full.
 func (h *Hub) sendToNode(id string, env protocol.Envelope) bool {
@@ -205,13 +244,6 @@ func (h *Hub) sendToNode(id string, env protocol.Envelope) bool {
 	default:
 		return false
 	}
-}
-
-func (h *Hub) nodeOnline(id string) bool {
-	h.nodesMu.Lock()
-	_, ok := h.nodes[id]
-	h.nodesMu.Unlock()
-	return ok
 }
 
 // storedTokenHash reads node.token_hash directly: the public store API does not

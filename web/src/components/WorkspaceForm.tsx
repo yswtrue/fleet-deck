@@ -3,6 +3,7 @@ import { Button, Form, Input, Modal, message } from 'antd'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { useTranslation } from '../i18n/index.ts'
+import { DirectoryPicker } from './DirectoryPicker.tsx'
 
 interface WorkspaceFormValues {
   name: string
@@ -27,10 +28,30 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
   const queryClient = useQueryClient()
   const { t } = useTranslation('pages')
   const [open, setOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerInitialPath, setPickerInitialPath] = useState('')
   const [form] = Form.useForm<WorkspaceFormValues>()
   // `message.useMessage()` (not the static `message` API): antd v5's static
   // holders go through the legacy ReactDOM render, which React 19 removed.
   const [messageApi, messageHolder] = message.useMessage()
+
+  const openPicker = () => {
+    const current = (form.getFieldValue('path') as string | undefined)?.trim() ?? ''
+    setPickerInitialPath(current)
+    setPickerOpen(true)
+  }
+
+  // Selecting a folder fills the path with the node's canonical absolute path
+  // and, when the name is still blank, derives it from the folder name.
+  const handlePick = (picked: string) => {
+    setPickerOpen(false)
+    form.setFieldValue('path', picked)
+    const currentName = (form.getFieldValue('name') as string | undefined)?.trim() ?? ''
+    if (!currentName) {
+      const base = picked.split(/[\\/]/).filter(Boolean).pop()
+      if (base) form.setFieldValue('name', base)
+    }
+  }
 
   const createWorkspace = useMutation({
     mutationFn: (values: WorkspaceFormValues) =>
@@ -44,6 +65,7 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
       queryClient.invalidateQueries({ queryKey: ['workspaces', nodeId] })
       queryClient.invalidateQueries({ queryKey: ['tasks-by-workspace'] })
       form.resetFields()
+      setPickerOpen(false)
       setOpen(false)
     },
     onError: (error) => {
@@ -67,6 +89,7 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
         onCancel={() => {
           form.resetFields()
           createWorkspace.reset()
+          setPickerOpen(false)
           setOpen(false)
         }}
         destroyOnHidden
@@ -102,10 +125,26 @@ export function WorkspaceForm({ nodeId }: { nodeId: string }) {
               },
             ]}
           >
-            <Input placeholder={t('workspace.pathPlaceholder')} />
+            <Input
+              placeholder={t('workspace.pathPlaceholder')}
+              addonAfter={
+                <Button type="link" size="small" style={{ paddingInline: 0 }} onClick={openPicker}>
+                  {t('workspace.browse')}
+                </Button>
+              }
+            />
           </Form.Item>
         </Form>
       </Modal>
+      {pickerOpen && (
+        <DirectoryPicker
+          open
+          nodeId={nodeId}
+          initialPath={pickerInitialPath}
+          onCancel={() => setPickerOpen(false)}
+          onSelect={handlePick}
+        />
+      )}
     </>
   )
 }

@@ -173,6 +173,7 @@ func (h *Hub) nodeVisibleTo(ctx context.Context, user *store.User, nodeID string
 	if err != nil {
 		return protocol.Node{}, err
 	}
+	node.Status = h.liveNodeStatus(node.ID)
 	if user.Role == "admin" {
 		return node, nil
 	}

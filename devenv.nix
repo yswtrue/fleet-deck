@@ -149,7 +149,9 @@ in
     # `restart` and `start.enable`; the process-compose sub-options are ignored
     # unless `process.manager.implementation = "process-compose"`.
     hub = {
-      exec = "go run ./cmd/hub";
+      # Hot reload: air rebuilds cmd/hub on Go changes and restarts it.
+      # See .air.toml for the watch set and the restart caveats.
+      exec = "air -c .air.toml";
       after = [ "devenv:processes:postgres" ];
       ready = {
         period = 1;
@@ -252,7 +254,7 @@ in
     gen.exec = "gen-schema && gen-web-types";
 
     # --- dev helpers --------------------------------------------------------
-    hub-dev.exec = "cd \"$DEVENV_ROOT\" && air --build.cmd 'go build -o .devenv/state/bin/hub ./cmd/hub' --build.bin .devenv/state/bin/hub";
+    hub-dev.exec = "cd \"$DEVENV_ROOT\" && air -c .air.toml";
 
     # Ask the local hub for its health.
     hub-health.exec = "curl -fsS http://${hubAddr}/api/health | jq .";

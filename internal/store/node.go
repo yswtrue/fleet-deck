@@ -113,6 +113,18 @@ func (q *Queries) UpdateNodeStatus(ctx context.Context, id string, status protoc
 	return nil
 }
 
+// MarkNodesOffline flips every non-offline node row to offline. The hub calls
+// it at startup: a process that died while nodes were connected never gets
+// their disconnect frames, so the persisted status would otherwise claim those
+// nodes are online forever. It deliberately does not touch sessions — a node
+// that reconnects keeps its live adapters.
+func (q *Queries) MarkNodesOffline(ctx context.Context) error {
+	if err := q.q.MarkNodesOffline(ctx); err != nil {
+		return fmt.Errorf("store: mark nodes offline: %w", err)
+	}
+	return nil
+}
+
 // UpdateNodeTokenHash rotates a node's stored auth token hash.
 func (q *Queries) UpdateNodeTokenHash(ctx context.Context, id, hash string) error {
 	err := q.q.UpdateNodeTokenHash(ctx, sqlcgen.UpdateNodeTokenHashParams{

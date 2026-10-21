@@ -246,6 +246,17 @@ func (q *Queries) MarkNodeJoinTokenUsed(ctx context.Context, arg MarkNodeJoinTok
 	return err
 }
 
+const markNodesOffline = `-- name: MarkNodesOffline :exec
+UPDATE node
+SET status = 'offline'
+WHERE status <> 'offline'
+`
+
+func (q *Queries) MarkNodesOffline(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, markNodesOffline)
+	return err
+}
+
 const updateNodeMachineID = `-- name: UpdateNodeMachineID :exec
 UPDATE node
 SET machine_id = $2

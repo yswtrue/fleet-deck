@@ -39,6 +39,7 @@ func (h *Hub) routes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/nodes", h.requireAuth(h.handleListNodes))
 	mux.HandleFunc("GET /api/nodes/{id}", h.requireAuth(h.handleGetNode))
+	mux.HandleFunc("GET /api/nodes/{id}/fs", h.requireAuth(h.handleNodeDirs))
 	mux.HandleFunc("POST /api/nodes/join-tokens", h.requireAuth(h.handleCreateNodeJoinToken))
 
 	mux.HandleFunc("GET /api/users", h.requireAdmin(h.handleListUsers))
@@ -133,6 +134,11 @@ func (h *Hub) nodesVisibleTo(ctx context.Context, user *store.User) ([]protocol.
 	}
 	if nodes == nil {
 		nodes = []protocol.Node{}
+	}
+	// Status is connectivity, not stored metadata: a row can say online from a
+	// previous hub process, so always overlay the live registry.
+	for i := range nodes {
+		nodes[i].Status = h.liveNodeStatus(nodes[i].ID)
 	}
 	return nodes, nil
 }
@@ -781,6 +787,10 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	ctx := r.Context()
+	// Read the pending ask before the session row. applyEvent commits the
+	// awaiting_user status before publishing the prompt, so a snapshot can
+	// never pair a pending ask with a status that has not caught up yet.
+	pendingInput := h.textBuffer(ctx, id).PendingInput
 	session, err := h.sessionVisibleTo(ctx, userOf(r), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session not found")
@@ -789,7 +799,7 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 
 	snapshot := sessionSnapshot{
 		Session:      session,
-		PendingInput: h.textBuffer(ctx, id).PendingInput,
+		PendingInput: pendingInput,
 	}
 	// The parent task should always exist (session.task_id is a FK), but resolve
 	// defensively: an unresolvable task yields JSON null rather than an error.
