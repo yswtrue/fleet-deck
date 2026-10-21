@@ -17,7 +17,7 @@ FleetDeck 把这些会话收拢到一个 Web 控制面:
 - **看板视角**:node(机器)→ 工作空间(看板)→ 任务(一次 agent 会话,4 状态)→ 子任务(agent 的 todo 实时镜像),人不在终端也能看到全局;
 - **会话视角**:点开任意任务进入聊天式会话视图 —— 流式输出、完整历史、随时回复;
 - **不停摆**:agent 请求权限时,Web 端弹出**结构化选择器**(Allow / Deny……)一键答复;agent 提问时同理。回复经 hub 送回 agent,会话继续;
-- **多 agent 统一接入**:OpenCode / Codex / Claude / pi 共用一个 ACP adapter 抽象,加新 agent 只需注册一个启动配置;
+- **多 agent 统一接入**:OpenCode / Codex / Claude / pi / omp 共用一个 ACP adapter 抽象,加新 agent 只需注册一个启动配置;
 - **agent 自查询**:内置 MCP server(`fleetdeck_*` 工具),agent 可以查自己的任务/子任务/会话状态,或恢复挂起的会话。
 
 ## 架构

@@ -1,3 +1,4 @@
+import { isRecord } from '../typeGuards.ts'
 import type {
   Event as ProtocolEvent,
   NodeStatusChanged,
@@ -24,10 +25,6 @@ export type DispatchedEvent =
   | { type: 'session.message'; data: SessionMessage }
   | { type: 'session.state_changed'; data: SessionStateChanged }
   | { type: 'session.user_input_requested'; data: SessionUserInputRequested }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
 
 function hasString(obj: Record<string, unknown>, key: string): boolean {
   return typeof obj[key] === 'string'

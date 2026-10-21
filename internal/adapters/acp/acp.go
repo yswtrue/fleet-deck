@@ -1,7 +1,7 @@
 // Package acp implements the shared Agent Client Protocol (ACP) adapter used
-// for the codex, claude, opencode, and pi agent types. Each type is registered
-// separately in adapters.Default but shares this one implementation, differing
-// only in how the agent process is launched.
+// for the codex, claude, opencode, pi, and omp agent types. Each type is
+// registered separately in adapters.Default but shares this one implementation,
+// differing only in how the agent process is launched.
 //
 // # ACP wire convention
 //
@@ -12,13 +12,14 @@
 //
 //	client -> agent requests   : initialize, session/new, session/load, session/prompt, authenticate
 //	client -> agent notification: session/cancel
-//	agent  -> client request   : session/request_permission, elicitation/create, fs/*, terminal/*
+//	agent  -> client request   : session/request_permission, elicitation/create (form), fs/*, terminal/*
 //	agent  -> client notification: session/update (agent_message_chunk, agent_thought_chunk,
 //	                               tool_call, tool_call_update, plan, ...)
 //
-// This adapter serves session/request_permission and fs/read_text_file /
-// fs/write_text_file (workspace-sandboxed, fs.go); elicitation and terminal/*
-// are refused and not advertised.
+// This adapter serves session/request_permission, form-mode elicitation
+// (elicitation/create), fs/read_text_file / fs/write_text_file
+// (workspace-sandboxed, fs.go), and the five terminal/* methods (terminal.go).
+// URL-mode elicitation is refused and not advertised.
 //
 // Permission flow (locked Decision 2)
 //
@@ -92,6 +93,10 @@ import (
 // before forcibly killing the agent process.
 const defaultCancelGrace = 2 * time.Second
 
+// maxElicitationSchemaBytes bounds an agent-supplied elicitation schema before
+// it is mirrored into the hub's text buffer as a pending-input prompt.
+const maxElicitationSchemaBytes = 64 << 10
+
 // mcpServer is a neutral MCP server descriptor passed through verbatim to ACP
 // `session/new` / `session/load`. v1 leaves this empty: FleetDeck's MCP server
 // is configured agent-side, not injected over ACP (see the Phase 4 brief).
@@ -110,7 +115,7 @@ type agentConfig struct {
 
 // agentInventory maps an agent_type to the canonical ACP launcher from the
 // Phase 4 brief. claude/codex/pi are npm-distributed launchers run through npx;
-// opencode ships its own binary with an `acp` subcommand.
+// opencode and omp ship their own binaries with an `acp` subcommand.
 var agentInventory = map[string]agentConfig{
 	"codex": {
 		command: "npx",
@@ -130,6 +135,10 @@ var agentInventory = map[string]agentConfig{
 		args:    []string{"-y", "pi-acp"},
 		// Requires pi >= 0.81.0 on PATH; `pi-acp` drives `pi --mode rpc`.
 		requires: []string{"pi"},
+	},
+	"omp": {
+		command: "omp",
+		args:    []string{"acp"},
 	},
 }
 
@@ -164,16 +173,18 @@ type Adapter struct {
 	cfg       agentConfig
 	log       *slog.Logger
 
-	mu           sync.Mutex
-	started      bool
-	sessionID    string
-	externalID   string
-	workspace    string
-	model        string // agent-reported model (session metadata); see modelOrAgentType
-	status       protocol.SessionStatus
-	proc         *process
-	awaitingPerm chan string
-	sink         adapters.EventSink
+	mu             sync.Mutex
+	started        bool
+	sessionID      string
+	externalID     string
+	workspace      string
+	model          string // agent-reported model (session metadata); see modelOrAgentType
+	status         protocol.SessionStatus
+	proc           *process
+	awaitingPerm   chan string
+	awaitingElicit chan string
+	terminals      *terminalManager
+	sink           adapters.EventSink
 
 	cancelCh   chan struct{}
 	cancelOnce sync.Once
@@ -205,6 +216,7 @@ func New(agentType string) *Adapter {
 		agentType: agentType,
 		cfg:       agentInventory[agentType],
 		log:       slog.Default().With("adapter", "acp", "agent_type", agentType),
+		terminals: newTerminalManager(),
 	}
 }
 
@@ -268,7 +280,8 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 	if _, err := a.call(ctx, "initialize", initializeParams{
 		ProtocolVersion: 1,
 		ClientCapabilities: clientCapabilities{
-			FS: fsCapabilities{ReadTextFile: true, WriteTextFile: true},
+			FS:       fsCapabilities{ReadTextFile: true, WriteTextFile: true},
+			Terminal: true,
 		},
 		ClientInfo: clientInfo{Name: "FleetDeck", Version: "0.1.0"},
 	}); err != nil {
@@ -385,8 +398,8 @@ func (a *Adapter) modelOrAgentType() string {
 	return a.agentType
 }
 
-// SendMessage either answers a pending permission request (when one is open) or
-// starts a new turn with the user's text.
+// SendMessage either answers a pending permission or elicitation request
+// (when one is open) or starts a new turn with the user's text.
 func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message string) error {
 	a.mu.Lock()
 	if !a.started || a.sessionID != sessionID {
@@ -394,6 +407,7 @@ func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message str
 		return fmt.Errorf("acp: unknown session %q", sessionID)
 	}
 	perm := a.awaitingPerm
+	elicit := a.awaitingElicit
 	sink := a.sink
 	a.mu.Unlock()
 
@@ -401,6 +415,17 @@ func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message str
 		// A turn is paused on a permission request: this message is the reply.
 		select {
 		case perm <- message:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-a.cancelCh:
+			return context.Canceled
+		}
+	}
+	if elicit != nil {
+		// A turn is paused on a form elicitation: this message is the reply.
+		select {
+		case elicit <- message:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -430,6 +455,9 @@ func (a *Adapter) Cancel(ctx context.Context, sessionID string) error {
 	a.mu.Unlock()
 
 	a.cancelOnce.Do(func() { close(a.cancelCh) })
+	if a.terminals != nil {
+		a.terminals.killAll()
+	}
 
 	if proc == nil {
 		return nil
@@ -470,13 +498,23 @@ type initializeParams struct {
 	ClientInfo         clientInfo         `json:"clientInfo"`
 }
 
-// clientCapabilities advertises exactly what this adapter serves: workspace-
-// sandboxed fs read/write (fs.go). terminal/* and elicitation are deliberately
-// absent — claiming unimplemented capabilities would let an agent hang on a
-// call that never answers, and the refusals in handleAgentRequest exist only
-// as a safety net for agents that call unadvertised methods anyway.
+// clientCapabilities advertises exactly what this adapter serves:
+// workspace-sandboxed fs read/write (fs.go), form-mode elicitation
+// (elicitation.go), and host terminals (terminal.go). URL-mode elicitation is
+// deliberately absent — claiming unimplemented capabilities would let an agent
+// hang on a call that never answers, and the refusals in handleAgentRequest
+// exist only as a safety net for agents that call unadvertised methods anyway.
+//
+// The empty struct matters: ACP advertises form support only when `form` is
+// present and non-null, and `{}` is the required wire value.
 type clientCapabilities struct {
-	FS fsCapabilities `json:"fs"`
+	FS          fsCapabilities          `json:"fs"`
+	Elicitation elicitationCapabilities `json:"elicitation"`
+	Terminal    bool                    `json:"terminal"`
+}
+
+type elicitationCapabilities struct {
+	Form struct{} `json:"form"`
 }
 
 type fsCapabilities struct {
@@ -765,15 +803,19 @@ func (a *Adapter) deliverResponse(msg inbound) {
 }
 
 // handleAgentRequest answers the client methods the agent may call. Supported:
-// session/request_permission (the pause-and-pick flow) and the workspace-
-// sandboxed fs/read_text_file / fs/write_text_file. terminal/* and the
-// elicitation API are refused with method-not-found — they are not advertised
-// in initialize, so a well-behaved agent never calls them; refusing instead of
-// hanging keeps a misbehaving agent from stalling the session.
+// session/request_permission (the pause-and-pick flow), form-mode
+// elicitation/create (elicitation.go), workspace-sandboxed fs/*, and the
+// terminal/* family (terminal.go). Unadvertised elicitation modes are refused
+// with invalid-params; unknown methods get method-not-found, so a misbehaving
+// agent cannot stall the session.
 func (a *Adapter) handleAgentRequest(ctx context.Context, sessionID string, sink adapters.EventSink, msg inbound) {
 	switch msg.Method {
 	case "session/request_permission":
 		a.handlePermissionRequest(ctx, sessionID, sink, msg)
+	case "elicitation/create":
+		a.handleElicitationRequest(ctx, sessionID, sink, msg)
+	case "terminal/create", "terminal/output", "terminal/wait_for_exit", "terminal/kill", "terminal/release":
+		a.handleTerminalRequest(ctx, msg)
 	case "fs/read_text_file", "fs/write_text_file":
 		a.handleFSRequest(msg)
 	default:
@@ -879,6 +921,9 @@ func (a *Adapter) exitWatcher(ctx context.Context, sessionID string, sink adapte
 // Done and Error carry the final state themselves (see EventSink), so no
 // separate StateChange is emitted. It is a no-op before Start commits.
 func (a *Adapter) terminate(ctx context.Context, sink adapters.EventSink, err error) {
+	if a.terminals != nil {
+		a.terminals.killAll()
+	}
 	if !a.committed.Load() {
 		a.killProc()
 		return

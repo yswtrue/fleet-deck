@@ -176,7 +176,8 @@ so comments and hand-written settings survive.
 #     2) codex      ready
 #     3) fake       built-in
 #     4) opencode   ready
-#     5) pi         missing: pi
+#     5) omp        ready
+#     6) pi         missing: pi
 #   Select agents by number ("all", "none"; Enter keeps the current binding): 2,4
 #   Default adapter [codex]:
 
@@ -212,8 +213,11 @@ be dispatched there.
 Notes:
 
 - **Agents must be installed on the node machine** (`opencode`, `codex`,
-  `npx @agentclientprotocol/codex-acp`, `claude-agent-acp`, `pi-acp`, …). The
+  `npx @agentclientprotocol/codex-acp`, `claude-agent-acp`, `pi-acp`, `omp`, …). The
   node spawns them as subprocesses with the workspace as working directory.
+  `omp acp` reuses the node user's existing `~/.omp` credentials (run `omp`
+  once as that user to authenticate); form elicitation is wired, so omp's
+  approval/ask prompts render as forms in the web UI.
 - The connection is **outbound-only** (node → hub), so no firewall holes are
   needed on node machines.
 - Several nodes can point at the same hub; each gets its own board(s).

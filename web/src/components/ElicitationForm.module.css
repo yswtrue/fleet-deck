@@ -1,0 +1,37 @@
+.card {
+  border: 1px solid var(--status-awaiting-border);
+  border-radius: 12px;
+  background: var(--status-awaiting-bg);
+  padding: 16px;
+}
+
+.heading {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--status-awaiting-text);
+}
+
+.question {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  color: var(--text-h);
+  font-weight: 500;
+}
+
+.field {
+  margin-bottom: 12px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.unsupported {
+  margin: 8px 0 0;
+  color: var(--status-failed-text);
+}

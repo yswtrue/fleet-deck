@@ -48,13 +48,13 @@ Order matters; do all of these before pushing.
 go build ./...
 go vet ./...
 gofmt -l cmd/ internal/        # must be empty
-go test -race ./...            # 138 passed / 16 packages (1 skip; live DB required)
+go test -race ./...            # all packages; live-DB tests need Postgres
 go test -short ./...           # skip live-DB tests
 
 # Frontend (cd web)
 pnpm exec tsc -b               # real typecheck (bare `tsc --noEmit` is a no-op on the solution tsconfig; `pnpm build` also runs it)
 pnpm lint
-pnpm test                      # vitest (101 tests: dispatchEvent contract, auth, i18n, lifecycle, usage stats, notifications, binding UI, dashboard, admin shell, add-node flow, components)
+pnpm test                      # vitest (dispatchEvent contract, auth, i18n, lifecycle, permission/elicitation, usage stats, notifications, binding UI, dashboard, admin shell, add-node flow, components)
 pnpm build
 ```
 
@@ -98,7 +98,7 @@ internal/hub/                            # HTTP API + auth (middleware.go, auth_
 internal/node/                           # thin WS client; runs adapters in-process
 internal/adapters/{adapter,registry}.go # Adapter/EventSink interfaces
 internal/adapters/fake/                  # dev/integration fake
-internal/adapters/acp/                   # shared ACP adapter (codex/claude/opencode/pi)
+internal/adapters/acp/                   # shared ACP adapter (codex/claude/opencode/pi/omp)
 internal/adapters/all/                   # blank-import all adapters (cmd/node only)
 internal/mcp/                            # MCP server package
 migrations/                              # goose SQL, -- +goose Up/Down
@@ -130,7 +130,7 @@ bash scripts/smoke_acp_opencode.sh     # ACP opencode path (SKIP if opencode not
 - `web/src/hooks/useTaskBoard.ts` cache key is `['tasks', workspaceId]` (an active search extends it with the query). Code that creates tasks must invalidate **both** that prefix and `['tasks-by-workspace']` (the `WorkspaceList` task-count key) — see `NewTaskForm.tsx`.
 - Go tests in `internal/store/store_test.go` and `internal/hub/{hub,api}_test.go` read `FLEETDECK_DATABASE_URL` (no baked-in DSN — they skip when it is unset). They also skip with `-short`.
 - **`internal/hub/static/` is the web UI embed root.** `go build` works with just the committed `.keep`, but a hub that serves the UI needs `web/dist` copied there first (the Dockerfile does this). The SPA also reads `web/public/config.js` at runtime for a custom hub URL (standalone static deploys).
-- Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `MessageBubble`, `TaskCard` (status moves + toasts, no-session feedback), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), `Users` (node-binding UI), `Dashboard` (today's task/token stats), `AppLayout` (sider menu, admin-gated entry, mobile drawer), `LanguageSwitcher` (language switch + persistence), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
+- Web tests: Vitest + RTL (`pnpm test`) covering `dispatchEvent`, `permission.ts`, `PermissionPicker`, `elicitation.ts`, `ElicitationForm`, `MessageBubble`, `TaskCard` (status moves + toasts, no-session feedback), `apiClient` (token lifecycle, 401 policy), `Login` (setup-vs-login mode), `Users` (node-binding UI), `Dashboard` (today's task/token stats), `AppLayout` (sider menu, admin-gated entry, mobile drawer), `LanguageSwitcher` (language switch + persistence), plus pure hub SPA-handler tests. RTL auto-cleanup is wired in `src/test/setup.ts` (vitest runs without globals).
 - **antd v5 static `message.*`/`Modal.confirm` render nothing under React 19** — the official `@ant-design/v5-patch-for-react-19` is imported first in `web/src/main.tsx`; components may also use `message.useMessage()` + `contextHolder`. Do not remove the patch import.
 - **react-query v5 drops per-`mutate` callbacks when the caller unmounts** (`hasListeners()` gate). Use `mutateAsync().then()/.catch()` when the outcome must survive unmount (e.g. toast + navigate after a board-column move).
 - **Session content is never persisted server-side (privacy model)**: the `message` table is gone. Complete messages and the pending ask's prompt live only in the hub's in-memory text buffer (`internal/hub/textbuffer.go`, 24h TTL, lost on hub restart); `event` rows hold status-class events only — `user_input_requested` persists with an empty `prompt` (the web event contract is unchanged; the real ask travels live and in the session snapshot's `pending_input`). `GET /api/sessions/{id}/messages` (`internal/hub/history.go`) replays the agent-side session through the owning node for finished sessions (`MsgSessionHistory`/`MsgSessionHistoryResp`, `adapters.HistoryReader`, ACP `session/load` without prompt), serves the buffer for live ones, and returns 503 when neither can answer. Replayed messages carry zero timestamps (`MessageBubble` hides the time) and replay never advances the session.
@@ -174,4 +174,4 @@ ConfigProvider locale wired in `providers/AntdProvider.tsx`.
 
 ## Deferred (do NOT do unless explicitly asked)
 
-The Phase 6 backlog is **fully implemented** (permission picker UI, `GET /api/tasks?node_id=` + `?q=` title search, ACP fs capability negotiation, Gate 4 m1-m7 cleanup, StateChange dedup, Vitest, session-route code splitting, `POST /api/nodes` capabilities fix, WorkspaceList invalidation, em-dash copy, card keyboard reachability, `fleetctl` `--out` flag order, PATCH transition table, dispatchTask transaction). Do not redo them. Remaining known gaps (fix only on request): ACP `terminal/*`/elicitation support (deliberately refused and unadvertised), subtask reverse-writeback to agents, task `cancelled_at` audit column. Multi-user auth is **implemented** (users/auth_tokens/node_members, Bearer sessions, user↔node binding with subtree visibility, `/login` `/users` + node-binding UI) — do not rebuild it.
+The Phase 6 backlog is **fully implemented** (permission picker UI, `GET /api/tasks?node_id=` + `?q=` title search, ACP fs/terminal capability negotiation, Gate 4 m1-m7 cleanup, StateChange dedup, Vitest, session-route code splitting, `POST /api/nodes` capabilities fix, WorkspaceList invalidation, em-dash copy, card keyboard reachability, `fleetctl` `--out` flag order, PATCH transition table, dispatchTask transaction). Do not redo them. Remaining known gaps (fix only on request): subtask reverse-writeback to agents, task `cancelled_at` audit column. ACP form elicitation and `terminal/*` are implemented. Multi-user auth is **implemented** (users/auth_tokens/node_members, Bearer sessions, user↔node binding with subtree visibility, `/login` `/users` + node-binding UI) — do not rebuild it.

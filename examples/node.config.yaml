@@ -5,7 +5,7 @@
 # The default dev node advertises the fake adapter, so the hub and UI can be
 # exercised without a real agent CLI. `probe-adapters` reports which real
 # backends this host has; list those under agent_types (e.g. codex, opencode,
-# claude, pi) to drive them from this node.
+# claude, pi, omp) to drive them from this node.
 name: node-1
 host: localhost
 capabilities:

@@ -23,6 +23,23 @@ describe('MessageBubble', () => {
     expect(screen.queryByText(/\[permission_response\]/)).toBeNull()
   })
 
+  it('renders an elicitation reply as its action, never the raw marker', () => {
+    render(
+      <MessageBubble
+        message={
+          {
+            ...base,
+            role: 'user',
+            content: '[elicitation_response] action="accept" content={"value":"allow"}',
+          } as Message
+        }
+      />
+    )
+    expect(screen.getByText('Input')).toBeTruthy()
+    expect(screen.getByText('Accepted')).toBeTruthy()
+    expect(screen.queryByText(/\[elicitation_response\]/)).toBeNull()
+  })
+
   it('renders ordinary content verbatim and labels the roles', () => {
     const { unmount } = render(
       <MessageBubble message={{ ...base, role: 'assistant', content: 'Hello, world' } as Message} />

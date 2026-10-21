@@ -64,7 +64,7 @@
     "agentLabel": "Agent 类型",
     "agentPlaceholder": "由哪个 agent 执行？",
     "agentRequired": "请输入 agent 类型",
-    "agentHelp": "已知 agent：fake、opencode、codex、claude、pi",
+    "agentHelp": "已知 agent：fake、opencode、codex、claude、pi、omp",
     "autoStartLabel": "立即启动",
     "autoStartHelp": "关闭则创建为待办任务：等待你手动启动。"
   },

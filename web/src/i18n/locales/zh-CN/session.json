@@ -22,6 +22,27 @@
     "tag": "权限",
     "required": "需要授权"
   },
+  "elicitation": {
+    "tag": "输入",
+    "required": "需要填写",
+    "answer": "回答",
+    "accept": "提交",
+    "decline": "拒绝",
+    "cancel": "取消",
+    "unsupported": "该请求使用了此客户端无法显示的字段类型，请拒绝或取消。",
+    "action": {
+      "accept": "已提交",
+      "decline": "已拒绝",
+      "cancel": "已取消"
+    },
+    "errors": {
+      "required": "此字段为必填项",
+      "invalid": "值无效",
+      "range": "值超出范围",
+      "option": "请选择提供的选项",
+      "unsupported": "不支持的字段"
+    }
+  },
   "composer": {
     "placeholder": "回复智能体…（Enter 发送，Shift+Enter 换行）",
     "waiting": "等待智能体提问…",

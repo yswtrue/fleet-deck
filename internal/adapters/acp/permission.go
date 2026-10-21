@@ -59,7 +59,12 @@ func (a *Adapter) handlePermissionRequest(ctx context.Context, sessionID string,
 	a.mu.Lock()
 	a.awaitingPerm = replyCh
 	a.status = protocol.SessionAwaitingUser
+	proc := a.proc
 	a.mu.Unlock()
+	var procDone <-chan struct{}
+	if proc != nil {
+		procDone = proc.done
+	}
 
 	if sink != nil {
 		sink.StateChange(ctx, sessionID, protocol.SessionAwaitingUser)
@@ -68,19 +73,29 @@ func (a *Adapter) handlePermissionRequest(ctx context.Context, sessionID string,
 
 	var reply string
 	cancelled := false
+	exited := false
 	select {
 	case reply = <-replyCh:
 	case <-a.cancelCh:
 		cancelled = true
+	case <-procDone:
+		// Agent exited while the picker was open.
+		cancelled = true
+		exited = true
 	case <-ctx.Done():
 		cancelled = true
 	}
 
 	a.mu.Lock()
 	a.awaitingPerm = nil
-	a.status = protocol.SessionRunning
+	if !exited {
+		a.status = protocol.SessionRunning
+	}
 	a.mu.Unlock()
 
+	if exited {
+		return
+	}
 	if cancelled {
 		a.respond(msg.ID, cancelledPermissionOutcome(), nil)
 		return

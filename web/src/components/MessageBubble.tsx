@@ -1,4 +1,5 @@
 import { permissionReplyOptionID } from '../permission.ts'
+import { parseElicitationReply } from '../elicitation.ts'
 import { i18n, useTranslation } from '../i18n/index.ts'
 import styles from './MessageBubble.module.css'
 import type { Message } from '../types.ts'
@@ -9,6 +10,9 @@ export function MessageBubble({ message }: { message: Message }) {
   // (the locked adapter wire format); render the chosen option instead of the
   // marker.
   const permissionOptionID = permissionReplyOptionID(message.content)
+  // A form elicitation reply is likewise stored verbatim; render its action
+  // instead of the marker.
+  const elicitationReply = parseElicitationReply(message.content)
   // Replayed history carries no timestamps (the replay stream has none and no
   // timestamp is ever fabricated): hide the time rather than render a wrong
   // one.
@@ -30,6 +34,13 @@ export function MessageBubble({ message }: { message: Message }) {
         <div className={styles.permission}>
           <span className={styles.permissionTag}>{t('permission.tag')}</span>
           <code className={styles.permissionOption}>{permissionOptionID}</code>
+        </div>
+      ) : elicitationReply ? (
+        <div className={styles.permission}>
+          <span className={styles.permissionTag}>{t('elicitation.tag')}</span>
+          <code className={styles.permissionOption}>
+            {t(`elicitation.action.${elicitationReply.action}`)}
+          </code>
         </div>
       ) : (
         <p className={styles.content}>{message.content}</p>

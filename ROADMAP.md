@@ -43,14 +43,19 @@ that would move them forward.
 
 ### Agent integrations
 
-- **Shared ACP adapter** — OpenCode, Codex, Claude, pi (via `pi-acp`) behind
-  one adapter; process lifecycle, cancel grace, resume via `session/load`
+- **Shared ACP adapter** — OpenCode, Codex, Claude, pi (via `pi-acp`), omp
+  (`omp acp`) behind one adapter; process lifecycle, cancel grace, resume via
+  `session/load`
 - **Permission picker** — agent permission requests render as structured
   Allow/Deny buttons; replies carry the exact `option_id` wire format;
   never auto-approved (unparseable/unknown replies fall back to deny)
-- **ACP fs capability negotiation** — `fs/read_text_file` / `fs/write_text_file`
-  served inside a workspace sandbox (symlink-escape proof); unimplemented
-  capabilities (`terminal/*`, elicitation) are refused and never advertised
+- **Form elicitation** — ACP `elicitation/create` (form mode) renders a typed
+  form from the agent's flat JSON Schema; accept content is validated against
+  the schema before forwarding, invalid payloads become `cancel`
+- **ACP fs + terminal capabilities** — `fs/read_text_file` / `fs/write_text_file`
+  served inside a workspace sandbox (symlink-escape proof), plus
+  `terminal/create|output|wait_for_exit|kill|release` with bounded output and
+  workspace-confined cwd; URL-mode elicitation is refused and never advertised
 - **MCP server** — `fleetdeck_*` tools for agent self-introspection and
   resuming awaiting sessions
 
@@ -90,12 +95,11 @@ that would move them forward.
 
 ## 🗓 Later (known gaps, with triggers)
 
-| Item                           | What it is                                             | Trigger to build it                                                                  |
-| ------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| Subtask reverse-writeback      | edits on the board flow back into the agent's plan     | product decision on semantics (there is no standard ACP method for this)             |
-| ACP `terminal/*` / elicitation | host-managed terminals and structured forms for agents | an agent that cannot work without host terminals; needs a sandbox threat model first |
-| Broader web test coverage      | component/hook tests beyond the current 4 files        | as the UI surface grows — infra (Vitest + jsdom + RTL) is in place                   |
-| Multi-hub / HA                 | replicated control plane                               | single-hub is fine for the current scale                                             |
+| Item                      | What it is                                         | Trigger to build it                                                      |
+| ------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------ |
+| Subtask reverse-writeback | edits on the board flow back into the agent's plan | product decision on semantics (there is no standard ACP method for this) |
+| Broader web test coverage | component/hook tests beyond the current suites     | as the UI surface grows — infra (Vitest + jsdom + RTL) is in place       |
+| Multi-hub / HA            | replicated control plane                           | single-hub is fine for the current scale                                 |
 
 ## ❌ Non-goals (for now)
 

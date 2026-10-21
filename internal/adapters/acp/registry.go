@@ -15,6 +15,7 @@ func init() {
 	adapters.Default.Register("claude", factory("claude"))
 	adapters.Default.Register("opencode", factory("opencode"))
 	adapters.Default.Register("pi", factory("pi"))
+	adapters.Default.Register("omp", factory("omp"))
 }
 
 func factory(agentType string) adapters.Factory {

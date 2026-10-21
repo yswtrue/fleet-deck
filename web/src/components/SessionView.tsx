@@ -6,6 +6,7 @@ import { Button, Input, Typography, message } from 'antd'
 import { MessageBubble } from './MessageBubble.tsx'
 import { SessionUsage } from './SessionUsage.tsx'
 import { PermissionPicker } from './PermissionPicker.tsx'
+import { ElicitationForm } from './ElicitationForm.tsx'
 import { useSession } from '../hooks/useSession.ts'
 import { useWebSocket } from '../hooks/useWebSocket.ts'
 import { useHubApi } from '../hooks/useHubApi.ts'
@@ -16,6 +17,7 @@ import { EmptyState } from './EmptyState.tsx'
 import { statusLabel } from '../util.ts'
 import { useTranslation } from '../i18n/index.ts'
 import { formatPermissionReply } from '../permission.ts'
+import { formatElicitationReply } from '../elicitation.ts'
 import styles from './SessionView.module.css'
 import type { SessionSnapshot } from '../apiClient.ts'
 import type { Event as ProtocolEvent } from '../gen/protocol/index.ts'
@@ -34,8 +36,16 @@ interface SessionViewProps {
 
 export function SessionView({ sessionId, task }: SessionViewProps) {
   const { t } = useTranslation('session')
-  const { messages, delta, isLoading, error, sessionStatus, pendingPermission, send } =
-    useSession(sessionId)
+  const {
+    messages,
+    delta,
+    isLoading,
+    error,
+    sessionStatus,
+    pendingPermission,
+    pendingElicitation,
+    send,
+  } = useSession(sessionId)
   // The static antd message API renders nothing under React 19; the hook-based
   // API is the one that actually mounts toasts.
   const [messageApi, messageHolder] = message.useMessage()
@@ -212,7 +222,17 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
             </div>
           )}
           <div className={styles.composer}>
-            {pendingPermission && isAwaiting ? (
+            {pendingElicitation && isAwaiting ? (
+              <ElicitationForm
+                key={`${pendingElicitation.message}:${pendingElicitation.fields
+                  .map((field) => field.name)
+                  .join(',')}`}
+                request={pendingElicitation}
+                onSubmit={(action, content) => {
+                  void send(formatElicitationReply(action, content))
+                }}
+              />
+            ) : pendingPermission && isAwaiting ? (
               <PermissionPicker
                 request={pendingPermission}
                 onPick={(optionId) => {

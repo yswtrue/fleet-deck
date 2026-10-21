@@ -4,9 +4,9 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 16 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、fs workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、测试 138 Go + 101 web。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 16 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi / omp)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、form elicitation、fs/terminal workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、Go + web 测试套件。
 
-**未实现**(详见 §5):子任务反向写回 agent、ACP `terminal/*` 与 elicitation;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
+**未实现**(详见 §5):子任务反向写回 agent;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
 ## 1. 目标
 
@@ -115,7 +115,7 @@ type Adapter interface {
 }
 ```
 
-- **ACP(Agent Client Protocol)**:codex、claude(`npx` 启动器)、opencode(自带 `opencode acp`)、pi(`npx pi-acp`)全部走**同一个 ACP adapter**(`internal/adapters/acp/`),只是启动命令不同。
+- **ACP(Agent Client Protocol)**:codex、claude(`npx` 启动器)、opencode(自带 `opencode acp`)、pi(`npx pi-acp`)、omp(自带 `omp acp`)全部走**同一个 ACP adapter**(`internal/adapters/acp/`),只是启动命令不同。
 - **pi**:经 `pi-acp` 包装后走上述共享 ACP adapter。早期计划的自定义 bridge(`integrations/pi/`)**未实施**——`pi-acp` 覆盖了同样的 RPC 翻译面,无维护两份的必要(若未来弃用 pi-acp 再重启,见 §5)。
 - **fake adapter**:模拟 agent,产出 todo、推进状态、可请求输入。用于 UI 开发与集成测试,不碰真 agent。
 
@@ -123,7 +123,11 @@ type Adapter interface {
 
 **permission 暂停 + 结构化选择**:ACP 的 `session/request_permission` 暂停回合,`UserInputRequested` 的 prompt 携带 `[permission_request] options=[{"id":…,"label":…}]`;web 端解析后渲染选择器(`web/src/permission.ts` + `PermissionPicker`),用户点选后经 `POST /api/sessions/{id}/send` 回传 `[permission_response] option_id="…"`(格式由 adapter 正则解包,不可漂移;解包失败或 option_id 不在已知集合按拒绝处理,永不自动批准)。
 
-**fs 能力协商**:ACP adapter 只广告已实现的能力 —— `fs/read_text_file` / `fs/write_text_file`(workspace 沙箱,symlink 解析后做包含检查);`terminal/*` 与 elicitation 不广告、调用即拒(广告了不实现会让 agent 挂死)。终态信号(`Done`/`Error`)携带最终状态,adapter 不再配对终态 `StateChange`。
+**elicitation 表单**:ACP 的 `elicitation/create`(form mode)暂停回合,`UserInputRequested` 的 prompt 携带 `[elicitation_request] schema={…}`(平铺的原始 JSON Schema);web 端解析后渲染表单(`web/src/elicitation.ts` + `ElicitationForm`),提交时回传 `[elicitation_response] action="accept" content={…}`(拒绝/取消无 content)。adapter 在把 accept 转发给 agent 前按 schema 校验必填、类型、枚举和范围,不合法一律回 `cancel`;未广告的 URL mode 直接以 `-32602` 拒绝,让 agent 走降级路径。
+
+**terminal 能力**:ACP adapter 广告 `clientCapabilities.terminal`,实现 `terminal/create|output|wait_for_exit|kill|release`。命令以 node 用户身份执行,`cwd` 限定在 session workspace 内(与 fs 同一沙箱边界),输出默认保留 1 MiB、上限 8 MiB,超限从头截断并保证 UTF-8 合法;`release` 终止进程并删除句柄,会话结束/取消时清理全部终端。这不是 OS 级沙箱:命令仍可通过绝对路径访问 workspace 之外。
+
+**fs 能力协商**:ACP adapter 只广告已实现的能力 —— `fs/read_text_file` / `fs/write_text_file`(workspace 沙箱,symlink 解析后做包含检查)、form elicitation 与 terminal;URL-mode elicitation 不广告、调用即拒(广告了不实现会让 agent 挂死)。终态信号(`Done`/`Error`)携带最终状态,adapter 不再配对终态 `StateChange`。
 
 ### 3.5 目录结构
 
@@ -240,7 +244,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 ### Phase 5 — 真实 adapter
 
 - **目标**:接真 agent。
-- **产出**:pi bridge、ACP adapter(codex/claude/opencode)、codex adapter。
+- **产出**:pi bridge、ACP adapter(codex/claude/opencode/pi/omp)、codex adapter。
 - **验收**:`probe-adapters` 报告可用 agent,真 agent 驱动一个任务跑通。
 - **依赖**:P3(接口);可与 P4 并行。
 
@@ -256,7 +260,6 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 以下均为**刻意不做**,附重新启动的触发条件(与 `ROADMAP.md` 的 Later 表同源;该表另含测试覆盖扩展、多 hub 等条目):
 
 - **子任务反向写回 agent**(现为 session→看板单向镜像)——触发:产品定下反向语义(ACP 无标准方法)
-- **ACP `terminal/*` 与 elicitation**(现不广告、调用即拒)——触发:出现必须宿主终端的 agent,且先定沙箱威胁模型
 - **自定义 pi bridge** —— **弃用方案**,由 `pi-acp` 取代(§3.4);仅当 pi-acp 能力不足时重启
 
 ## 6. 约定

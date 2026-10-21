@@ -22,6 +22,27 @@
     "tag": "Permission",
     "required": "Permission required"
   },
+  "elicitation": {
+    "tag": "Input",
+    "required": "Input required",
+    "answer": "Answer",
+    "accept": "Submit",
+    "decline": "Decline",
+    "cancel": "Cancel",
+    "unsupported": "This request uses a field type this client cannot display; decline or cancel it.",
+    "action": {
+      "accept": "Accepted",
+      "decline": "Declined",
+      "cancel": "Cancelled"
+    },
+    "errors": {
+      "required": "This field is required",
+      "invalid": "Invalid value",
+      "range": "Value is out of range",
+      "option": "Choose one of the offered options",
+      "unsupported": "Unsupported field"
+    }
+  },
   "composer": {
     "placeholder": "Reply to the agent… (Enter to send, Shift+Enter for a new line)",
     "waiting": "Waiting for the agent to ask a question…",

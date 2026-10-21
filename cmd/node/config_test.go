@@ -159,7 +159,7 @@ func TestConfigureInteractiveSelectAll(t *testing.T) {
 		t.Fatalf("configure: %v\n%s", err, out.String())
 	}
 	text := readConfig(t, path)
-	for _, agent := range []string{"fake", "opencode", "codex", "claude", "pi"} {
+	for _, agent := range []string{"fake", "opencode", "codex", "claude", "pi", "omp"} {
 		if !strings.Contains(text, "  - "+agent+"\n") {
 			t.Fatalf("%s missing from the binding:\n%s", agent, text)
 		}

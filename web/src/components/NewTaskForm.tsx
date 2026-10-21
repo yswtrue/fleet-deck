@@ -9,9 +9,9 @@ interface NewTaskFormProps {
   onClose: () => void
 }
 
-const AGENT_TYPE_SUGGESTIONS = ['fake', 'opencode', 'codex', 'claude', 'pi'].map((value) => ({
-  value,
-}))
+const AGENT_TYPE_SUGGESTIONS = ['fake', 'opencode', 'codex', 'claude', 'pi', 'omp'].map(
+  (value) => ({ value })
+)
 
 /**
  * Uses the app-wide `<Refine>` provider (see providers/RefineProvider.tsx) for

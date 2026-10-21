@@ -4,7 +4,9 @@ import { useWebSocket } from './useWebSocket.ts'
 import { useHubApi } from './useHubApi.ts'
 import { dispatchEvent } from './dispatchEvent.ts'
 import { parsePermissionRequest } from '../permission.ts'
+import { parseElicitationRequest } from '../elicitation.ts'
 import type { PermissionRequest } from '../permission.ts'
+import type { ElicitationRequest } from '../elicitation.ts'
 import type {
   Event as ProtocolEvent,
   Message,
@@ -45,6 +47,8 @@ export function useSession(sessionId: string) {
   // pendingPermission is the structured ACP permission ask awaiting a pick
   // (null for plain free-text questions and once the ask is answered).
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
+  // pendingElicitation is the structured ACP form ask awaiting submit/decline.
+  const [pendingElicitation, setPendingElicitation] = useState<ElicitationRequest | null>(null)
   const rafRef = useRef<number | null>(null)
   const pendingRef = useRef('')
 
@@ -93,6 +97,7 @@ export function useSession(sessionId: string) {
           }
           if (newStatus !== 'awaiting_user') {
             setPendingPermission(null)
+            setPendingElicitation(null)
           }
           break
         }
@@ -100,9 +105,12 @@ export function useSession(sessionId: string) {
           const { session_id, prompt } = evt.data
           if (session_id !== sessionId) return
           setSessionStatus('awaiting_user')
-          // A new ask supersedes any previous one; plain questions parse to
-          // null and clear a stale picker.
-          setPendingPermission(parsePermissionRequest(prompt))
+          // A new ask supersedes any previous one; a permission prompt is
+          // parsed first, everything else may carry a form elicitation. Plain
+          // questions parse to null and clear both structured panels.
+          const permission = parsePermissionRequest(prompt)
+          setPendingPermission(permission)
+          setPendingElicitation(permission ? null : parseElicitationRequest(prompt))
           break
         }
         case 'session.message': {
@@ -173,9 +181,10 @@ export function useSession(sessionId: string) {
         // The pending ask's prompt is content: it lives in the hub's ephemeral
         // buffer (not the event stream, which stores only its occurrence), so
         // a reload mid-pause restores the picker from the snapshot.
-        if (snapshot.pending_input) {
-          setPendingPermission(parsePermissionRequest(snapshot.pending_input))
-        }
+        const pending = snapshot.pending_input
+        const permission = pending ? parsePermissionRequest(pending) : null
+        setPendingPermission(permission)
+        setPendingElicitation(pending && !permission ? parseElicitationRequest(pending) : null)
         const task = snapshot.task
         if (!task) return
         queryClient.setQueryData<Task[]>(['tasks', task.workspace_id], (prev) => {
@@ -200,6 +209,7 @@ export function useSession(sessionId: string) {
       if (!trimmed) return
       // Any reply answers the current ask (the adapter resumes on SendMessage).
       setPendingPermission(null)
+      setPendingElicitation(null)
       const optimisticID = `local-${Date.now()}`
       queryClient.setQueryData<Message[]>(['messages', sessionId], (prev = []) =>
         mergeMessage(prev, {
@@ -232,6 +242,7 @@ export function useSession(sessionId: string) {
     error,
     sessionStatus,
     pendingPermission,
+    pendingElicitation,
     send,
   }
 }

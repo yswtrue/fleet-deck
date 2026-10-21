@@ -27,8 +27,8 @@ FleetDeck pulls these sessions into one control plane:
 - **No stalls** — permission requests become **structured Allow/Deny pickers**
   in the web UI; questions get the same treatment. Replies flow back through
   the hub and the session continues.
-- **One integration, many agents** — OpenCode / Codex / Claude / pi share a
-  single ACP adapter; adding an agent means registering a launch config.
+- **One integration, many agents** — OpenCode / Codex / Claude / pi / omp share
+  a single ACP adapter; adding an agent means registering a launch config.
 - **Agent self-service** — a built-in MCP server (`fleetdeck_*` tools) lets
   agents inspect their own tasks/sessions or resume an awaiting session.
 

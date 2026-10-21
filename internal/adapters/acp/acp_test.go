@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -404,6 +406,177 @@ func TestPermissionReplyEmptyOptionIDDefaultsToDeny(t *testing.T) {
 	rec.waitDone(t)
 }
 
+func TestInitializeAdvertisesClientCapabilities(t *testing.T) {
+	raw, err := json.Marshal(initializeParams{
+		ProtocolVersion: 1,
+		ClientCapabilities: clientCapabilities{
+			FS:          fsCapabilities{ReadTextFile: true, WriteTextFile: true},
+			Elicitation: elicitationCapabilities{},
+			Terminal:    true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal initialize: %v", err)
+	}
+	var got struct {
+		ClientCapabilities map[string]json.RawMessage `json:"clientCapabilities"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal initialize: %v", err)
+	}
+	if string(got.ClientCapabilities["elicitation"]) != `{"form":{}}` {
+		t.Fatalf("elicitation capability = %s, want {\"form\":{}}",
+			got.ClientCapabilities["elicitation"])
+	}
+	if string(got.ClientCapabilities["terminal"]) != "true" {
+		t.Fatalf("terminal capability = %s, want true", got.ClientCapabilities["terminal"])
+	}
+}
+
+func TestElicitationAccept(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "elicitation"})
+	prompt := rec.waitUserInput(t)
+
+	if !strings.Contains(prompt, "How should I proceed?") {
+		t.Fatalf("prompt missing agent message: %q", prompt)
+	}
+	if !strings.Contains(prompt, "[elicitation_request] schema=") {
+		t.Fatalf("prompt missing elicitation marker: %q", prompt)
+	}
+	if !strings.Contains(prompt, `"required":["value"]`) ||
+		!strings.Contains(prompt, `"enum":["allow","deny"]`) {
+		t.Fatalf("prompt missing schema: %q", prompt)
+	}
+
+	if err := a.SendMessage(context.Background(), "sess-1",
+		`[elicitation_response] action="accept" content={"value":"allow"}`); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+
+	// The fake agent echoes the action and content, proving the adapter
+	// forwarded an accept with the user's value.
+	rec.waitTextContaining(t, `elicit:accept:{"value":"allow"}`)
+	rec.waitDone(t)
+}
+
+func TestElicitationDecline(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "elicitation"})
+	rec.waitUserInput(t)
+
+	if err := a.SendMessage(context.Background(), "sess-1",
+		`[elicitation_response] action="decline"`); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+	rec.waitTextContaining(t, "elicit:decline")
+	rec.waitDone(t)
+}
+
+func TestElicitationInvalidContentCancels(t *testing.T) {
+	tests := map[string]string{
+		"unknown enum value": `[elicitation_response] action="accept" content={"value":"evil"}`,
+		"missing required":   `[elicitation_response] action="accept" content={}`,
+		"unparseable reply":  `sure, go ahead`,
+	}
+	for name, reply := range tests {
+		t.Run(name, func(t *testing.T) {
+			a, rec := startTestAdapter(t, adapterOpts{scenario: "elicitation"})
+			rec.waitUserInput(t)
+
+			if err := a.SendMessage(context.Background(), "sess-1", reply); err != nil {
+				t.Fatalf("SendMessage: %v", err)
+			}
+			// Invalid or absent content must never be forwarded as consent.
+			rec.waitTextContaining(t, "elicit:cancel")
+			rec.waitDone(t)
+		})
+	}
+}
+
+func TestElicitationRejectsUnadvertisedURLMode(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "elicitation-url"})
+
+	rec.waitTextContaining(t, "elicit-error:")
+	rec.waitDone(t)
+	for _, e := range rec.events {
+		if e.kind == "user_input" {
+			t.Fatal("URL-mode elicitation must be refused before asking the user")
+		}
+	}
+}
+
+func TestTerminalFlow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake terminal scenarios use sh/sleep")
+	}
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "terminal"})
+	rec.waitTextContaining(t, "terminal:hello-from-terminal:exit=true:released=true:invalid-after=true")
+	rec.waitDone(t)
+}
+
+func TestTerminalKillAndRelease(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake terminal scenarios use sh/sleep")
+	}
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "terminal-kill"})
+	rec.waitTextContaining(t, "terminal-kill:killed=true:signal=killed:released=true")
+	rec.waitDone(t)
+}
+
+func TestBoundedOutputTruncatesFromStart(t *testing.T) {
+	b := newBoundedOutput(5)
+	if _, err := b.Write([]byte("abcdef")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	output, truncated := b.snapshot()
+	if output != "bcdef" || !truncated {
+		t.Fatalf("snapshot = %q truncated=%v, want %q true", output, truncated, "bcdef")
+	}
+}
+
+func TestBoundedOutputDropsPartialLeadingRune(t *testing.T) {
+	b := newBoundedOutput(2)
+	// "€" is three bytes; keeping the last two leaves continuation bytes.
+	if _, err := b.Write([]byte("a€")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	output, truncated := b.snapshot()
+	if output != "" || !truncated {
+		t.Fatalf("snapshot = %q truncated=%v, want empty true", output, truncated)
+	}
+}
+
+func TestTerminalCreateRejectsCwdOutsideWorkspace(t *testing.T) {
+	m := newTerminalManager()
+	if _, err := m.create(terminalCreateParams{Command: "true", Cwd: "/"}, t.TempDir()); err == nil {
+		t.Fatal("create: expected cwd escape to be rejected")
+	}
+}
+
+func TestTerminalEnvOverridesAndValidation(t *testing.T) {
+	env, err := terminalEnv([]terminalEnvVar{
+		{Name: "FLEETDECK_TERM_TEST", Value: "first"},
+		{Name: "FLEETDECK_TERM_TEST", Value: "second"},
+	})
+	if err != nil {
+		t.Fatalf("terminalEnv: %v", err)
+	}
+	count := 0
+	for _, entry := range env {
+		if entry == "FLEETDECK_TERM_TEST=second" {
+			count++
+		}
+		if entry == "FLEETDECK_TERM_TEST=first" {
+			t.Fatal("first value survived an override")
+		}
+	}
+	if count != 1 {
+		t.Fatalf("override occurrences = %d, want 1", count)
+	}
+	if _, err := terminalEnv([]terminalEnvVar{{Name: "BAD=NAME", Value: "x"}}); err == nil {
+		t.Fatal("terminalEnv: expected invalid name to be rejected")
+	}
+}
+
 func TestCancel(t *testing.T) {
 	a, rec := startTestAdapter(t, adapterOpts{scenario: "wait", grace: 100 * time.Millisecond})
 	rec.waitState(t, protocol.SessionRunning)
@@ -467,7 +640,7 @@ func TestBinaryNotFound(t *testing.T) {
 // TestDefaultRegistryHasACPAgents asserts registry.go wired all four agent
 // types into the process-wide registry.
 func TestDefaultRegistryHasACPAgents(t *testing.T) {
-	for _, agentType := range []string{"codex", "claude", "opencode", "pi"} {
+	for _, agentType := range []string{"codex", "claude", "opencode", "pi", "omp"} {
 		ad, ok := adapters.Default.Get(agentType)
 		if !ok {
 			t.Fatalf("adapters.Default has no adapter for %q", agentType)
@@ -707,6 +880,28 @@ func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenar
 			break
 		}
 		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "elicitation":
+		fakeNotify(enc, "session/update", fakeChunk("m1", "starting"))
+		fakeRequest(enc, "elicit-1", "elicitation/create", fakeElicitationParams())
+		resp := fakeWaitResponse(dec, "elicit-1")
+		if resp.Error != nil {
+			fakeNotify(enc, "session/update", fakeChunk("m2", "elicit-error:"+string(resp.Error)))
+		} else {
+			fakeNotify(enc, "session/update", fakeChunk("m2", "elicit:"+fakeElicitationOutcome(resp.Result)))
+		}
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "elicitation-url":
+		fakeNotify(enc, "session/update", fakeChunk("m1", "starting"))
+		fakeRequest(enc, "elicit-1", "elicitation/create", fakeElicitationParamsURL())
+		resp := fakeWaitResponse(dec, "elicit-1")
+		fakeNotify(enc, "session/update", fakeChunk("m2", "elicit-error:"+string(resp.Error)))
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "terminal":
+		fakeTerminalTurn(enc, dec)
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "terminal-kill":
+		fakeTerminalKill(enc, dec)
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
 	case "crash":
 		os.Exit(1)
 	case "fs":
@@ -805,6 +1000,152 @@ func fakeTodoUpdate() map[string]any {
 			{"content": "Review", "status": "pending"},
 		}},
 	}}
+}
+
+func fakeTerminalTurn(enc *json.Encoder, dec *json.Decoder) {
+	fakeRequest(enc, "term-create", "terminal/create", map[string]any{
+		"sessionId":       "agent-sess-1",
+		"command":         "sh",
+		"args":            []string{"-c", "printf hello-from-terminal"},
+		"outputByteLimit": 64,
+	})
+	created := fakeWaitResponse(dec, "term-create")
+	var createResult struct {
+		TerminalID string `json:"terminalId"`
+	}
+	if created.Error != nil || json.Unmarshal(created.Result, &createResult) != nil || createResult.TerminalID == "" {
+		fakeNotify(enc, "session/update", fakeChunk("m1", "terminal:create-failed"))
+		return
+	}
+
+	output := ""
+	exited := false
+	for range 100 {
+		fakeRequest(enc, "term-output", "terminal/output", map[string]any{
+			"sessionId": "agent-sess-1", "terminalId": createResult.TerminalID,
+		})
+		resp := fakeWaitResponse(dec, "term-output")
+		var result struct {
+			Output     string          `json:"output"`
+			Truncated  bool            `json:"truncated"`
+			ExitStatus json.RawMessage `json:"exitStatus"`
+		}
+		if resp.Error == nil && json.Unmarshal(resp.Result, &result) == nil {
+			output = result.Output
+			exited = len(result.ExitStatus) > 0
+		}
+		if exited {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	fakeRequest(enc, "term-wait", "terminal/wait_for_exit", map[string]any{
+		"sessionId": "agent-sess-1", "terminalId": createResult.TerminalID,
+	})
+	waited := fakeWaitResponse(dec, "term-wait")
+	var waitResult struct {
+		ExitCode *int `json:"exitCode"`
+	}
+	_ = json.Unmarshal(waited.Result, &waitResult)
+
+	fakeRequest(enc, "term-release", "terminal/release", map[string]any{
+		"sessionId": "agent-sess-1", "terminalId": createResult.TerminalID,
+	})
+	released := fakeWaitResponse(dec, "term-release")
+	releasedOK := released.Error == nil
+
+	// A released id is invalid for every other terminal method.
+	fakeRequest(enc, "term-after-release", "terminal/output", map[string]any{
+		"sessionId": "agent-sess-1", "terminalId": createResult.TerminalID,
+	})
+	after := fakeWaitResponse(dec, "term-after-release")
+	summary := fmt.Sprintf("terminal:%s:exit=%v:released=%v:invalid-after=%v",
+		output, waitResult.ExitCode != nil && *waitResult.ExitCode == 0, releasedOK, after.Error != nil)
+	fakeNotify(enc, "session/update", fakeChunk("m1", summary))
+}
+
+func fakeTerminalKill(enc *json.Encoder, dec *json.Decoder) {
+	fakeRequest(enc, "term-create", "terminal/create", map[string]any{
+		"sessionId": "agent-sess-1",
+		"command":   "sleep",
+		"args":      []string{"30"},
+	})
+	created := fakeWaitResponse(dec, "term-create")
+	var createResult struct {
+		TerminalID string `json:"terminalId"`
+	}
+	if created.Error != nil || json.Unmarshal(created.Result, &createResult) != nil || createResult.TerminalID == "" {
+		fakeNotify(enc, "session/update", fakeChunk("m1", "terminal:create-failed"))
+		return
+	}
+
+	fakeRequest(enc, "term-kill", "terminal/kill", map[string]any{
+		"sessionId": "agent-sess-1", "terminalId": createResult.TerminalID,
+	})
+	killed := fakeWaitResponse(dec, "term-kill")
+
+	fakeRequest(enc, "term-wait", "terminal/wait_for_exit", map[string]any{
+		"sessionId": "agent-sess-1", "terminalId": createResult.TerminalID,
+	})
+	waited := fakeWaitResponse(dec, "term-wait")
+	var waitResult struct {
+		ExitCode *int    `json:"exitCode"`
+		Signal   *string `json:"signal"`
+	}
+	_ = json.Unmarshal(waited.Result, &waitResult)
+
+	fakeRequest(enc, "term-release", "terminal/release", map[string]any{
+		"sessionId": "agent-sess-1", "terminalId": createResult.TerminalID,
+	})
+	released := fakeWaitResponse(dec, "term-release")
+
+	signal := ""
+	if waitResult.Signal != nil {
+		signal = *waitResult.Signal
+	}
+	summary := fmt.Sprintf("terminal-kill:killed=%v:signal=%s:released=%v",
+		killed.Error == nil, signal, released.Error == nil)
+	fakeNotify(enc, "session/update", fakeChunk("m1", summary))
+}
+
+func fakeElicitationParams() map[string]any {
+	return map[string]any{
+		"sessionId": "agent-sess-1",
+		"mode":      "form",
+		"message":   "How should I proceed?",
+		"requestedSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"value": map[string]any{"type": "string", "enum": []string{"allow", "deny"}},
+			},
+			"required": []string{"value"},
+		},
+	}
+}
+
+func fakeElicitationParamsURL() map[string]any {
+	return map[string]any{
+		"sessionId":     "agent-sess-1",
+		"mode":          "url",
+		"message":       "Authorize",
+		"url":           "https://example.com/oauth",
+		"elicitationId": "elicit-url-1",
+	}
+}
+
+func fakeElicitationOutcome(raw json.RawMessage) string {
+	var r struct {
+		Action  string          `json:"action"`
+		Content json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(raw, &r) != nil {
+		return ""
+	}
+	if len(r.Content) == 0 {
+		return r.Action
+	}
+	return r.Action + ":" + string(r.Content)
 }
 
 func fakePermissionParams() map[string]any {
