@@ -42,13 +42,41 @@ name: %[2]s
 func DefaultConfigPath() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if !filepath.IsAbs(base) {
-		dir, err := os.UserConfigDir()
+		dir, err := platformUserConfigDir()
 		if err != nil {
 			return ""
 		}
 		base = dir
 	}
 	return filepath.Join(base, appConfigDir, defaultConfigName)
+}
+
+// platformUserConfigDir is os.UserConfigDir with the platform fallback applied
+// when a non-absolute XDG_CONFIG_HOME makes it fail. The XDG spec says relative
+// values are ignored; Go 1.27 surfaces that as an error instead of falling back,
+// so resolve the documented per-OS default here.
+func platformUserConfigDir() (string, error) {
+	if dir, err := os.UserConfigDir(); err == nil {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if home == "" {
+		return "", errors.New("no home directory")
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join(home, "Library", "Application Support"), nil
+	case "windows":
+		if appData := os.Getenv("AppData"); appData != "" {
+			return appData, nil
+		}
+		return filepath.Join(home, "AppData", "Roaming"), nil
+	default:
+		return filepath.Join(home, ".config"), nil
+	}
 }
 
 // DefaultTokenFile returns where the issued node credential is stored.
