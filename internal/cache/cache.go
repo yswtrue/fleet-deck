@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -31,28 +32,80 @@ type Cache interface {
 	Delete(ctx context.Context, keys ...string) error
 }
 
+const (
+	// redisOpTimeout bounds every cache round trip. A cache is an accelerator:
+	// a slow or black-holed Redis must not stall an API request for the
+	// driver's multi-second defaults.
+	redisOpTimeout = time.Second
+	// redisRetryCooldown is how long a failed Redis is skipped before the
+	// cache tries again. Without it every authenticated request pays a dial
+	// (and go-redis's retry backoff) while the server is down.
+	redisRetryCooldown = 5 * time.Second
+)
+
 // Redis is a Cache backed by a Redis server (go-redis). A nil *Redis is a
 // valid no-op cache so callers can treat "not configured" uniformly.
 type Redis struct {
 	client *redis.Client
+
+	mu        sync.Mutex
+	downUntil time.Time
 }
 
 var _ Cache = (*Redis)(nil)
 
 // NewRedis builds a Redis-backed cache from a redis:// URL. It does not dial
 // eagerly: a Redis that is down at startup (or later) surfaces as per-operation
-// errors, which callers treat as cache misses.
+// errors, which callers treat as cache misses. Retries are disabled and every
+// operation is time-boxed; after a failure the cache is skipped for
+// redisRetryCooldown so an absent server costs one probe per window instead of
+// adding latency to every request.
 func NewRedis(url string) (*Redis, error) {
 	opts, err := redis.ParseURL(url)
 	if err != nil {
 		return nil, err
 	}
+	opts.DialTimeout = redisOpTimeout
+	opts.ReadTimeout = redisOpTimeout
+	opts.WriteTimeout = redisOpTimeout
+	opts.MaxRetries = -1
+	// go-redis defaults to five dial attempts with 100ms backoff; a cache
+	// probe should fail fast instead.
+	opts.DialerRetries = 1
 	return &Redis{client: redis.NewClient(opts)}, nil
+}
+
+// available reports whether the cache is in its failure cooldown.
+func (r *Redis) available() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return time.Now().After(r.downUntil)
+}
+
+// markFailed starts the cooldown after a backend error.
+func (r *Redis) markFailed() {
+	r.mu.Lock()
+	r.downUntil = time.Now().Add(redisRetryCooldown)
+	r.mu.Unlock()
+}
+
+// Ping checks backend connectivity. It is a startup diagnostic only: request
+// paths never depend on it, and a failure starts the same cooldown as any
+// other operation.
+func (r *Redis) Ping(ctx context.Context) error {
+	if r == nil || r.client == nil {
+		return nil
+	}
+	if err := r.client.Ping(ctx).Err(); err != nil {
+		r.markFailed()
+		return err
+	}
+	return nil
 }
 
 // Get implements Cache.
 func (r *Redis) Get(ctx context.Context, key string, dest any) (bool, error) {
-	if r == nil || r.client == nil {
+	if r == nil || r.client == nil || !r.available() {
 		return false, nil
 	}
 	raw, err := r.client.Get(ctx, key).Bytes()
@@ -60,6 +113,7 @@ func (r *Redis) Get(ctx context.Context, key string, dest any) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
+		r.markFailed()
 		return false, err
 	}
 	if err := json.Unmarshal(raw, dest); err != nil {
@@ -72,22 +126,30 @@ func (r *Redis) Get(ctx context.Context, key string, dest any) (bool, error) {
 
 // Set implements Cache.
 func (r *Redis) Set(ctx context.Context, key string, val any, ttl time.Duration) error {
-	if r == nil || r.client == nil {
+	if r == nil || r.client == nil || !r.available() {
 		return nil
 	}
 	raw, err := json.Marshal(val)
 	if err != nil {
 		return err
 	}
-	return r.client.Set(ctx, key, raw, ttl).Err()
+	if err := r.client.Set(ctx, key, raw, ttl).Err(); err != nil {
+		r.markFailed()
+		return err
+	}
+	return nil
 }
 
 // Delete implements Cache.
 func (r *Redis) Delete(ctx context.Context, keys ...string) error {
-	if r == nil || r.client == nil || len(keys) == 0 {
+	if r == nil || r.client == nil || !r.available() || len(keys) == 0 {
 		return nil
 	}
-	return r.client.Del(ctx, keys...).Err()
+	if err := r.client.Del(ctx, keys...).Err(); err != nil {
+		r.markFailed()
+		return err
+	}
+	return nil
 }
 
 // Noop is a Cache that stores nothing: every Get is a miss. It is the default

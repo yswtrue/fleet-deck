@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/cache"
@@ -59,6 +60,14 @@ func run() error {
 		}
 		c = rc
 		slog.Info("redis cache enabled", "url", url)
+		// Surface a misconfigured/down Redis immediately: the cache still
+		// degrades to Postgres, but every miss then costs a probe instead of
+		// a cache round trip.
+		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		if err := rc.Ping(pingCtx); err != nil {
+			slog.Warn("redis unreachable; cache operations will fall back to Postgres", "url", url, "err", err)
+		}
+		cancel()
 	} else {
 		slog.Info("redis cache disabled (FLEETDECK_REDIS_URL unset)")
 	}
