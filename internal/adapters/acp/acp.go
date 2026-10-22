@@ -196,8 +196,12 @@ type Adapter struct {
 
 	cancelCh   chan struct{}
 	cancelOnce sync.Once
-	finishOnce sync.Once
-	committed  atomic.Bool
+	// turnPending marks a session/prompt whose response has not arrived yet.
+	// An agent that exits while true died mid-turn: reporting done would hide
+	// the failure behind an empty transcript.
+	turnPending atomic.Bool
+	finishOnce  sync.Once
+	committed   atomic.Bool
 
 	nextID atomic.Int64
 	msgSeq atomic.Int64
@@ -701,6 +705,10 @@ func (a *Adapter) promptTurn(ctx context.Context, sink adapters.EventSink, text 
 		return err
 	}
 
+	// The turn is only finished once its response arrives (handlePromptResult
+	// clears the flag); an exit before that is a failure.
+	a.turnPending.Store(true)
+
 	// The pending entry must outlive this call: it is removed by the goroutine
 	// once the turn's response (or a terminal condition) arrives.
 	go func() {
@@ -745,6 +753,7 @@ type usageReport struct {
 }
 
 func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSink, resp rpcResponse) {
+	a.turnPending.Store(false)
 	if sink == nil {
 		return
 	}
@@ -953,6 +962,10 @@ func (a *Adapter) exitWatcher(ctx context.Context, sessionID string, sink adapte
 	}
 	if proc.waitErr != nil {
 		a.terminate(ctx, sink, fmt.Errorf("acp: agent exited: %w", proc.waitErr))
+		return
+	}
+	if a.turnPending.Load() {
+		a.terminate(ctx, sink, errors.New("acp: agent exited before finishing the turn"))
 		return
 	}
 	a.terminate(ctx, sink, nil)

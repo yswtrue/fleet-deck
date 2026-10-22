@@ -439,7 +439,8 @@ func (h *Hub) moveTaskTo(ctx context.Context, task protocol.Task, to protocol.Ta
 // Completion gate: a session that ends (done) does not finish a task whose
 // mirrored subtasks are still open — the task parks in awaiting_user instead
 // so the user can see the unfinished work and continue the session (which the
-// /send resume path reopens). Failed sessions still complete their task.
+// /send resume path reopens). A failed session marks its task failed: the
+// operator resolves it (done) or continues the conversation.
 func (h *Hub) syncTaskFromSession(ctx context.Context, sessionID string, status protocol.SessionStatus) {
 	task, err := h.store.Queries().GetTaskBySessionID(ctx, sessionID)
 	if err != nil {
@@ -480,7 +481,7 @@ func (h *Hub) reopenTaskOnResume(ctx context.Context, sessionID string) {
 	if err != nil {
 		return
 	}
-	if task.Status != protocol.TaskDone {
+	if task.Status != protocol.TaskDone && task.Status != protocol.TaskFailed {
 		return
 	}
 	h.moveTaskTo(ctx, task, protocol.TaskRunning)
@@ -523,8 +524,10 @@ func taskStatusFor(s protocol.SessionStatus) protocol.TaskStatus {
 		return protocol.TaskWaiting
 	case protocol.SessionAwaitingUser:
 		return protocol.TaskAwaitingUser
-	case protocol.SessionDone, protocol.SessionFailed:
+	case protocol.SessionDone:
 		return protocol.TaskDone
+	case protocol.SessionFailed:
+		return protocol.TaskFailed
 	default:
 		return protocol.TaskRunning
 	}

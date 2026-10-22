@@ -514,7 +514,8 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		// always allowed. Only shelved (waiting) or finished (done) tasks may
 		// be archived — in-flight states must be resolved first. Reopening a
 		// done task goes through the session resume path, never through here.
-		if *req.Archived && task.Status != protocol.TaskDone && task.Status != protocol.TaskWaiting {
+		if *req.Archived && task.Status != protocol.TaskDone && task.Status != protocol.TaskWaiting &&
+			task.Status != protocol.TaskFailed {
 			writeError(w, http.StatusConflict, "only waiting or finished tasks can be archived")
 			return
 		}
@@ -545,7 +546,7 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 
 func validTaskStatus(s protocol.TaskStatus) bool {
 	switch s {
-	case protocol.TaskWaiting, protocol.TaskRunning, protocol.TaskDone, protocol.TaskAwaitingUser:
+	case protocol.TaskWaiting, protocol.TaskRunning, protocol.TaskDone, protocol.TaskAwaitingUser, protocol.TaskFailed:
 		return true
 	default:
 		return false
@@ -568,6 +569,10 @@ func canTransitionTask(from, to protocol.TaskStatus) bool {
 		return to == protocol.TaskWaiting || to == protocol.TaskDone
 	case protocol.TaskAwaitingUser:
 		return to == protocol.TaskRunning || to == protocol.TaskDone
+	case protocol.TaskFailed:
+		// Failed work is terminal, but the operator may resolve it by hand
+		// (the board's move-to-done).
+		return to == protocol.TaskDone
 	default:
 		return false
 	}

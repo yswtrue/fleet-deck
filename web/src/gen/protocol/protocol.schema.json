@@ -669,7 +669,8 @@
             "waiting",
             "running",
             "done",
-            "awaiting_user"
+            "awaiting_user",
+            "failed"
           ]
         },
         "agent_type": {
@@ -738,7 +739,8 @@
                 "waiting",
                 "running",
                 "done",
-                "awaiting_user"
+                "awaiting_user",
+                "failed"
               ]
             },
             "agent_type": {

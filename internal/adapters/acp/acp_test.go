@@ -301,6 +301,16 @@ func TestTextDeltaMapping(t *testing.T) {
 	}
 }
 
+// An agent that exits (code 0) before answering session/prompt never ran the
+// turn; reporting Done would leave an empty transcript that looks finished.
+func TestAgentExitMidTurnIsError(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "exit-midturn"})
+	errText := rec.waitError(t)
+	if !strings.Contains(errText, "before finishing the turn") {
+		t.Fatalf("error = %q, want the mid-turn exit message", errText)
+	}
+}
+
 // Reasoning travels on its own stream, not as assistant text.
 func TestThoughtDeltaMapping(t *testing.T) {
 	_, rec := startTestAdapter(t, adapterOpts{scenario: "deltas"})
@@ -932,6 +942,9 @@ func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenar
 	case "todo":
 		fakeNotify(enc, "session/update", fakeTodoUpdate())
 		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "exit-midturn":
+		// Exit cleanly without answering session/prompt: the turn never ran.
+		os.Exit(0)
 	case "permission":
 		fakeNotify(enc, "session/update", fakeChunk("m1", "starting"))
 		fakeRequest(enc, "perm-1", "session/request_permission", fakePermissionParams())

@@ -8,7 +8,7 @@
  * `?archived=1`.
  */
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Refine } from '@refinedev/core'
@@ -203,6 +203,32 @@ describe('NewTaskForm derived title', () => {
       target: { value: 'Update the flake inputs' },
     })
     expect(title.value).toBe('Custom label')
+  })
+})
+
+describe('Board failure column', () => {
+  it('groups failed tasks with awaiting_user under "Needs attention"', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.startsWith('/api/tasks')) {
+        return Promise.resolve(
+          json([
+            createdTask({ id: 't-failed', title: 'Pi crashed', status: 'failed' }),
+            createdTask({ id: 't-done', title: 'Finished work', status: 'done' }),
+          ])
+        )
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    renderWithProviders(<Board workspaceId="w-1" nodeId="n-1" />)
+
+    const attention = await screen.findByRole('region', { name: 'Needs attention tasks' })
+    expect(within(attention).getByText('Pi crashed')).toBeTruthy()
+    expect(within(attention).queryByText('Finished work')).toBeNull()
+
+    const done = screen.getByRole('region', { name: 'Done tasks' })
+    expect(within(done).getByText('Finished work')).toBeTruthy()
+    expect(within(done).queryByText('Pi crashed')).toBeNull()
   })
 })
 

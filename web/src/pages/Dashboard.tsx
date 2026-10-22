@@ -14,7 +14,7 @@ import type { TaskStatus } from '../types.ts'
 import styles from './Dashboard.module.css'
 
 /** Statuses shown in the by-status strip, in board order. */
-const STATUSES: TaskStatus[] = ['waiting', 'running', 'awaiting_user', 'done']
+const STATUSES: TaskStatus[] = ['waiting', 'running', 'awaiting_user', 'failed', 'done']
 
 /** The local-day reporting window as RFC3339 bounds. */
 function todayWindow(): { from: string; to: string } {

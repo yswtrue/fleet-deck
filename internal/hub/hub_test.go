@@ -340,7 +340,7 @@ func TestNodeRegistrationDrivesTaskToDone(t *testing.T) {
 }
 
 // TestNodeOfflineCascadesSessions asserts that losing a node fails its
-// non-terminal sessions and completes their tasks, broadcasting both changes.
+// non-terminal sessions and their tasks, broadcasting both changes.
 func TestNodeOfflineCascadesSessions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
@@ -361,9 +361,9 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 	// The node disappears without reporting completion.
 	_ = c.Close()
 
-	var sawSessionFailed, sawTaskDone bool
+	var sawSessionFailed, sawTaskFailed bool
 	timeout := time.After(3 * time.Second)
-	for !sawSessionFailed || !sawTaskDone {
+	for !sawSessionFailed || !sawTaskFailed {
 		select {
 		case evt, ok := <-events:
 			if !ok {
@@ -377,12 +377,12 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 			}
 			if evt.Type == protocol.EvTaskStatusChanged {
 				if tc, ok := evt.Data.(protocol.TaskStatusChanged); ok &&
-					tc.TaskID == task.ID && tc.To == protocol.TaskDone {
-					sawTaskDone = true
+					tc.TaskID == task.ID && tc.To == protocol.TaskFailed {
+					sawTaskFailed = true
 				}
 			}
 		case <-timeout:
-			t.Fatalf("timed out waiting for cascade: sawSessionFailed=%v sawTaskDone=%v", sawSessionFailed, sawTaskDone)
+			t.Fatalf("timed out waiting for cascade: sawSessionFailed=%v sawTaskFailed=%v", sawSessionFailed, sawTaskFailed)
 		}
 	}
 
@@ -392,8 +392,8 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 		t.Fatalf("session status = %q (err %v), want failed", sess.Status, err)
 	}
 	got, err := st.Queries().GetTask(ctx, task.ID)
-	if err != nil || got.Status != protocol.TaskDone {
-		t.Fatalf("task status = %q (err %v), want done", got.Status, err)
+	if err != nil || got.Status != protocol.TaskFailed {
+		t.Fatalf("task status = %q (err %v), want failed", got.Status, err)
 	}
 }
 

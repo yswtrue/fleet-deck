@@ -21,7 +21,8 @@
   "column": {
     "region": "{{status}}任务",
     "count": "{{count}} 个任务",
-    "empty": "暂无任务"
+    "empty": "暂无任务",
+    "attention": "待处理"
   },
   "card": {
     "aria": "任务 {{title}}，状态 {{status}}",

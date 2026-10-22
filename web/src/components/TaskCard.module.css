@@ -64,6 +64,12 @@
   border-color: var(--status-awaiting-border);
 }
 
+.statusChip[data-status='failed'] {
+  background: var(--status-failed-bg);
+  color: var(--status-failed-text);
+  border-color: var(--status-failed-border);
+}
+
 .statusChip[data-status='done'] {
   background: var(--status-done-bg);
   color: var(--status-done-text);

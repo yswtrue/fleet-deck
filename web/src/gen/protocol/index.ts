@@ -165,7 +165,7 @@ export interface Task {
   workspace_id: string;
   title: string;
   prompt?: string;
-  status: "waiting" | "running" | "done" | "awaiting_user";
+  status: "waiting" | "running" | "done" | "awaiting_user" | "failed";
   agent_type: string;
   session_id?: string;
   sort_order: number;

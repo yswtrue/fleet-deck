@@ -16,6 +16,9 @@ const (
 	TaskRunning      TaskStatus = "running"
 	TaskDone         TaskStatus = "done"
 	TaskAwaitingUser TaskStatus = "awaiting_user"
+	// TaskFailed is terminal like done, but the session stopped on an error
+	// (agent crash, node offline cascade) and needs the operator's attention.
+	TaskFailed TaskStatus = "failed"
 )
 
 // SessionStatus mirrors the state of the underlying agent session.
@@ -93,7 +96,7 @@ type Task struct {
 	WorkspaceID string     `json:"workspace_id"`
 	Title       string     `json:"title"`
 	Prompt      string     `json:"prompt,omitempty"`
-	Status      TaskStatus `json:"status" jsonschema:"enum=waiting,enum=running,enum=done,enum=awaiting_user"`
+	Status      TaskStatus `json:"status" jsonschema:"enum=waiting,enum=running,enum=done,enum=awaiting_user,enum=failed"`
 	AgentType   string     `json:"agent_type"`
 	SessionID   string     `json:"session_id,omitempty"`
 	SortOrder   int        `json:"sort_order"`

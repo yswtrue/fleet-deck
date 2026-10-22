@@ -93,7 +93,8 @@ export function TaskCard({
   // Waiting tasks act through Start (dispatch) and Archive (shelve); the hub
   // rejects any manual status move from waiting.
   const canStart = task.status === 'waiting' && !task.session_id
-  const canArchive = (task.status === 'done' || task.status === 'waiting') && !isArchived
+  const canArchive =
+    (task.status === 'done' || task.status === 'failed' || task.status === 'waiting') && !isArchived
 
   const openSession = () => {
     if (task.session_id) {

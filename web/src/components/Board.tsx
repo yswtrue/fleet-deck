@@ -2,15 +2,25 @@ import { useEffect, useState } from 'react'
 import { Button, Input, Spin, message } from 'antd'
 import styles from './Board.module.css'
 import { Column } from './Column.tsx'
+import type { BoardColumn } from './Column.tsx'
 import { NewTaskForm } from './NewTaskForm.tsx'
 import { LoadingSkeleton } from './LoadingSkeleton.tsx'
 import { ErrorState } from './ErrorState.tsx'
 import { EmptyState } from './EmptyState.tsx'
 import { useTaskBoard } from '../hooks/useTaskBoard.ts'
 import { useTranslation } from '../i18n/index.ts'
-import type { Task } from '../types.ts'
 
-const COLUMNS: Task['status'][] = ['waiting', 'running', 'awaiting_user', 'done']
+const COLUMNS: BoardColumn[] = [
+  { key: 'waiting', statuses: ['waiting'], dot: 'waiting' },
+  { key: 'running', statuses: ['running'], dot: 'running' },
+  {
+    key: 'attention',
+    statuses: ['awaiting_user', 'failed'],
+    dot: 'awaiting_user',
+    titleKey: 'column.attention',
+  },
+  { key: 'done', statuses: ['done'], dot: 'done' },
+]
 
 export function Board({ workspaceId, nodeId }: { workspaceId: string; nodeId: string }) {
   const { t } = useTranslation('board')
@@ -89,11 +99,11 @@ export function Board({ workspaceId, nodeId }: { workspaceId: string; nodeId: st
         )
       ) : (
         <div className={styles.columns}>
-          {COLUMNS.map((status) => (
+          {COLUMNS.map((column) => (
             <Column
-              key={status}
-              status={status}
-              tasks={tasks.filter((t) => t.status === status)}
+              key={column.key}
+              column={column}
+              tasks={tasks.filter((t) => column.statuses.includes(t.status))}
               subtasksByTask={subtasksByTask}
               messageApi={messageApi}
             />

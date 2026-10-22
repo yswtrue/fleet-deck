@@ -122,8 +122,8 @@ describe('Dashboard', () => {
     // Each section is awaited in turn so both queries have landed.
     expect(await screen.findByText('Created')).toBeTruthy()
     expect(await screen.findByText('No usage recorded yet')).toBeTruthy()
-    // 2 task cards + 4 status counts + 4 token tiles, all zero.
-    expect(screen.getAllByTitle('0')).toHaveLength(10)
+    // 2 task cards + 5 status counts + 4 token tiles, all zero.
+    expect(screen.getAllByTitle('0')).toHaveLength(11)
     expect(screen.queryByText('gpt-x')).toBeNull()
   })
 })

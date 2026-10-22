@@ -150,6 +150,7 @@ export const TASK_STATUS_TRANSITIONS: Record<Task['status'], Task['status'][]> =
   running: ['waiting', 'done'],
   awaiting_user: ['running', 'done'],
   done: [],
+  failed: ['done'],
 }
 
 /**

@@ -21,7 +21,8 @@
   "column": {
     "region": "{{status}} tasks",
     "count": "{{count}} tasks",
-    "empty": "Nothing here yet"
+    "empty": "Nothing here yet",
+    "attention": "Needs attention"
   },
   "card": {
     "aria": "Task {{title}}, status {{status}}",
