@@ -72,11 +72,16 @@ services:
       # endpoint node daemons dial (ws://host:<FLEETDECK_HUB_PORT>/ws/node).
       - '${FLEETDECK_HUB_PORT:?set in .env}:${FLEETDECK_HUB_PORT:?set in .env}'
     labels:
+      # Public hostname for the bundled Traefik (profile `traefik`). Set
+      # FLEETDECK_PUBLIC_HOST in .env to serve a real domain; the default keeps
+      # the route localhost-only so a shared ingress never gets a catch-all.
+      # Behind an external Traefik, attach the hub to that proxy's network and
+      # set traefik.docker.network there (docs/DEPLOYMENT.md).
       traefik.enable: 'true'
-      traefik.http.routers.hub.rule: 'PathPrefix(`/`)'
+      traefik.http.routers.hub.rule: 'Host(`${FLEETDECK_PUBLIC_HOST:-localhost}`)'
       traefik.http.routers.hub.entrypoints: 'web'
       traefik.http.routers.hub.service: 'hub'
-      traefik.http.routers.hub-secure.rule: 'PathPrefix(`/`)'
+      traefik.http.routers.hub-secure.rule: 'Host(`${FLEETDECK_PUBLIC_HOST:-localhost}`)'
       traefik.http.routers.hub-secure.entrypoints: 'websecure'
       traefik.http.routers.hub-secure.tls: 'true'
       traefik.http.routers.hub-secure.service: 'hub'

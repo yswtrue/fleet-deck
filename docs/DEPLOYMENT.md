@@ -30,9 +30,12 @@ Optional ingress with Traefik (label-discovered routes, ports 80/443) — it is
 **off by default** and enabled with the `traefik` profile:
 
 ```sh
+# .env: the hostname the ingress serves (DNS must point at this box).
+# Unset => Host(localhost) only.
+FLEETDECK_PUBLIC_HOST=deck.example.com
 docker compose --profile traefik up -d
-# UI + API + WS:   http://localhost:80 / https://localhost:443 (self-signed
-#                  until a certificate resolver is configured)
+# UI + API + WS:   http(s)://$FLEETDECK_PUBLIC_HOST (self-signed on :443 until
+#                  a certificate resolver is configured)
 ```
 
 Open the UI, sign in, then add a node under **Nodes → Add node**: the dialog
@@ -61,8 +64,40 @@ traefik:   browser ── http(s)://host:80,443 ──▶ traefik ──▶ hub
  (profile)          (labels on the hub container pick the routes up)
 ```
 
-With the `traefik` profile, edit the `traefik.http.routers.*` labels on the
-`hub` service in `docker-compose.yml` to change routing.
+Both routers match `Host(\`${FLEETDECK_PUBLIC_HOST:-localhost}\`)`, so:
+
+- **domain** — set `FLEETDECK_PUBLIC_HOST` (DNS → this host); the bundled
+  Traefik serves it on :80 (redirects to :443) and :443;
+- **IP / LAN access** — keep using the published port
+  (`http://<host>:${FLEETDECK_HUB_PORT}`); there is deliberately no catch-all
+  router, so a shared ingress is never hijacked by this stack.
+
+### Behind an existing (external) Traefik
+
+Reuse a Traefik you already run instead of the bundled one: attach the hub to
+that proxy's network and point `traefik.docker.network` there, keeping the
+`Host(...)` rule from the labels above. An override file is enough:
+
+```yaml
+# docker-compose.external-traefik.yml
+services:
+  hub:
+    networks: [default, traefik-network]
+    labels:
+      traefik.docker.network: 'traefik-network'
+      traefik.http.routers.hub-secure.tls.certresolver: 'letsencrypt' # your resolver
+networks:
+  traefik-network:
+    external: true
+```
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.external-traefik.yml up -d
+# or set COMPOSE_FILE=docker-compose.yml:docker-compose.external-traefik.yml in .env
+```
+
+The published hub port stays available for node daemons, so `ws://<host>:<port>/ws/node`
+works even when the proxy is down.
 
 ### Hosting the SPA on any static server
 
