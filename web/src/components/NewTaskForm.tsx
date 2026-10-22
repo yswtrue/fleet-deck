@@ -91,22 +91,22 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
           rules={[{ required: true, whitespace: true, message: t('form.agentRequired') }]}
           extra={t('form.agentHelp')}
         >
-          <div
+          {/* The AutoComplete must be Form.Item's direct child: a wrapper
+              element swallows the injected value/onChange, so a click on a
+              suggestion would never reach the form store. */}
+          <AutoComplete
+            options={AGENT_TYPE_SUGGESTIONS}
+            placeholder={t('form.agentPlaceholder')}
+            onOpenChange={(open) => {
+              agentMenuOpenRef.current = open
+            }}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || event.shiftKey || agentMenuOpenRef.current) return
               event.preventDefault()
               void form.submit()
             }}
-          >
-            <AutoComplete
-              options={AGENT_TYPE_SUGGESTIONS}
-              placeholder={t('form.agentPlaceholder')}
-              onOpenChange={(open) => {
-                agentMenuOpenRef.current = open
-              }}
-              style={{ width: '100%' }}
-            />
-          </div>
+            style={{ width: '100%' }}
+          />
         </Form.Item>
       </Form>
     </Modal>

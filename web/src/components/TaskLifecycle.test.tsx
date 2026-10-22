@@ -87,6 +87,32 @@ describe('NewTaskForm auto_start toggle', () => {
   })
 })
 
+describe('NewTaskForm agent type', () => {
+  it('submits the agent picked in the suggestion list', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(json(createdTask())))
+    renderWithProviders(<NewTaskForm workspaceId="w-1" onClose={() => {}} />)
+
+    fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
+      target: { value: 'Run with omp' },
+    })
+    // The agent field is an AutoComplete: picking a suggestion must reach the
+    // POST body. It previously lived inside a wrapper <div>, so Form.Item never
+    // received the value and every task fell back to the `fake` default.
+    const agentInput = screen.getByRole('combobox')
+    // Open the list and pick an option without typing: a selection alone fires
+    // no bubbling `change` event, which is how the wrapper <div> used to lose
+    // the value (leaving the `fake` initialValue in the form store).
+    fireEvent.mouseDown(agentInput)
+    fireEvent.click(await screen.findByTitle('omp'))
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/tasks')
+    expect(JSON.parse(String(init?.body))).toMatchObject({ agent_type: 'omp' })
+  })
+})
+
 describe('Board archived filter', () => {
   it('refetches with ?archived=1 when "Show archived" is toggled', async () => {
     fetchMock.mockImplementation((input: unknown) => {
