@@ -200,8 +200,13 @@ type Adapter struct {
 	// An agent that exits while true died mid-turn: reporting done would hide
 	// the failure behind an empty transcript.
 	turnPending atomic.Bool
-	finishOnce  sync.Once
-	committed   atomic.Bool
+	// turnActivity is set by any meaningful update of the current turn (text,
+	// reasoning, todos, tool calls). A turn that ends with none of them is a
+	// failure, not a quiet success: pi-acp, for example, returns end_turn with
+	// nothing when its model is misconfigured.
+	turnActivity atomic.Bool
+	finishOnce   sync.Once
+	committed    atomic.Bool
 
 	nextID atomic.Int64
 	msgSeq atomic.Int64
@@ -706,8 +711,10 @@ func (a *Adapter) promptTurn(ctx context.Context, sink adapters.EventSink, text 
 	}
 
 	// The turn is only finished once its response arrives (handlePromptResult
-	// clears the flag); an exit before that is a failure.
+	// clears the flag); an exit before that is a failure. Its activity flag
+	// starts empty so a silent turn can be detected at the end.
 	a.turnPending.Store(true)
+	a.turnActivity.Store(false)
 
 	// The pending entry must outlive this call: it is removed by the goroutine
 	// once the turn's response (or a terminal condition) arrives.
@@ -775,7 +782,17 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 		})
 	}
 	switch res.StopReason {
-	case "end_turn", "cancelled", "":
+	case "end_turn", "":
+		// A turn that reported usage did run the model even when it produced
+		// no text (tool-only or resumed turns); only a turn with no output,
+		// no activity and no usage is a failure.
+		hadOutput := a.emitFinalMessage(ctx, sink) || a.turnActivity.Load() || res.Usage != nil
+		if !hadOutput {
+			a.terminate(ctx, sink, errors.New("acp: agent finished the turn without producing any output"))
+			return
+		}
+		a.terminate(ctx, sink, nil)
+	case "cancelled":
 		a.emitFinalMessage(ctx, sink)
 		a.terminate(ctx, sink, nil)
 	case "refusal", "max_tokens", "max_turn_requests":
@@ -896,6 +913,7 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 	switch p.Update.SessionUpdate {
 	case "agent_message_chunk":
 		if text := p.Update.Content.Text; text != "" {
+			a.turnActivity.Store(true)
 			if a.replayAsm != nil {
 				a.replayAsm.chunk(p.Update.MessageID, protocol.RoleAssistant, text)
 				return
@@ -919,6 +937,7 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 		// rebuilds it as a `thinking` history message — the agent's own store
 		// is the durable copy.
 		if text := p.Update.Content.Text; text != "" {
+			a.turnActivity.Store(true)
 			if a.replayAsm != nil {
 				a.replayAsm.chunk(p.Update.MessageID, protocol.RoleThinking, text)
 				return
@@ -929,9 +948,11 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 		}
 	case "plan":
 		if todos := parsePlan(p.Update.Entries); len(todos) > 0 && sink != nil {
+			a.turnActivity.Store(true)
 			sink.TodoUpdate(ctx, sessionID, todos)
 		}
 	case "tool_call", "tool_call_update":
+		a.turnActivity.Store(true)
 		if todos := parseTodoToolCall(p.Update.Title, p.Update.RawInput); len(todos) > 0 && sink != nil {
 			sink.TodoUpdate(ctx, sessionID, todos)
 		}
@@ -1037,16 +1058,18 @@ func (a *Adapter) appendText(text string) {
 
 // emitFinalMessage flushes the accumulated agent text as one assistant
 // Message and resets the accumulator for the next turn.
-func (a *Adapter) emitFinalMessage(ctx context.Context, sink adapters.EventSink) {
+// emitFinalMessage flushes the accumulated agent text as one assistant
+// Message and reports whether anything was sent.
+func (a *Adapter) emitFinalMessage(ctx context.Context, sink adapters.EventSink) bool {
 	if sink == nil {
-		return
+		return false
 	}
 	a.accMu.Lock()
 	content := a.acc.String()
 	a.acc.Reset()
 	a.accMu.Unlock()
 	if strings.TrimSpace(content) == "" {
-		return
+		return false
 	}
 	sessionID := a.currentSessionID()
 	sink.Message(ctx, sessionID, protocol.Message{
@@ -1056,6 +1079,7 @@ func (a *Adapter) emitFinalMessage(ctx context.Context, sink adapters.EventSink)
 		Content:   content,
 		CreatedAt: time.Now().UTC(),
 	})
+	return true
 }
 
 func (a *Adapter) currentSessionID() string {

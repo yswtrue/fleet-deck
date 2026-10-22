@@ -301,6 +301,15 @@ func TestTextDeltaMapping(t *testing.T) {
 	}
 }
 
+// end_turn with no observable output is a failure, not a quiet success.
+func TestTurnWithoutOutputIsError(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "empty-turn"})
+	errText := rec.waitError(t)
+	if !strings.Contains(errText, "without producing any output") {
+		t.Fatalf("error = %q, want the empty-turn message", errText)
+	}
+}
+
 // An agent that exits (code 0) before answering session/prompt never ran the
 // turn; reporting Done would leave an empty transcript that looks finished.
 func TestAgentExitMidTurnIsError(t *testing.T) {
@@ -942,6 +951,10 @@ func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenar
 	case "todo":
 		fakeNotify(enc, "session/update", fakeTodoUpdate())
 		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "empty-turn":
+		// A "successful" turn with no text, todos or tool activity — what
+		// pi-acp returns when its model is misconfigured.
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
 	case "exit-midturn":
 		// Exit cleanly without answering session/prompt: the turn never ran.
 		os.Exit(0)
@@ -1008,6 +1021,8 @@ func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenar
 	case "wait":
 		// Never answer: the adapter must cancel and kill us.
 	default:
+		// A real agent answers; the empty-turn case has its own scenario.
+		fakeNotify(enc, "session/update", fakeChunk("m1", "resumed"))
 		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
 	}
 }
