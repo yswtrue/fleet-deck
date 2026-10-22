@@ -523,3 +523,26 @@ func TestTaskPromptIsRequired(t *testing.T) {
 		t.Fatalf("start without prompt = %d %s, want 400", resp.StatusCode, raw)
 	}
 }
+
+func TestCreateTaskDerivesTitleFromPrompt(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	node := seedNode(t, st, uniqueName("hub-it-title"))
+	workspace := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": node.ID,
+		"name":    uniqueName("it-ws"),
+		"path":    "/tmp/it-ws",
+	})
+
+	task := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": workspace.ID,
+		"prompt":       "  Update the flake inputs\nand rebuild  ",
+		"agent_type":   "fake",
+	})
+	if task.Title != "Update the flake inputs" {
+		t.Fatalf("title = %q, want the first prompt line", task.Title)
+	}
+}

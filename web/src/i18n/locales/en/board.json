@@ -58,7 +58,6 @@
     "title": "New task",
     "titleLabel": "Title",
     "titlePlaceholder": "What should the agent do?",
-    "titleRequired": "Please enter a title",
     "promptLabel": "Prompt",
     "promptPlaceholder": "Describe the task in detail…",
     "agentLabel": "Agent type",
@@ -67,7 +66,8 @@
     "agentHelp": "Known agents: fake, opencode, codex, claude, pi, omp",
     "autoStartLabel": "Start immediately",
     "autoStartHelp": "Off creates a backlog task: it waits until you start it.",
-    "promptRequired": "Please describe what the agent should do"
+    "promptRequired": "Please describe what the agent should do",
+    "titleHelp": "Leave empty to use the first line of the prompt."
   },
   "subtask": {
     "progress": "{{done}} of {{total}} subtasks done",

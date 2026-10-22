@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -2045,5 +2046,21 @@ func TestUserInputPromptStaysOutOfEventStream(t *testing.T) {
 			t.Fatalf("pending input never reached the session snapshot (got %q)", snap.PendingInput)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// The title is only the board label: the API derives it from the prompt when a
+// caller omits it.
+func TestTaskTitleFromPrompt(t *testing.T) {
+	cases := []struct{ prompt, want string }{
+		{"update flake inputs", "update flake inputs"},
+		{"\n\n  first line\nsecond line", "first line"},
+		{strings.Repeat("あ", 100), strings.Repeat("あ", 80) + "…"},
+		{"   \n\t\n", ""},
+	}
+	for _, c := range cases {
+		if got := taskTitleFromPrompt(c.prompt); got != c.want {
+			t.Fatalf("taskTitleFromPrompt(%q) = %q, want %q", c.prompt, got, c.want)
+		}
 	}
 }

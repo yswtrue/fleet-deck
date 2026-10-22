@@ -58,7 +58,6 @@
     "title": "新建任务",
     "titleLabel": "标题",
     "titlePlaceholder": "要让智能体做什么？",
-    "titleRequired": "请输入标题",
     "promptLabel": "提示词",
     "promptPlaceholder": "详细描述这个任务……",
     "agentLabel": "Agent 类型",
@@ -67,7 +66,8 @@
     "agentHelp": "已知 agent：fake、opencode、codex、claude、pi、omp",
     "autoStartLabel": "立即启动",
     "autoStartHelp": "关闭则创建为待办任务：等待你手动启动。",
-    "promptRequired": "请描述要让 agent 做什么"
+    "promptRequired": "请描述要让 agent 做什么",
+    "titleHelp": "留空则使用 Prompt 的第一行。"
   },
   "subtask": {
     "progress": "{{total}} 个子任务中已完成 {{done}} 个",

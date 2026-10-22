@@ -3,6 +3,7 @@ import { Modal, Form, Input, Button, AutoComplete, Switch } from 'antd'
 import { useQueryClient } from '@tanstack/react-query'
 import { useForm } from '@refinedev/antd'
 import { useTranslation } from '../i18n/index.ts'
+import { deriveTaskTitle } from '../taskTitle.ts'
 
 interface NewTaskFormProps {
   workspaceId: string
@@ -36,6 +37,8 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
   // While the agent-type suggestion list is open, Enter picks the highlighted
   // suggestion instead of submitting the form.
   const agentMenuOpenRef = useRef(false)
+  // Once the operator edits the title, stop mirroring the prompt into it.
+  const titleEditedRef = useRef(false)
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -63,6 +66,15 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
         {...formProps}
         layout="vertical"
         initialValues={{ agent_type: 'fake', auto_start: true }}
+        onValuesChange={(changed: Record<string, unknown>) => {
+          if ('title' in changed) {
+            titleEditedRef.current = true
+            return
+          }
+          if ('prompt' in changed && !titleEditedRef.current) {
+            form.setFieldValue('title', deriveTaskTitle(String(changed.prompt ?? '')))
+          }
+        }}
       >
         <Form.Item
           label={t('form.autoStartLabel')}
@@ -75,11 +87,7 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
         <Form.Item name="workspace_id" initialValue={workspaceId} hidden>
           <Input />
         </Form.Item>
-        <Form.Item
-          label={t('form.titleLabel')}
-          name="title"
-          rules={[{ required: true, whitespace: true, message: t('form.titleRequired') }]}
-        >
+        <Form.Item label={t('form.titleLabel')} name="title" extra={t('form.titleHelp')}>
           <Input placeholder={t('form.titlePlaceholder')} onPressEnter={() => void form.submit()} />
         </Form.Item>
         {/* Required: a task without an instruction opens an agent session that

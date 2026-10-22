@@ -329,6 +329,25 @@ func (h *Hub) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
+// taskTitleFromPrompt derives a board label from the prompt: the first
+// non-empty line, capped at maxTaskTitle runes. It is what the web form
+// pre-fills and what the API falls back to when a caller omits the title.
+func taskTitleFromPrompt(prompt string) string {
+	const maxTaskTitle = 80
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		runes := []rune(line)
+		if len(runes) > maxTaskTitle {
+			return string(runes[:maxTaskTitle]) + "\u2026"
+		}
+		return line
+	}
+	return ""
+}
+
 func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		WorkspaceID string `json:"workspace_id"`
@@ -343,8 +362,8 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if req.WorkspaceID == "" || req.Title == "" {
-		writeError(w, http.StatusBadRequest, "workspace_id and title are required")
+	if req.WorkspaceID == "" {
+		writeError(w, http.StatusBadRequest, "workspace_id is required")
 		return
 	}
 	if req.AgentType == "" {
@@ -363,6 +382,11 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Prompt) == "" {
 		writeError(w, http.StatusBadRequest, "prompt is required: the agent needs an instruction")
 		return
+	}
+	// The prompt is the instruction; the title is only the board label, so
+	// derive it when the caller left it out instead of rejecting the task.
+	if strings.TrimSpace(req.Title) == "" {
+		req.Title = taskTitleFromPrompt(req.Prompt)
 	}
 	autoStart := true
 	if req.AutoStart != nil {

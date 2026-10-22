@@ -119,6 +119,36 @@ describe('NewTaskForm agent type', () => {
   })
 })
 
+describe('NewTaskForm derived title', () => {
+  it('fills the title from the prompt and submits it', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(json(createdTask())))
+    renderWithProviders(<NewTaskForm workspaceId="w-1" onClose={() => {}} />)
+
+    fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
+      target: { value: 'Update the flake inputs\n\nand rebuild' },
+    })
+    const title = screen.getByPlaceholderText('What should the agent do?') as HTMLInputElement
+    expect(title.value).toBe('Update the flake inputs')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    expect(body).toMatchObject({ title: 'Update the flake inputs' })
+  })
+
+  it('stops mirroring the prompt once the title is edited', async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(json(createdTask())))
+    renderWithProviders(<NewTaskForm workspaceId="w-1" onClose={() => {}} />)
+
+    const title = screen.getByPlaceholderText('What should the agent do?') as HTMLInputElement
+    fireEvent.change(title, { target: { value: 'Custom label' } })
+    fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
+      target: { value: 'Update the flake inputs' },
+    })
+    expect(title.value).toBe('Custom label')
+  })
+})
+
 describe('Board archived filter', () => {
   it('refetches with ?archived=1 when "Show archived" is toggled', async () => {
     fetchMock.mockImplementation((input: unknown) => {
