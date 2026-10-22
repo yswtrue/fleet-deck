@@ -20,12 +20,13 @@ import (
 // ---- recording sink --------------------------------------------------------
 
 type recEvent struct {
-	kind   string
-	text   string
-	todos  []protocol.Todo
-	status protocol.SessionStatus
-	prompt string
-	tokens adapters.Usage
+	kind    string
+	text    string
+	content string
+	todos   []protocol.Todo
+	status  protocol.SessionStatus
+	prompt  string
+	tokens  adapters.Usage
 }
 
 type recorder struct {
@@ -70,8 +71,8 @@ func (r *recorder) TextDelta(_ context.Context, _ string, text string) {
 	}
 }
 
-func (r *recorder) Message(_ context.Context, _ string, _ protocol.Message) {
-	r.record(recEvent{kind: "message"})
+func (r *recorder) Message(_ context.Context, _ string, msg protocol.Message) {
+	r.record(recEvent{kind: "message", content: msg.Content})
 }
 
 func (r *recorder) TodoUpdate(_ context.Context, _ string, todos []protocol.Todo) {
@@ -226,6 +227,18 @@ func (r *recorder) texts() []string {
 	for _, e := range r.events {
 		if e.kind == "text_delta" {
 			out = append(out, e.text)
+		}
+	}
+	return out
+}
+
+func (r *recorder) messages() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, e := range r.events {
+		if e.kind == "message" {
+			out = append(out, e.content)
 		}
 	}
 	return out
@@ -717,6 +730,60 @@ func TestSessionResume(t *testing.T) {
 	rec.waitDone(t)
 }
 
+// A live resume reattaches with session/load, which replays the whole history
+// before the response. That replay is not this turn's output: it must not
+// stream into the delta or be flushed into the assistant message.
+func TestSessionResumeIgnoresReplayedHistory(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "load-replay", resume: "agent-sess-loaded"})
+	rec.waitDone(t)
+
+	if got := strings.Join(rec.texts(), ""); got != "new answer" {
+		t.Fatalf("streamed text = %q, want %q", got, "new answer")
+	}
+	if got := strings.Join(rec.thoughts(), ""); got != "" {
+		t.Fatalf("streamed thoughts = %q, want none", got)
+	}
+	msgs := rec.messages()
+	if len(msgs) != 1 || msgs[0] != "new answer" {
+		t.Fatalf("messages = %v, want [new answer]", msgs)
+	}
+}
+
+// The history proxy still collects the same session/load replay through the
+// replay assembler.
+func TestReplaySessionCollectsLoadHistory(t *testing.T) {
+	a := New("test")
+	a.cfg = agentConfig{
+		command: testBinary(t),
+		args:    []string{"-test.run=TestFakeACPAgent"},
+		env:     []string{"FLEETDECK_FAKE_ACP=1", "FLEETDECK_FAKE_ACP_SCENARIO=load-replay"},
+	}
+	msgs, err := a.ReplaySession(context.Background(), adapters.ReplayRequest{
+		SessionID:         "sess-1",
+		ExternalSessionID: "agent-sess-loaded",
+		WorkspacePath:     t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("ReplaySession: %v", err)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("replayed = %d messages, want 3: %+v", len(msgs), msgs)
+	}
+	want := []struct {
+		role    protocol.MessageRole
+		content string
+	}{
+		{protocol.RoleUser, "old question"},
+		{protocol.RoleThinking, "old reasoning"},
+		{protocol.RoleAssistant, "old answer"},
+	}
+	for i, w := range want {
+		if msgs[i].Role != w.role || msgs[i].Content != w.content {
+			t.Fatalf("replayed[%d] = {%s,%q}, want {%s,%q}", i, msgs[i].Role, msgs[i].Content, w.role, w.content)
+		}
+	}
+}
+
 func TestBinaryNotFound(t *testing.T) {
 	a := New("codex")
 	a.cfg = agentConfig{command: "definitely-not-a-real-acp-agent-xyz"}
@@ -942,6 +1009,13 @@ func runFakeAgent(scenario string) {
 				fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-1"})
 			}
 		case "session/load":
+			if scenario == "load-replay" {
+				// ACP requires the whole conversation to be replayed before the
+				// load response; a live resume must treat this as history.
+				fakeNotify(enc, "session/update", fakeUserChunk("u-old", "old question"))
+				fakeNotify(enc, "session/update", fakeThought("t-old", "old reasoning"))
+				fakeNotify(enc, "session/update", fakeChunk("a-old", "old answer"))
+			}
 			fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-loaded"})
 		case "session/prompt":
 			fakePrompt(enc, dec, msg.ID, scenario)
@@ -953,6 +1027,9 @@ func runFakeAgent(scenario string) {
 
 func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenario string) {
 	switch scenario {
+	case "load-replay":
+		fakeNotify(enc, "session/update", fakeChunk("a-new", "new answer"))
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
 	case "deltas":
 		fakeNotify(enc, "session/update", fakeThought("m1", "planning the answer"))
 		fakeNotify(enc, "session/update", fakeChunk("m1", "Hello"))
@@ -1107,6 +1184,14 @@ func fakeThought(messageID, text string) map[string]any {
 func fakeChunk(messageID, text string) map[string]any {
 	return map[string]any{"sessionId": "agent-sess-1", "update": map[string]any{
 		"sessionUpdate": "agent_message_chunk",
+		"messageId":     messageID,
+		"content":       map[string]any{"type": "text", "text": text},
+	}}
+}
+
+func fakeUserChunk(messageID, text string) map[string]any {
+	return map[string]any{"sessionId": "agent-sess-1", "update": map[string]any{
+		"sessionUpdate": "user_message_chunk",
 		"messageId":     messageID,
 		"content":       map[string]any{"type": "text", "text": text},
 	}}

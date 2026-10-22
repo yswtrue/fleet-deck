@@ -228,6 +228,12 @@ type Adapter struct {
 	// to the history assembler instead of the live event path (see replay.go).
 	// It is write-once per adapter instance, before the read loop starts.
 	replayAsm *replayAssembler
+	// loading marks the session/load window of a live resume. ACP replays the
+	// whole conversation as session/update notifications before the load
+	// response; that is history, not this turn's output, so it must not reach
+	// the sink or the turn accumulator. (The history proxy sets replayAsm
+	// instead, collecting the same chunks.)
+	loading atomic.Bool
 }
 
 var _ adapters.Adapter = (*Adapter)(nil)
@@ -353,11 +359,17 @@ func (a *Adapter) openSession(ctx context.Context, workspace string) (string, er
 	}
 
 	if a.ResumeSessionID != "" {
+		// The agent replays the conversation before answering session/load.
+		// Those chunks are history the client already has (the hub serves it
+		// through the history proxy), so they must not be mistaken for this
+		// turn's output.
+		a.loading.Store(true)
 		raw, err := a.call(ctx, "session/load", sessionLoadParams{
 			SessionID:  a.ResumeSessionID,
 			Cwd:        workspace,
 			MCPServers: servers,
 		})
+		a.loading.Store(false)
 		if err != nil {
 			return "", fmt.Errorf("acp: session/load: %w", err)
 		}
@@ -914,6 +926,11 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 	}
 	var p sessionUpdateParams
 	if json.Unmarshal(msg.Params, &p) != nil {
+		return
+	}
+	// Session history replayed by session/load during a live resume is not
+	// live output. The history proxy collects it via replayAsm instead.
+	if a.replayAsm == nil && a.loading.Load() {
 		return
 	}
 

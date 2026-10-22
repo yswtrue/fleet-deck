@@ -63,24 +63,49 @@ func (h *Hub) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, limitMessages(buf.Messages, limit))
 }
 
-// mergeHistory appends buffered messages the replay does not contain. The
-// replay wins on order and identity; buffered rows are matched by role and
-// content because the two sources mint different ids.
+// mergeHistory combines the agent's replay with the hub's live buffer without
+// losing either source's chronology. The two lists are aligned on role+content
+// (the sources mint different ids); buffered matches yield to the replay row,
+// and a buffered row the replay lacks is emitted at its buffer position
+// relative to the surrounding matches. Appending those rows at the end — the
+// previous behavior — put a startup banner or a live-only message after the
+// answer it preceded, and put an earlier agent-side session after a newer one.
 func mergeHistory(replay, buffered []protocol.Message) []protocol.Message {
-	seen := make(map[string]bool, len(replay))
-	for _, m := range replay {
-		seen[string(m.Role)+"\x00"+m.Content] = true
+	// anchor[i] is buffered[i]'s replay index, or -1 when the replay lacks it.
+	// Matching is monotonic: a repeated message pairs with the next replay
+	// occurrence, so identical turns keep their order.
+	anchor := make([]int, len(buffered))
+	next := 0
+	for i, m := range buffered {
+		anchor[i] = -1
+		key := messageKey(m)
+		for j := next; j < len(replay); j++ {
+			if messageKey(replay[j]) == key {
+				anchor[i] = j
+				next = j + 1
+				break
+			}
+		}
 	}
-	out := replay
-	for _, m := range buffered {
-		key := string(m.Role) + "\x00" + m.Content
-		if seen[key] {
+
+	out := make([]protocol.Message, 0, len(replay)+len(buffered))
+	ri := 0
+	for i, m := range buffered {
+		if anchor[i] < 0 {
+			out = append(out, m)
 			continue
 		}
-		seen[key] = true
-		out = append(out, m)
+		out = append(out, replay[ri:anchor[i]]...)
+		out = append(out, replay[anchor[i]])
+		ri = anchor[i] + 1
 	}
-	return out
+	return append(out, replay[ri:]...)
+}
+
+// messageKey identifies a message across the two history sources, which do not
+// share ids.
+func messageKey(m protocol.Message) string {
+	return string(m.Role) + "\x00" + m.Content
 }
 
 // limitMessages applies the endpoint's limit semantics: up to limit messages,
