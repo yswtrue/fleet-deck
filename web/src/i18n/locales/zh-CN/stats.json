@@ -20,6 +20,7 @@
   "table": {
     "model": "模型",
     "prompt": "提示",
+    "cache": "缓存（读取 / 命中）",
     "completion": "补全",
     "total": "总计",
     "turns": "轮次"
@@ -31,6 +32,8 @@
   "session": {
     "title": "Token 用量",
     "empty": "暂无用量",
-    "line": "{{model}} · 输入 {{prompt}} / 输出 {{completion}} / 总计 {{total}}"
+    "line": "{{model}} · 输入 {{prompt}} / 输出 {{completion}} / 总计 {{total}}",
+    "cacheLine": "缓存读取 {{read}} / 写入 {{write}} · 命中率 {{percent}}",
+    "cacheUnavailable": "缓存 —"
   }
 }

@@ -815,12 +815,14 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 // owning task. Task is a pointer so an unresolvable parent renders as JSON null,
 // matching the web's SessionSnapshot type ({ session, task: Task | null }).
 // PendingInput is the prompt of the session's unanswered user-input ask (empty
-// when none): it lives in the ephemeral text buffer, not the database, and
-// backs the web's reload-mid-pause rebuild.
+// when none) and PartialOutput is the streaming assistant text of the
+// in-progress turn: both live in the ephemeral text buffer, not the database,
+// and the latter is what lets a page reload mid-turn keep the visible output.
 type sessionSnapshot struct {
-	Session      protocol.Session `json:"session"`
-	Task         *protocol.Task   `json:"task"`
-	PendingInput string           `json:"pending_input"`
+	Session       protocol.Session `json:"session"`
+	Task          *protocol.Task   `json:"task"`
+	PendingInput  string           `json:"pending_input"`
+	PartialOutput string           `json:"partial_output"`
 }
 
 // handleGetSession returns a session and the task it belongs to in one round
@@ -829,10 +831,11 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
 	ctx := r.Context()
-	// Read the pending ask before the session row. applyEvent commits the
-	// awaiting_user status before publishing the prompt, so a snapshot can
+	// Read the buffered text state before the session row. applyEvent commits
+	// the awaiting_user status before publishing the prompt, so a snapshot can
 	// never pair a pending ask with a status that has not caught up yet.
-	pendingInput := h.textBuffer(ctx, id).PendingInput
+	buffered := h.textBuffer(ctx, id)
+	pendingInput := buffered.PendingInput
 	session, err := h.sessionVisibleTo(ctx, userOf(r), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "session not found")
@@ -840,8 +843,9 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	snapshot := sessionSnapshot{
-		Session:      session,
-		PendingInput: pendingInput,
+		Session:       session,
+		PendingInput:  pendingInput,
+		PartialOutput: string(buffered.PartialOutput),
 	}
 	// The parent task should always exist (session.task_id is a FK), but resolve
 	// defensively: an unresolvable task yields JSON null rather than an error.
@@ -934,6 +938,10 @@ func (h *Hub) handleStatsTokens(w http.ResponseWriter, r *http.Request) {
 		stats.Total.PromptTokens += row.PromptTokens
 		stats.Total.CompletionTokens += row.CompletionTokens
 		stats.Total.TotalTokens += row.TotalTokens
+		stats.Total.CachedReadTokens += row.CachedReadTokens
+		stats.Total.CachedWriteTokens += row.CachedWriteTokens
+		stats.Total.CachePromptTokens += row.CachePromptTokens
+		stats.Total.CacheReports += row.CacheReports
 	}
 	writeJSON(w, http.StatusOK, stats)
 }

@@ -22,9 +22,23 @@ const tokenBody = {
       prompt_tokens: 12400,
       completion_tokens: 8100,
       total_tokens: 20500,
+      cached_read_tokens: 6200,
+      cached_write_tokens: 0,
+      cache_prompt_tokens: 12400,
+      cache_reports: 7,
       turns: 7,
     },
-    { model: 'fake', prompt_tokens: 120, completion_tokens: 80, total_tokens: 200, turns: 3 },
+    {
+      model: 'fake',
+      prompt_tokens: 120,
+      completion_tokens: 80,
+      total_tokens: 200,
+      cached_read_tokens: 0,
+      cached_write_tokens: 0,
+      cache_prompt_tokens: 0,
+      cache_reports: 0,
+      turns: 3,
+    },
   ],
 }
 
@@ -93,6 +107,8 @@ describe('Dashboard', () => {
     expect(screen.getByText('gpt-x')).toBeTruthy()
     expect(screen.getByText('fake')).toBeTruthy()
     expect(screen.getByTitle('20500').textContent).toBe('20.5k')
+    expect(screen.getByText('Cache (read / hit)')).toBeTruthy()
+    expect(screen.getByText('6.2k · 33%')).toBeTruthy()
   })
 
   it('renders zeroed stats and the empty usage state when nothing happened today', async () => {

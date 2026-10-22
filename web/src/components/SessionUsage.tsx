@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../apiClient.ts'
 import { useTranslation } from '../i18n/index.ts'
+import { cacheHitPercent } from '../util.ts'
 
 export interface SessionUsageProps {
   /** Session whose token usage is summarized. */
@@ -37,16 +38,30 @@ export function SessionUsage({ sessionId }: SessionUsageProps) {
         <p className="fd-meta">{t('session.empty')}</p>
       ) : (
         <div className="fd-stack" role="list">
-          {rows.map((row) => (
-            <div key={row.model} className="fd-meta" role="listitem">
-              {t('session.line', {
-                model: row.model,
-                prompt: row.prompt_tokens.toLocaleString(),
-                completion: row.completion_tokens.toLocaleString(),
-                total: row.total_tokens.toLocaleString(),
-              })}
-            </div>
-          ))}
+          {rows.map((row) => {
+            const hit = cacheHitPercent(row)
+            return (
+              <div key={row.model} className="fd-stack" role="listitem">
+                <div className="fd-meta">
+                  {t('session.line', {
+                    model: row.model,
+                    prompt: row.prompt_tokens.toLocaleString(),
+                    completion: row.completion_tokens.toLocaleString(),
+                    total: row.total_tokens.toLocaleString(),
+                  })}
+                </div>
+                <div className="fd-meta" data-cache={hit === null ? 'none' : 'reported'}>
+                  {hit === null
+                    ? t('session.cacheUnavailable')
+                    : t('session.cacheLine', {
+                        read: (row.cached_read_tokens ?? 0).toLocaleString(),
+                        write: (row.cached_write_tokens ?? 0).toLocaleString(),
+                        percent: `${Math.round(hit)}%`,
+                      })}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </section>

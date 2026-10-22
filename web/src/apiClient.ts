@@ -25,6 +25,8 @@ export interface SessionSnapshot {
   session: Session
   task: Task | null
   pending_input: string
+  /** Streaming assistant text of the in-progress turn ("" when none). */
+  partial_output: string
 }
 
 /** POST /api/nodes/join-tokens response: the plaintext token is shown once. */
@@ -100,6 +102,13 @@ export interface StatsModelUsage {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  /** Cache read/write tokens summed over turns that reported cache telemetry. */
+  cached_read_tokens: number
+  cached_write_tokens: number
+  /** Non-cached input subtotal of cache-reporting turns (cache-ratio denominator). */
+  cache_prompt_tokens: number
+  /** Turns that carried cache telemetry; 0 means the model exposes none. */
+  cache_reports: number
   turns: number
 }
 
@@ -109,6 +118,10 @@ export interface StatsTokens {
     prompt_tokens: number
     completion_tokens: number
     total_tokens: number
+    cached_read_tokens: number
+    cached_write_tokens: number
+    cache_prompt_tokens: number
+    cache_reports: number
   }
   by_model: StatsModelUsage[]
 }

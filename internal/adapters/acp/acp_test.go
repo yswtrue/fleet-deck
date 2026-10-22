@@ -318,7 +318,7 @@ func TestThoughtDeltaMapping(t *testing.T) {
 // TestUsageCaptureFromPromptResult pins the usage mapping on the shape a real
 // opencode prompt result carries (see the package comment): inputTokens ->
 // PromptTokens, outputTokens -> CompletionTokens, totalTokens -> TotalTokens,
-// verbatim; thoughtTokens stay inside the agent's total.
+// cachedReadTokens/cachedWriteTokens -> the cache counters, verbatim.
 func TestUsageCaptureFromPromptResult(t *testing.T) {
 	_, rec := startTestAdapter(t, adapterOpts{scenario: "usage"})
 	rec.waitDone(t)
@@ -327,9 +327,31 @@ func TestUsageCaptureFromPromptResult(t *testing.T) {
 	if len(usages) != 1 {
 		t.Fatalf("Usage calls = %d, want 1: %+v", len(usages), usages)
 	}
-	want := adapters.Usage{Model: "fake/model-x", PromptTokens: 10, CompletionTokens: 5, TotalTokens: 17}
-	if usages[0] != want {
-		t.Fatalf("usage = %+v, want %+v", usages[0], want)
+	got := usages[0]
+	if got.Model != "fake/model-x" || got.PromptTokens != 10 || got.CompletionTokens != 5 || got.TotalTokens != 17 {
+		t.Fatalf("usage = %+v, want model fake/model-x / 10 / 5 / 17", got)
+	}
+	if got.CachedReadTokens == nil || *got.CachedReadTokens != 40 {
+		t.Fatalf("cached read = %v, want 40", got.CachedReadTokens)
+	}
+	if got.CachedWriteTokens == nil || *got.CachedWriteTokens != 3 {
+		t.Fatalf("cached write = %v, want 3", got.CachedWriteTokens)
+	}
+}
+
+// TestUsageWithoutCacheCategories keeps "not reported" distinct from zero: an
+// agent that omits the cache counters must leave both pointers nil.
+func TestUsageWithoutCacheCategories(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "usage-nocache"})
+	rec.waitDone(t)
+
+	usages := rec.usages()
+	if len(usages) != 1 {
+		t.Fatalf("Usage calls = %d, want 1: %+v", len(usages), usages)
+	}
+	if usages[0].CachedReadTokens != nil || usages[0].CachedWriteTokens != nil {
+		t.Fatalf("cache counters = %v/%v, want nil when the agent omits them",
+			usages[0].CachedReadTokens, usages[0].CachedWriteTokens)
 	}
 }
 
@@ -953,12 +975,21 @@ func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenar
 		fakeFSTurn(enc, dec, id)
 	case "usage", "usage-nomodel":
 		// The prompt result carries turn usage exactly like opencode's
-		// (input/output/total/thought); the adapter relays input/output/total
-		// verbatim.
+		// (input/output/total/thought plus the cache counters); the adapter
+		// relays every counter verbatim.
 		fakeResult(enc, id, map[string]any{
 			"stopReason": "end_turn",
 			"usage": map[string]any{
 				"inputTokens": 10, "outputTokens": 5, "totalTokens": 17, "thoughtTokens": 2,
+				"cachedReadTokens": 40, "cachedWriteTokens": 3,
+			},
+		})
+	case "usage-nocache":
+		// Cache categories omitted: the wire pointers stay nil.
+		fakeResult(enc, id, map[string]any{
+			"stopReason": "end_turn",
+			"usage": map[string]any{
+				"inputTokens": 10, "outputTokens": 5, "totalTokens": 17,
 			},
 		})
 	case "wait":

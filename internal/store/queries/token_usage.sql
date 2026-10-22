@@ -1,6 +1,9 @@
 -- name: InsertTokenUsage :one
-INSERT INTO token_usage (session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO token_usage (
+    session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens,
+    cached_read_tokens, cached_write_tokens
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: ListTokenUsageBySession :many
@@ -14,6 +17,14 @@ SELECT
     COALESCE(SUM(tu.prompt_tokens), 0)::bigint     AS prompt_tokens,
     COALESCE(SUM(tu.completion_tokens), 0)::bigint AS completion_tokens,
     COALESCE(SUM(tu.total_tokens), 0)::bigint      AS total_tokens,
+    COALESCE(SUM(tu.cached_read_tokens), 0)::bigint  AS cached_read_tokens,
+    COALESCE(SUM(tu.cached_write_tokens), 0)::bigint AS cached_write_tokens,
+    COALESCE(SUM(tu.prompt_tokens) FILTER (
+        WHERE tu.cached_read_tokens IS NOT NULL OR tu.cached_write_tokens IS NOT NULL
+    ), 0)::bigint AS cache_prompt_tokens,
+    COUNT(*) FILTER (
+        WHERE tu.cached_read_tokens IS NOT NULL OR tu.cached_write_tokens IS NOT NULL
+    )::bigint AS cache_reports,
     COUNT(*)::bigint                               AS turns
 FROM token_usage tu
 JOIN session s   ON s.id = tu.session_id

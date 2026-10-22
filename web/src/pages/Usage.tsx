@@ -7,7 +7,7 @@ import type { StatsModelUsage, StatsTokensFilters } from '../apiClient.ts'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
 import { SummaryCard } from '../components/SummaryCard.tsx'
-import { formatCompact } from '../util.ts'
+import { cacheHitPercent, formatCompact } from '../util.ts'
 import { useTranslation } from '../i18n/index.ts'
 
 interface DateRange {
@@ -63,6 +63,10 @@ export function Usage() {
     prompt_tokens: 0,
     completion_tokens: 0,
     total_tokens: 0,
+    cached_read_tokens: 0,
+    cached_write_tokens: 0,
+    cache_prompt_tokens: 0,
+    cache_reports: 0,
   }
   const rows = statsQuery.data?.by_model ?? []
   const turns = rows.reduce((sum, model) => sum + model.turns, 0)
@@ -76,6 +80,21 @@ export function Usage() {
       key: 'prompt_tokens',
       align: 'right',
       render: compactCell,
+    },
+    {
+      title: t('table.cache'),
+      key: 'cache',
+      align: 'right',
+      render: (_: unknown, row: StatsModelUsage) => {
+        const hit = cacheHitPercent(row)
+        if (hit === null) return '—'
+        const read = row.cached_read_tokens ?? 0
+        return (
+          <span title={`${read} cached read / ${Math.round(hit)}% hit`}>
+            {formatCompact(read)} · {Math.round(hit)}%
+          </span>
+        )
+      },
     },
     {
       title: t('table.completion'),

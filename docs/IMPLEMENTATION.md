@@ -73,7 +73,9 @@ event       (id, session_id, type, payload_json, seq, ts)   -- 事件流:仅状�
 **隐私存储模型(会话内容不落服务端)**:会话正文(消息、delta)不进 Postgres——唯一持久记录是
 agent 自己的会话存储(在 node 机器上)。`GET /api/sessions/{id}/messages` 对已结束会话通过 node 按需
 replay(`session.history_req/resp`,ACP `session/load` 全量回放)取回;活跃会话读 hub 的**内存文本缓冲**
-(24h TTL,存完整消息 + 待答 ask 的 prompt,重启即失)。node 在 `session/new`(或 resume 的
+(24h TTL,存完整消息 + 进行中回合的流式正文 + 待答 ask 的 prompt,重启即失)。流式 delta 会累积进
+缓冲并经会话快照的 `partial_output` 暴露,所以运行中刷新页面不会丢掉已产出的正文;完整 assistant
+消息或终态会清空该 partial。node 在 `session/new`(或 resume 的
 `session/load`)成功后上报 `session.started`,hub 把 agent 侧会话 id 写进 `session.external_session_id`
 ——没有它,回放无从定位,`GET /api/sessions/{id}/messages` 只能靠文本缓冲,缓冲没了就是 503。任务下发时 hub 把 prompt 作为会话第一条 user 消息写入文本缓冲,运行中的会话一打开就能看到指令。已结束会话的回放还包含 agent 自己的 thinking 片段(`role=thinking`,来自 `session/load` 的
 `agent_thought_chunk`);实时回合的推理走 `session.thought` 实时流,两者都不入库。`event` 表只存状态类事件的出现记录,
@@ -199,7 +201,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 ### 3.11 Token 统计 / 移动端 / 通知
 
-- **Token 统计**:adapter 每轮上报 `EventSink.Usage`(ACP `session/prompt` 结果的 `usage` 字段:inputTokens/outputTokens/totalTokens;model 取 `session/new` configOptions 的 `model` 当前值,缺省回落 `agent_type`,无 usage 则不落行)→ `EvSessionUsage` → `token_usage` 表;`GET /api/stats/tokens` 出分模型与汇总(按节点绑定裁剪可见性),用量页 + 会话侧栏展示。
+- **Token 统计**:adapter 每轮上报 `EventSink.Usage`(ACP `session/prompt` 结果的 `usage` 字段:inputTokens/outputTokens/totalTokens,可选 cachedReadTokens/cachedWriteTokens;model 取 `session/new` configOptions 的 `model` 当前值,缺省回落 `agent_type`,无 usage 则不落行)→ `EvSessionUsage` → `token_usage` 表(cache 列可空,"未上报" 与 0 区分);`GET /api/stats/tokens` 出分模型与汇总(按节点绑定裁剪可见性),缓存命中率 = `cached_read / (cache_prompt + cached_read + cached_write)`(ACP 的 inputTokens 是非缓存输入部分),用量页 + 仪表盘 + 会话侧栏展示;会话侧栏订阅 `session.usage` 实时刷新。
 - **任务统计 / 仪表盘**:`GET /api/stats/tasks` 按窗口统计 `created`/`completed` 及当日任务的 `by_status` 分布(过滤/可见性与 `GET /api/stats/tokens` 同契约)。`/` 为仪表盘(今日任务 + Token 统计),节点列表在 `/nodes`。
 - **管理后台布局**:`web/src/components/AppLayout.tsx` 提供左侧菜单栏(可折叠为图标栏;<768px 收为顶部汉堡 + 抽屉菜单)。菜单图标必须转发 antd 注入的 `className`/`style`(`cloneElement` 会加 `ant-menu-item-icon`,折叠态靠 `ant-menu-item-icon + span` 隐藏文字)。
 - **移动端**:<768px 单列布局(看板列纵向堆叠、会话侧栏下沉、弹窗收缩、粗指针触控目标 ≥36px),320px 起可用。

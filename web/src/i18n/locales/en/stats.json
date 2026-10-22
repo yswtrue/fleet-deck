@@ -20,6 +20,7 @@
   "table": {
     "model": "Model",
     "prompt": "Prompt",
+    "cache": "Cache (read / hit)",
     "completion": "Completion",
     "total": "Total",
     "turns": "Turns"
@@ -31,6 +32,8 @@
   "session": {
     "title": "Token usage",
     "empty": "No usage yet",
-    "line": "{{model}} · {{prompt}} in / {{completion}} out / {{total}} total"
+    "line": "{{model}} · {{prompt}} in / {{completion}} out / {{total}} total",
+    "cacheLine": "cache {{read}} read / {{write}} write · {{percent}} hit",
+    "cacheUnavailable": "cache —"
   }
 }

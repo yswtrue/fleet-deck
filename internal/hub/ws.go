@@ -310,12 +310,22 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 					we.Data = payload
 				}
 			}
+		case protocol.EvSessionDelta:
+			var d protocol.SessionDelta
+			if json.Unmarshal(we.Data, &d) == nil {
+				h.appendPartialText(sessionID, d.Text)
+			}
 		case protocol.EvSessionStateChanged:
 			var s protocol.SessionStateChanged
 			if json.Unmarshal(we.Data, &s) == nil {
 				h.applySessionStatus(ctx, sessionID, s.Status)
 				if s.Status != protocol.SessionAwaitingUser {
 					h.setPendingInput(ctx, sessionID, "")
+				}
+				// A terminal turn ends the stream: drop the partial so a reload
+				// does not resurrect text the live view has already cleared.
+				if s.Status == protocol.SessionDone || s.Status == protocol.SessionFailed {
+					h.clearPartialText(ctx, sessionID)
 				}
 			}
 		case protocol.EvSessionUserInputRequest:
@@ -390,12 +400,14 @@ func (h *Hub) applyUsage(ctx context.Context, sessionID string, u protocol.Sessi
 		model = session.AgentType
 	}
 	if _, err := q.InsertTokenUsage(ctx, store.InsertTokenUsageParams{
-		SessionID:        sessionID,
-		TaskID:           session.TaskID,
-		Model:            model,
-		PromptTokens:     u.PromptTokens,
-		CompletionTokens: u.CompletionTokens,
-		TotalTokens:      u.TotalTokens,
+		SessionID:         sessionID,
+		TaskID:            session.TaskID,
+		Model:             model,
+		PromptTokens:      u.PromptTokens,
+		CompletionTokens:  u.CompletionTokens,
+		TotalTokens:       u.TotalTokens,
+		CachedReadTokens:  u.CachedReadTokens,
+		CachedWriteTokens: u.CachedWriteTokens,
 	}); err != nil {
 		h.log.Warn("persist token usage", "session_id", sessionID, "err", err)
 	}

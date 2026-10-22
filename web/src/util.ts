@@ -43,3 +43,29 @@ export function formatRelative(iso: string): string {
 export function statusLabel(status: string): string {
   return i18n.t('common:status.' + status, { defaultValue: status })
 }
+
+/**
+ * Prompt-cache hit rate for one stats row, as a 0-100 percentage, or null
+ * when the agent reported no cache telemetry (`cache_reports === 0`) or the
+ * denominator is empty.
+ *
+ * ACP reports prompt tokens as the non-cached input portion, so the model's
+ * full input is prompt + cached read + cached write. Only cache-reporting
+ * turns contribute to `cache_prompt_tokens`, keeping the ratio exact when a
+ * model mix has some turns without cache counters.
+ */
+export function cacheHitPercent(row: {
+  cached_read_tokens?: number
+  cached_write_tokens?: number
+  cache_prompt_tokens?: number
+  cache_reports?: number
+}): number | null {
+  const reports = row.cache_reports ?? 0
+  if (reports <= 0) return null
+  const read = row.cached_read_tokens ?? 0
+  const write = row.cached_write_tokens ?? 0
+  const prompt = row.cache_prompt_tokens ?? 0
+  const totalInput = prompt + read + write
+  if (totalInput <= 0) return null
+  return Math.min(100, Math.max(0, (read / totalInput) * 100))
+}

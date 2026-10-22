@@ -16,6 +16,14 @@ SELECT
     COALESCE(SUM(tu.prompt_tokens), 0)::bigint     AS prompt_tokens,
     COALESCE(SUM(tu.completion_tokens), 0)::bigint AS completion_tokens,
     COALESCE(SUM(tu.total_tokens), 0)::bigint      AS total_tokens,
+    COALESCE(SUM(tu.cached_read_tokens), 0)::bigint  AS cached_read_tokens,
+    COALESCE(SUM(tu.cached_write_tokens), 0)::bigint AS cached_write_tokens,
+    COALESCE(SUM(tu.prompt_tokens) FILTER (
+        WHERE tu.cached_read_tokens IS NOT NULL OR tu.cached_write_tokens IS NOT NULL
+    ), 0)::bigint AS cache_prompt_tokens,
+    COUNT(*) FILTER (
+        WHERE tu.cached_read_tokens IS NOT NULL OR tu.cached_write_tokens IS NOT NULL
+    )::bigint AS cache_reports,
     COUNT(*)::bigint                               AS turns
 FROM token_usage tu
 JOIN session s   ON s.id = tu.session_id
@@ -43,11 +51,15 @@ type AggregateTokenUsageParams struct {
 }
 
 type AggregateTokenUsageRow struct {
-	Model            string
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
-	Turns            int64
+	Model             string
+	PromptTokens      int64
+	CompletionTokens  int64
+	TotalTokens       int64
+	CachedReadTokens  int64
+	CachedWriteTokens int64
+	CachePromptTokens int64
+	CacheReports      int64
+	Turns             int64
 }
 
 func (q *Queries) AggregateTokenUsage(ctx context.Context, arg AggregateTokenUsageParams) ([]AggregateTokenUsageRow, error) {
@@ -71,6 +83,10 @@ func (q *Queries) AggregateTokenUsage(ctx context.Context, arg AggregateTokenUsa
 			&i.PromptTokens,
 			&i.CompletionTokens,
 			&i.TotalTokens,
+			&i.CachedReadTokens,
+			&i.CachedWriteTokens,
+			&i.CachePromptTokens,
+			&i.CacheReports,
 			&i.Turns,
 		); err != nil {
 			return nil, err
@@ -84,18 +100,23 @@ func (q *Queries) AggregateTokenUsage(ctx context.Context, arg AggregateTokenUsa
 }
 
 const insertTokenUsage = `-- name: InsertTokenUsage :one
-INSERT INTO token_usage (session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens, created_at
+INSERT INTO token_usage (
+    session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens,
+    cached_read_tokens, cached_write_tokens
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens, created_at, cached_read_tokens, cached_write_tokens
 `
 
 type InsertTokenUsageParams struct {
-	SessionID        string
-	TaskID           string
-	Model            string
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
+	SessionID         string
+	TaskID            string
+	Model             string
+	PromptTokens      int64
+	CompletionTokens  int64
+	TotalTokens       int64
+	CachedReadTokens  *int64
+	CachedWriteTokens *int64
 }
 
 func (q *Queries) InsertTokenUsage(ctx context.Context, arg InsertTokenUsageParams) (TokenUsage, error) {
@@ -106,6 +127,8 @@ func (q *Queries) InsertTokenUsage(ctx context.Context, arg InsertTokenUsagePara
 		arg.PromptTokens,
 		arg.CompletionTokens,
 		arg.TotalTokens,
+		arg.CachedReadTokens,
+		arg.CachedWriteTokens,
 	)
 	var i TokenUsage
 	err := row.Scan(
@@ -117,12 +140,14 @@ func (q *Queries) InsertTokenUsage(ctx context.Context, arg InsertTokenUsagePara
 		&i.CompletionTokens,
 		&i.TotalTokens,
 		&i.CreatedAt,
+		&i.CachedReadTokens,
+		&i.CachedWriteTokens,
 	)
 	return i, err
 }
 
 const listTokenUsageBySession = `-- name: ListTokenUsageBySession :many
-SELECT id, session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens, created_at FROM token_usage
+SELECT id, session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens, created_at, cached_read_tokens, cached_write_tokens FROM token_usage
 WHERE session_id = $1
 ORDER BY created_at
 `
@@ -145,6 +170,8 @@ func (q *Queries) ListTokenUsageBySession(ctx context.Context, sessionID string)
 			&i.CompletionTokens,
 			&i.TotalTokens,
 			&i.CreatedAt,
+			&i.CachedReadTokens,
+			&i.CachedWriteTokens,
 		); err != nil {
 			return nil, err
 		}

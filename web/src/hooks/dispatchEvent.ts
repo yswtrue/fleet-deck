@@ -9,6 +9,7 @@ import type {
   SessionMessage,
   SessionStateChanged,
   SessionThought,
+  SessionUsage,
   SessionUserInputRequested,
 } from '../gen/protocol/index.ts'
 
@@ -27,6 +28,7 @@ export type DispatchedEvent =
   | { type: 'session.message'; data: SessionMessage }
   | { type: 'session.state_changed'; data: SessionStateChanged }
   | { type: 'session.user_input_requested'; data: SessionUserInputRequested }
+  | { type: 'session.usage'; data: SessionUsage }
 
 function hasString(obj: Record<string, unknown>, key: string): boolean {
   return typeof obj[key] === 'string'
@@ -109,6 +111,12 @@ export function dispatchEvent(evt: ProtocolEvent): DispatchedEvent | null {
         type: 'session.user_input_requested',
         data: data as unknown as SessionUserInputRequested,
       }
+
+    case 'session.usage':
+      if (typeof data.session_id !== 'string' || typeof data.model !== 'string') {
+        return malformed(evt.type)
+      }
+      return { type: 'session.usage', data: data as unknown as SessionUsage }
 
     default:
       return null

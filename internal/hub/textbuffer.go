@@ -20,11 +20,14 @@ import (
 const sessionTextTTL = 24 * time.Hour
 
 // sessionText is the buffered text state of one session: the complete
-// messages that transited the hub while the session was live, plus the prompt
-// of the current unanswered user-input ask (empty when none).
+// messages that transited the hub while the session was live, the streaming
+// assistant text of the in-progress turn (so a page reload mid-turn does not
+// lose it), plus the prompt of the current unanswered user-input ask (empty
+// when none).
 type sessionText struct {
-	Messages     []protocol.Message `json:"messages"`
-	PendingInput string             `json:"pending_input,omitempty"`
+	Messages      []protocol.Message `json:"messages"`
+	PartialOutput []byte             `json:"partial_output,omitempty"`
+	PendingInput  string             `json:"pending_input,omitempty"`
 }
 
 // textBufferEntry is one TTL'd slot in the hub's text buffer.
@@ -78,10 +81,44 @@ func (h *Hub) updateTextBuffer(_ context.Context, sessionID string, fn func(*ses
 	h.text[sessionID] = textBufferEntry{text: st, expires: now.Add(sessionTextTTL)}
 }
 
-// appendBufferedMessage records one complete message in the session's buffer.
+// appendBufferedMessage records one complete message in the session's buffer
+// and clears the streaming partial it supersedes.
 func (h *Hub) appendBufferedMessage(ctx context.Context, sessionID string, msg protocol.Message) {
 	h.updateTextBuffer(ctx, sessionID, func(st *sessionText) {
 		st.Messages = append(st.Messages, msg)
+		st.PartialOutput = nil
+	})
+}
+
+// appendPartialText accumulates one streaming assistant chunk. Delta frames
+// are frequent, so this takes the lock directly instead of updateTextBuffer
+// (whose opportunistic expiry sweep is O(sessions) and must not run per
+// token). The partial is memory-only: it never reaches Postgres.
+func (h *Hub) appendPartialText(sessionID, text string) {
+	if text == "" {
+		return
+	}
+	h.textMu.Lock()
+	defer h.textMu.Unlock()
+	now := time.Now()
+	e, ok := h.text[sessionID]
+	if ok && now.After(e.expires) {
+		delete(h.text, sessionID)
+		e, ok = textBufferEntry{}, false
+	}
+	if !ok {
+		e = textBufferEntry{text: sessionText{}}
+	}
+	e.text.PartialOutput = append(e.text.PartialOutput, text...)
+	e.expires = now.Add(sessionTextTTL)
+	h.text[sessionID] = e
+}
+
+// clearPartialText drops the streaming partial (a complete assistant message
+// or a terminal turn superseded it).
+func (h *Hub) clearPartialText(ctx context.Context, sessionID string) {
+	h.updateTextBuffer(ctx, sessionID, func(st *sessionText) {
+		st.PartialOutput = nil
 	})
 }
 

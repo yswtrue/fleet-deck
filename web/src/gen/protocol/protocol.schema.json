@@ -512,6 +512,12 @@
         },
         "total_tokens": {
           "type": "integer"
+        },
+        "cached_read_tokens": {
+          "type": "integer"
+        },
+        "cached_write_tokens": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,
@@ -1005,6 +1011,18 @@
         "total_tokens": {
           "type": "integer"
         },
+        "cached_read_tokens": {
+          "type": "integer"
+        },
+        "cached_write_tokens": {
+          "type": "integer"
+        },
+        "cache_prompt_tokens": {
+          "type": "integer"
+        },
+        "cache_reports": {
+          "type": "integer"
+        },
         "turns": {
           "type": "integer"
         }
@@ -1016,6 +1034,10 @@
         "prompt_tokens",
         "completion_tokens",
         "total_tokens",
+        "cached_read_tokens",
+        "cached_write_tokens",
+        "cache_prompt_tokens",
+        "cache_reports",
         "turns"
       ]
     },
@@ -1036,6 +1058,18 @@
             "total_tokens": {
               "type": "integer"
             },
+            "cached_read_tokens": {
+              "type": "integer"
+            },
+            "cached_write_tokens": {
+              "type": "integer"
+            },
+            "cache_prompt_tokens": {
+              "type": "integer"
+            },
+            "cache_reports": {
+              "type": "integer"
+            },
             "turns": {
               "type": "integer"
             }
@@ -1047,6 +1081,10 @@
             "prompt_tokens",
             "completion_tokens",
             "total_tokens",
+            "cached_read_tokens",
+            "cached_write_tokens",
+            "cache_prompt_tokens",
+            "cache_reports",
             "turns"
           ]
         },
@@ -1060,6 +1098,18 @@
             },
             "total_tokens": {
               "type": "integer"
+            },
+            "cached_read_tokens": {
+              "type": "integer"
+            },
+            "cached_write_tokens": {
+              "type": "integer"
+            },
+            "cache_prompt_tokens": {
+              "type": "integer"
+            },
+            "cache_reports": {
+              "type": "integer"
             }
           },
           "additionalProperties": false,
@@ -1067,7 +1117,11 @@
           "required": [
             "prompt_tokens",
             "completion_tokens",
-            "total_tokens"
+            "total_tokens",
+            "cached_read_tokens",
+            "cached_write_tokens",
+            "cache_prompt_tokens",
+            "cache_reports"
           ]
         }
       },
@@ -1100,6 +1154,18 @@
         },
         "total_tokens": {
           "type": "integer"
+        },
+        "cached_read_tokens": {
+          "type": "integer"
+        },
+        "cached_write_tokens": {
+          "type": "integer"
+        },
+        "cache_prompt_tokens": {
+          "type": "integer"
+        },
+        "cache_reports": {
+          "type": "integer"
         }
       },
       "additionalProperties": false,
@@ -1107,7 +1173,11 @@
       "required": [
         "prompt_tokens",
         "completion_tokens",
-        "total_tokens"
+        "total_tokens",
+        "cached_read_tokens",
+        "cached_write_tokens",
+        "cache_prompt_tokens",
+        "cache_reports"
       ]
     },
     "Workspace": {

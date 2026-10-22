@@ -9,25 +9,30 @@ import (
 	"fleetdeck/internal/store/sqlcgen"
 )
 
-// InsertTokenUsageParams are the fields of one reported turn's usage.
+// InsertTokenUsageParams are the fields of one reported turn's usage. The
+// cache counters are nil when the agent reported neither category.
 type InsertTokenUsageParams struct {
-	SessionID        string
-	TaskID           string
-	Model            string
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
+	SessionID         string
+	TaskID            string
+	Model             string
+	PromptTokens      int64
+	CompletionTokens  int64
+	TotalTokens       int64
+	CachedReadTokens  *int64
+	CachedWriteTokens *int64
 }
 
 // InsertTokenUsage records one reported turn's usage and returns the row.
 func (q *Queries) InsertTokenUsage(ctx context.Context, p InsertTokenUsageParams) (TokenUsage, error) {
 	row, err := q.q.InsertTokenUsage(ctx, sqlcgen.InsertTokenUsageParams{
-		SessionID:        p.SessionID,
-		TaskID:           p.TaskID,
-		Model:            p.Model,
-		PromptTokens:     p.PromptTokens,
-		CompletionTokens: p.CompletionTokens,
-		TotalTokens:      p.TotalTokens,
+		SessionID:         p.SessionID,
+		TaskID:            p.TaskID,
+		Model:             p.Model,
+		PromptTokens:      p.PromptTokens,
+		CompletionTokens:  p.CompletionTokens,
+		TotalTokens:       p.TotalTokens,
+		CachedReadTokens:  p.CachedReadTokens,
+		CachedWriteTokens: p.CachedWriteTokens,
 	})
 	if err != nil {
 		return TokenUsage{}, fmt.Errorf("store: insert token usage: %w", err)
@@ -83,11 +88,15 @@ func (q *Queries) AggregateTokenUsage(ctx context.Context, f TokenUsageFilter) (
 	out := make([]protocol.TokenUsageByModel, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, protocol.TokenUsageByModel{
-			Model:            r.Model,
-			PromptTokens:     r.PromptTokens,
-			CompletionTokens: r.CompletionTokens,
-			TotalTokens:      r.TotalTokens,
-			Turns:            r.Turns,
+			Model:             r.Model,
+			PromptTokens:      r.PromptTokens,
+			CompletionTokens:  r.CompletionTokens,
+			TotalTokens:       r.TotalTokens,
+			CachedReadTokens:  r.CachedReadTokens,
+			CachedWriteTokens: r.CachedWriteTokens,
+			CachePromptTokens: r.CachePromptTokens,
+			CacheReports:      r.CacheReports,
+			Turns:             r.Turns,
 		})
 	}
 	return out, nil

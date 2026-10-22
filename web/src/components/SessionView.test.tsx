@@ -39,7 +39,7 @@ const doneTask = {
   updated_at: '2026-09-28T00:00:00Z',
 }
 
-function snapshotWith(status: SessionSnapshot['session']['status']): SessionSnapshot {
+function snapshotWith(status: SessionSnapshot['session']['status'], partial = ''): SessionSnapshot {
   return {
     session: {
       id: 's-1',
@@ -53,6 +53,8 @@ function snapshotWith(status: SessionSnapshot['session']['status']): SessionSnap
       updated_at: '2026-09-28T00:00:00Z',
     },
     task: { ...doneTask, status: 'done' },
+    pending_input: '',
+    partial_output: partial,
   } as unknown as SessionSnapshot
 }
 
@@ -63,10 +65,11 @@ function renderView(
     send?: () => Promise<Response>
     connected?: boolean
     messages?: unknown
+    partial?: string
     subscribe?: (handler: (event: never) => void) => () => void
   } = {}
 ) {
-  const snapshot = snapshotWith(sessionStatus)
+  const snapshot = snapshotWith(sessionStatus, opts.partial)
   if (opts.pending) snapshot.pending_input = opts.pending
   fetchMock.mockImplementation((input: unknown) => {
     const url = String(input)
@@ -218,5 +221,12 @@ describe('SessionView running session', () => {
     expect((box as HTMLTextAreaElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(true)
     expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(false)
+  })
+
+  it('restores the in-progress stream from the snapshot after a reload', async () => {
+    renderView('running', { connected: true, partial: 'Half an answer, still streaming' })
+    // The live delta is not in the durable event stream; only the snapshot's
+    // partial_output can bring it back on a mid-turn refresh.
+    expect(await screen.findByText('Half an answer, still streaming')).toBeTruthy()
   })
 })

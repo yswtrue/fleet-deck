@@ -61,11 +61,13 @@ func (s *connSink) UserInputRequested(_ context.Context, sessionID, prompt strin
 // like the other reports; the hub persists it as a token_usage row.
 func (s *connSink) Usage(_ context.Context, sessionID string, u adapters.Usage) {
 	s.emit(protocol.EvSessionUsage, protocol.SessionUsage{
-		SessionID:        sessionID,
-		Model:            u.Model,
-		PromptTokens:     u.PromptTokens,
-		CompletionTokens: u.CompletionTokens,
-		TotalTokens:      u.TotalTokens,
+		SessionID:         sessionID,
+		Model:             u.Model,
+		PromptTokens:      u.PromptTokens,
+		CompletionTokens:  u.CompletionTokens,
+		TotalTokens:       u.TotalTokens,
+		CachedReadTokens:  u.CachedReadTokens,
+		CachedWriteTokens: u.CachedWriteTokens,
 	})
 }
 

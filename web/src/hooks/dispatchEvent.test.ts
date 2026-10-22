@@ -24,6 +24,11 @@ const valid: Array<[string, unknown, string]> = [
   ['session.message', { session_id: 'sess-1', message: { id: 'm-1' } }, 'message'],
   ['session.state_changed', { session_id: 'sess-1', status: 'running' }, 'session_id'],
   ['session.user_input_requested', { session_id: 'sess-1', prompt: 'q?' }, 'session_id'],
+  [
+    'session.usage',
+    { session_id: 'sess-1', model: 'm', prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+    'session_id',
+  ],
 ]
 
 describe('dispatchEvent', () => {
@@ -47,6 +52,8 @@ describe('dispatchEvent', () => {
     ['session.message', { session_id: 'sess-1', message: { no_id: true } }],
     ['session.state_changed', { session_id: 'sess-1', status: 42 }],
     ['session.user_input_requested', { session_id: 'sess-1' }],
+    ['session.usage', { session_id: 'sess-1', prompt_tokens: 1 }],
+    ['session.usage', { session_id: 1, model: 'm' }],
   ]
 
   it.each(malformed)('drops %s payloads missing required fields', (type, data) => {

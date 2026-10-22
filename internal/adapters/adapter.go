@@ -31,11 +31,19 @@ type StartResult struct {
 // Usage is one turn's model token usage as reported by the agent. Adapters
 // relay real numbers only; when an agent reports no usage, no Usage is
 // emitted and nothing is recorded — numbers are never fabricated.
+//
+// The cache counters are pointers because ACP distinguishes "not reported"
+// (omitted/null) from a reported zero: only agents whose model exposes prompt
+// caching send them. PromptTokens is the non-cached input portion per ACP's
+// end-turn usage semantics; the full input the model processed is
+// PromptTokens + CachedReadTokens + CachedWriteTokens.
 type Usage struct {
-	Model            string
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
+	Model             string
+	PromptTokens      int64
+	CompletionTokens  int64
+	TotalTokens       int64
+	CachedReadTokens  *int64
+	CachedWriteTokens *int64
 }
 
 // Adapter is the contract every agent backend implements (pi-agent, ACP,

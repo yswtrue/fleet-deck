@@ -138,6 +138,8 @@ export interface SessionUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cached_read_tokens?: number;
+  cached_write_tokens?: number;
 }
 export interface SessionUserInputRequested {
   session_id: string;
@@ -209,6 +211,10 @@ export interface TokenUsageByModel {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cached_read_tokens: number;
+  cached_write_tokens: number;
+  cache_prompt_tokens: number;
+  cache_reports: number;
   turns: number;
 }
 export interface TokenUsageStats {
@@ -219,6 +225,10 @@ export interface TokenUsageTotals {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  cached_read_tokens: number;
+  cached_write_tokens: number;
+  cache_prompt_tokens: number;
+  cache_reports: number;
 }
 export interface Workspace {
   id: string;

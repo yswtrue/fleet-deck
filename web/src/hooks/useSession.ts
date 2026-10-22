@@ -121,9 +121,6 @@ export function useSession(sessionId: string) {
           const { session_id, status: newStatus } = evt.data
           if (session_id !== sessionId) return
           setSessionStatus(newStatus)
-          if (newStatus === 'running') {
-            setDelta('')
-          }
           if (newStatus !== 'awaiting_user') {
             setPendingPermission(null)
             setPendingElicitation(null)
@@ -133,6 +130,9 @@ export function useSession(sessionId: string) {
           if (newStatus === 'done' || newStatus === 'failed') {
             pendingThoughtRef.current = ''
             setThought('')
+            // A terminal turn discards any in-progress stream (a successful
+            // turn already replaced it with the complete assistant message).
+            setDelta('')
           }
           break
         }
@@ -160,6 +160,15 @@ export function useSession(sessionId: string) {
             pendingThoughtRef.current = ''
             setThought('')
           }
+          break
+        }
+        case 'session.usage': {
+          const { session_id } = evt.data
+          if (session_id !== sessionId) return
+          // Usage arrives once per turn (after the prompt result). Refresh the
+          // session sidebar plus any global stats view; the cache is keyed by
+          // ['stats-tokens', ...] in all three consumers.
+          void queryClient.invalidateQueries({ queryKey: ['stats-tokens'] })
           break
         }
         default:
@@ -194,6 +203,9 @@ export function useSession(sessionId: string) {
     if (connectionState !== 'open') return
     let cancelled = false
     void queryClient.invalidateQueries({ queryKey: ['messages', sessionId] })
+    // Usage reports may have landed while the socket was down; the event
+    // replay below is cheap and the aggregate endpoints are authoritative.
+    void queryClient.invalidateQueries({ queryKey: ['stats-tokens'] })
     const replay = async () => {
       // Page through to the tail: the pending ask lives in the *last* events,
       // and a single limit=100 read from 0 would miss it in long sessions.
@@ -216,6 +228,14 @@ export function useSession(sessionId: string) {
         const snapshot = await apiRef.current.getSession(sessionId)
         if (cancelled) return
         setSessionStatus(snapshot.session.status)
+        // Streaming text lives only in the hub's buffer. Restore it after the
+        // event replay so a refresh mid-turn keeps the output produced so far;
+        // a live delta that outgrew the snapshot wins (it includes chunks the
+        // snapshot request may have raced).
+        const partial = snapshot.partial_output ?? ''
+        if (partial) {
+          setDelta((current) => (partial.length >= current.length ? partial : current))
+        }
         // The pending ask's prompt is content: it lives in the hub's ephemeral
         // buffer (not the event stream, which stores only its occurrence), so
         // a reload mid-pause restores the picker from the snapshot.
@@ -259,7 +279,9 @@ export function useSession(sessionId: string) {
           created_at: new Date().toISOString(),
         } as Message)
       )
-      setDelta('')
+      // A reply to an awaiting_user pause resumes the same turn: keep the
+      // pre-ask streamed text (the hub keeps its buffer copy too). A resumed
+      // finished session starts with an empty delta (terminal state cleared it).
       try {
         await api.sendMessage(sessionId, trimmed)
       } catch (err) {

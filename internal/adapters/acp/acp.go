@@ -56,12 +56,17 @@
 // Evidence (raw frames from `opencode acp`, scripts/smoke_acp_opencode.sh):
 //
 //   - usage: each `session/prompt` result carries
-//     `usage: {inputTokens, outputTokens, totalTokens, thoughtTokens}`. The
-//     mapping onto adapters.Usage is inputTokens -> PromptTokens,
-//     outputTokens -> CompletionTokens, totalTokens -> TotalTokens, verbatim.
+//     `usage: {inputTokens, outputTokens, totalTokens, thoughtTokens}` plus,
+//     when the provider exposes prompt caching,
+//     `cachedReadTokens`/`cachedWriteTokens`. The mapping onto
+//     adapters.Usage is inputTokens -> PromptTokens,
+//     outputTokens -> CompletionTokens, totalTokens -> TotalTokens, and the
+//     cache counters verbatim (omitted when the agent reports neither).
 //     Observed opencode arithmetic: totalTokens = input + output + thought, so
 //     prompt + completion may not sum to total; the agent's total is kept as
-//     reported. A result without a `usage` field reports nothing (zero rows) —
+//     reported. inputTokens is the non-cached input portion, so the full input
+//     the model processed is input + cached read + cached write.
+//     A result without a `usage` field reports nothing (zero rows) —
 //     numbers are never fabricated.
 //   - model: `session/new` (and `session/load`) results carry
 //     `configOptions: [{id: "model", currentValue: "<provider/model>", ...}]`.
@@ -725,13 +730,18 @@ type promptResult struct {
 
 // usageReport is one turn's token accounting as carried in a session/prompt
 // result (observed from opencode: inputTokens/outputTokens/totalTokens/
-// thoughtTokens). Fields are relayed verbatim; the agent's totalTokens is kept
-// even though it may include thoughtTokens beyond input + output.
+// thoughtTokens, plus cachedReadTokens/cachedWriteTokens when the provider
+// exposes prompt caching). Fields are relayed verbatim; the agent's
+// totalTokens is kept even though it may include thoughtTokens beyond
+// input + output. ACP's inputTokens is the non-cached input portion, so cache
+// reads/writes are separate input categories.
 type usageReport struct {
-	InputTokens   int64 `json:"inputTokens"`
-	OutputTokens  int64 `json:"outputTokens"`
-	TotalTokens   int64 `json:"totalTokens"`
-	ThoughtTokens int64 `json:"thoughtTokens"`
+	InputTokens       int64  `json:"inputTokens"`
+	OutputTokens      int64  `json:"outputTokens"`
+	TotalTokens       int64  `json:"totalTokens"`
+	ThoughtTokens     int64  `json:"thoughtTokens"`
+	CachedReadTokens  *int64 `json:"cachedReadTokens"`
+	CachedWriteTokens *int64 `json:"cachedWriteTokens"`
 }
 
 func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSink, resp rpcResponse) {
@@ -747,10 +757,12 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 	_ = json.Unmarshal(resp.result, &res)
 	if res.Usage != nil {
 		sink.Usage(ctx, a.currentSessionID(), adapters.Usage{
-			Model:            a.modelOrAgentType(),
-			PromptTokens:     res.Usage.InputTokens,
-			CompletionTokens: res.Usage.OutputTokens,
-			TotalTokens:      res.Usage.TotalTokens,
+			Model:             a.modelOrAgentType(),
+			PromptTokens:      res.Usage.InputTokens,
+			CompletionTokens:  res.Usage.OutputTokens,
+			TotalTokens:       res.Usage.TotalTokens,
+			CachedReadTokens:  res.Usage.CachedReadTokens,
+			CachedWriteTokens: res.Usage.CachedWriteTokens,
 		})
 	}
 	switch res.StopReason {

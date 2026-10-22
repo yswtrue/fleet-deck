@@ -93,14 +93,16 @@ type Task struct {
 }
 
 type TokenUsage struct {
-	ID               string
-	SessionID        string
-	TaskID           string
-	Model            string
-	PromptTokens     int64
-	CompletionTokens int64
-	TotalTokens      int64
-	CreatedAt        time.Time
+	ID                string
+	SessionID         string
+	TaskID            string
+	Model             string
+	PromptTokens      int64
+	CompletionTokens  int64
+	TotalTokens       int64
+	CreatedAt         time.Time
+	CachedReadTokens  *int64
+	CachedWriteTokens *int64
 }
 
 type User struct {

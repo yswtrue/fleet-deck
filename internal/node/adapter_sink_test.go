@@ -23,11 +23,14 @@ func TestConnSinkUsageEnvelope(t *testing.T) {
 	}
 	n := &Node{log: slog.Default(), buf: buf, sessions: map[string]adapters.Adapter{}}
 
+	read, write := int64(4), int64(5)
 	(&connSink{n: n}).Usage(context.Background(), "sess-1", adapters.Usage{
-		Model:            "m",
-		PromptTokens:     1,
-		CompletionTokens: 2,
-		TotalTokens:      3,
+		Model:             "m",
+		PromptTokens:      1,
+		CompletionTokens:  2,
+		TotalTokens:       3,
+		CachedReadTokens:  &read,
+		CachedWriteTokens: &write,
 	})
 
 	entries, err := os.ReadDir(buf.dir)
@@ -64,7 +67,15 @@ func TestConnSinkUsageEnvelope(t *testing.T) {
 		CompletionTokens: 2,
 		TotalTokens:      3,
 	}
-	if frame.Data.Data != want {
-		t.Fatalf("payload = %+v, want %+v", frame.Data.Data, want)
+	got := frame.Data.Data
+	if got.SessionID != want.SessionID || got.Model != want.Model ||
+		got.PromptTokens != want.PromptTokens || got.CompletionTokens != want.CompletionTokens ||
+		got.TotalTokens != want.TotalTokens {
+		t.Fatalf("payload = %+v, want %+v", got, want)
+	}
+	if got.CachedReadTokens == nil || *got.CachedReadTokens != read ||
+		got.CachedWriteTokens == nil || *got.CachedWriteTokens != write {
+		t.Fatalf("cache counters = %v/%v, want %d/%d",
+			got.CachedReadTokens, got.CachedWriteTokens, read, write)
 	}
 }

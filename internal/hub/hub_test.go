@@ -432,6 +432,142 @@ func TestEvSessionMessageBuffers(t *testing.T) {
 	}
 }
 
+// TestEvSessionUsagePersistsCacheTokens pins the cache half of the usage
+// pipeline: a report carrying cached read/write counters lands as nullable DB
+// columns and the stats endpoint sums them with the matching prompt subtotal
+// and report count (the cache-ratio denominator).
+func TestEvSessionUsagePersistsCacheTokens(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("cache-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	read, write := int64(40), int64(10)
+	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+		Type: protocol.EvSessionUsage,
+		Data: protocol.SessionUsage{
+			SessionID:         task.SessionID,
+			Model:             "claude-x",
+			PromptTokens:      50,
+			CompletionTokens:  80,
+			TotalTokens:       200,
+			CachedReadTokens:  &read,
+			CachedWriteTokens: &write,
+		},
+	})); err != nil {
+		t.Fatalf("send usage event: %v", err)
+	}
+
+	ctx := context.Background()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		rows, err := st.Queries().ListTokenUsageBySession(ctx, task.SessionID)
+		if err != nil {
+			t.Fatalf("list token usage: %v", err)
+		}
+		if len(rows) == 1 {
+			row := rows[0]
+			if row.CachedReadTokens == nil || *row.CachedReadTokens != read ||
+				row.CachedWriteTokens == nil || *row.CachedWriteTokens != write {
+				t.Fatalf("cache columns = %v/%v, want %d/%d",
+					row.CachedReadTokens, row.CachedWriteTokens, read, write)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("usage row was not persisted (%d rows)", len(rows))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	resp, raw := getRaw(t, auth.token, ts.URL+"/api/stats/tokens?session_id="+task.SessionID)
+	stats := decodeOK[protocol.TokenUsageStats](t, "GET /api/stats/tokens", resp, raw)
+	wantTotal := protocol.TokenUsageTotals{
+		PromptTokens: 50, CompletionTokens: 80, TotalTokens: 200,
+		CachedReadTokens: 40, CachedWriteTokens: 10, CachePromptTokens: 50, CacheReports: 1,
+	}
+	if stats.Total != wantTotal {
+		t.Fatalf("total = %+v, want %+v", stats.Total, wantTotal)
+	}
+	if len(stats.ByModel) != 1 {
+		t.Fatalf("by_model = %+v, want one row", stats.ByModel)
+	}
+	wantRow := protocol.TokenUsageByModel{
+		Model: "claude-x", PromptTokens: 50, CompletionTokens: 80, TotalTokens: 200,
+		CachedReadTokens: 40, CachedWriteTokens: 10, CachePromptTokens: 50, CacheReports: 1, Turns: 1,
+	}
+	if stats.ByModel[0] != wantRow {
+		t.Fatalf("by_model row = %+v, want %+v", stats.ByModel[0], wantRow)
+	}
+}
+
+// TestEvSessionDeltaSurvivesReload pins the reload fix: streaming assistant
+// chunks accumulate in the hub's ephemeral buffer and are exposed as the
+// snapshot's partial_output until a complete assistant message supersedes
+// them. Without this, refreshing mid-turn dropped everything streamed so far.
+func TestEvSessionDeltaSurvivesReload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("delta-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	for _, chunk := range []string{"Hel", "lo, ", "world"} {
+		if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+			Type: protocol.EvSessionDelta,
+			Data: protocol.SessionDelta{SessionID: task.SessionID, Text: chunk},
+		})); err != nil {
+			t.Fatalf("send delta: %v", err)
+		}
+	}
+
+	snapshot := func() sessionSnapshot {
+		t.Helper()
+		resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID)
+		return decodeOK[sessionSnapshot](t, "GET /api/sessions/{id}", resp, raw)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if got := snapshot().PartialOutput; got == "Hello, world" {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("partial_output = %q, want the accumulated stream", got)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// A complete assistant message supersedes the partial.
+	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgSessionEvent, protocol.SessionMessage{
+		SessionID: task.SessionID,
+		Message: protocol.Message{
+			SessionID: task.SessionID,
+			Role:      protocol.RoleAssistant,
+			Content:   "Hello, world",
+			CreatedAt: time.Now().UTC(),
+		},
+	})); err != nil {
+		t.Fatalf("send session message: %v", err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		snap := snapshot()
+		if snap.PartialOutput == "" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("partial_output = %q, want cleared by the final message", snap.PartialOutput)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func postJSON[T any](t *testing.T, token, url string, body any) T {
 	t.Helper()
 	resp, raw := postRaw(t, token, url, body)
