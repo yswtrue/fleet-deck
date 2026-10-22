@@ -20,6 +20,7 @@ export interface ProtocolSchema {
   SessionMessage?: SessionMessage;
   SessionResumeCommand?: SessionResumeCommand;
   SessionStateChanged?: SessionStateChanged;
+  SessionThought?: SessionThought;
   SessionUsage?: SessionUsage;
   SessionUserInputRequested?: SessionUserInputRequested;
   Subtask?: Subtask;
@@ -124,6 +125,10 @@ export interface SessionResumeCommand {
 export interface SessionStateChanged {
   session_id: string;
   status: "waiting" | "running" | "done" | "failed" | "awaiting_user";
+}
+export interface SessionThought {
+  session_id: string;
+  text: string;
 }
 export interface SessionUsage {
   session_id: string;

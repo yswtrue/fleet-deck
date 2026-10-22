@@ -29,6 +29,7 @@ const (
 	EvTaskStatusChanged       = "task.status_changed"
 	EvSubtaskUpdated          = "subtask.updated"
 	EvSessionDelta            = "session.delta"
+	EvSessionThought          = "session.thought"
 	EvSessionMessage          = "session.message"
 	EvSessionStateChanged     = "session.state_changed"
 	EvSessionUserInputRequest = "session.user_input_requested"
@@ -66,6 +67,14 @@ type SubtaskUpdated struct {
 
 // SessionDelta is an incremental streamed text chunk from the agent.
 type SessionDelta struct {
+	SessionID string `json:"session_id"`
+	Text      string `json:"text"`
+}
+
+// SessionThought is a chunk of the agent's reasoning stream. It is live-only:
+// reasoning is content, so the hub broadcasts it without persisting it or
+// buffering it (a reload drops the partial trace).
+type SessionThought struct {
 	SessionID string `json:"session_id"`
 	Text      string `json:"text"`
 }

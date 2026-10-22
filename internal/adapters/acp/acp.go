@@ -893,7 +893,16 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 			}
 		}
 	case "agent_thought_chunk":
-		// Thoughts are deliberately not surfaced as TextDelta.
+		// Reasoning is not assistant text: it travels on its own live-only
+		// stream (ThoughtSink) so the UI can show progress without mixing it
+		// into the answer. Replay ignores it.
+		if a.replayAsm == nil {
+			if ts, ok := sink.(adapters.ThoughtSink); ok {
+				if text := p.Update.Content.Text; text != "" {
+					ts.ThoughtDelta(ctx, sessionID, text)
+				}
+			}
+		}
 	case "plan":
 		if todos := parsePlan(p.Update.Entries); len(todos) > 0 && sink != nil {
 			sink.TodoUpdate(ctx, sessionID, todos)

@@ -11,7 +11,8 @@
   },
   "transcript": {
     "empty": "The agent hasn't said anything yet.",
-    "jumpToLatest": "Jump to latest"
+    "jumpToLatest": "Jump to latest",
+    "thinking": "Thinking…"
   },
   "role": {
     "user": "You",

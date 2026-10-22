@@ -63,6 +63,7 @@ function renderView(
     send?: () => Promise<Response>
     connected?: boolean
     messages?: unknown
+    subscribe?: (handler: (event: never) => void) => () => void
   } = {}
 ) {
   const snapshot = snapshotWith(sessionStatus)
@@ -90,7 +91,7 @@ function renderView(
               seq: 0,
               lastSeq: 0,
               error: null,
-              subscribe: () => () => {},
+              subscribe: opts.subscribe ?? (() => () => {}),
             }}
           >
             <SessionView sessionId="s-1" />
@@ -169,6 +170,44 @@ describe('SessionView permission ask', () => {
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(true)
     )
+  })
+})
+
+describe('SessionView reasoning trace', () => {
+  it('renders the live thought stream and drops it once the answer lands', async () => {
+    // Several hooks subscribe to the socket; broadcast to all of them.
+    const subscribers: Array<(event: unknown) => void> = []
+    renderView('running', {
+      connected: true,
+      subscribe: (handler) => {
+        subscribers.push(handler as (event: unknown) => void)
+        return () => {
+          const i = subscribers.indexOf(handler as (event: unknown) => void)
+          if (i >= 0) subscribers.splice(i, 1)
+        }
+      },
+    })
+    await waitFor(() => expect(subscribers.length).toBeGreaterThan(0))
+    const emit = (event: unknown) => subscribers.forEach((h) => h(event))
+
+    emit({ type: 'session.thought', data: { session_id: 's-1', text: 'weighing the options' } })
+    expect(await screen.findByText('weighing the options')).toBeTruthy()
+
+    emit({
+      type: 'session.state_changed',
+      data: { session_id: 's-1', status: 'awaiting_user' },
+    })
+    // A permission pause keeps the trace.
+    expect(screen.queryByText('weighing the options')).toBeTruthy()
+
+    emit({
+      type: 'session.message',
+      data: {
+        session_id: 's-1',
+        message: { id: 'm-9', session_id: 's-1', role: 'assistant', content: 'done' },
+      },
+    })
+    await waitFor(() => expect(screen.queryByText('weighing the options')).toBeNull())
   })
 })
 

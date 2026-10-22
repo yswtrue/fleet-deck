@@ -44,6 +44,9 @@ export function useSession(sessionId: string) {
   })
 
   const [delta, setDelta] = useState('')
+  // thought is the agent's live reasoning trace (never persisted, dropped on
+  // reload); it is cleared when the turn produces a message or ends.
+  const [thought, setThought] = useState('')
   const [sessionStatus, setSessionStatus] = useState<SessionStateChanged['status'] | null>(null)
   // pendingPermission is the structured ACP permission ask awaiting a pick
   // (null for plain free-text questions and once the ask is answered).
@@ -52,11 +55,21 @@ export function useSession(sessionId: string) {
   const [pendingElicitation, setPendingElicitation] = useState<ElicitationRequest | null>(null)
   const rafRef = useRef<number | null>(null)
   const pendingRef = useRef('')
+  const thoughtRafRef = useRef<number | null>(null)
+  const pendingThoughtRef = useRef('')
 
   const flush = useCallback(() => {
     setDelta((d) => d + pendingRef.current)
     pendingRef.current = ''
     rafRef.current = null
+  }, [])
+
+  const flushThought = useCallback(() => {
+    // Bound the live trace: a long reasoning stream would otherwise keep
+    // growing the DOM for the whole turn.
+    setThought((t) => (t + pendingThoughtRef.current).slice(-4000))
+    pendingThoughtRef.current = ''
+    thoughtRafRef.current = null
   }, [])
 
   const appendDelta = useCallback(
@@ -69,11 +82,20 @@ export function useSession(sessionId: string) {
     [flush]
   )
 
+  const appendThought = useCallback(
+    (text: string) => {
+      pendingThoughtRef.current += text
+      if (thoughtRafRef.current === null) {
+        thoughtRafRef.current = requestAnimationFrame(flushThought)
+      }
+    },
+    [flushThought]
+  )
+
   useEffect(() => {
     return () => {
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-      }
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
+      if (thoughtRafRef.current !== null) cancelAnimationFrame(thoughtRafRef.current)
     }
   }, [])
 
@@ -89,6 +111,12 @@ export function useSession(sessionId: string) {
           appendDelta(text)
           break
         }
+        case 'session.thought': {
+          const { session_id, text } = evt.data
+          if (session_id !== sessionId) return
+          appendThought(text)
+          break
+        }
         case 'session.state_changed': {
           const { session_id, status: newStatus } = evt.data
           if (session_id !== sessionId) return
@@ -99,6 +127,12 @@ export function useSession(sessionId: string) {
           if (newStatus !== 'awaiting_user') {
             setPendingPermission(null)
             setPendingElicitation(null)
+          }
+          // A pause (awaiting_user) is mid-turn: keep the trace. It is cleared
+          // when the turn ends or its answer arrives.
+          if (newStatus === 'done' || newStatus === 'failed') {
+            pendingThoughtRef.current = ''
+            setThought('')
           }
           break
         }
@@ -122,6 +156,9 @@ export function useSession(sessionId: string) {
           )
           if (message.role === 'assistant') {
             setDelta('')
+            // The turn's answer supersedes its reasoning trace.
+            pendingThoughtRef.current = ''
+            setThought('')
           }
           break
         }
@@ -129,7 +166,7 @@ export function useSession(sessionId: string) {
           break
       }
     },
-    [sessionId, appendDelta, queryClient]
+    [sessionId, appendDelta, appendThought, queryClient]
   )
 
   const { connectionState } = useWebSocket(handleEvent)
@@ -240,6 +277,7 @@ export function useSession(sessionId: string) {
   return {
     messages: messages ?? [],
     delta,
+    thought,
     isLoading,
     error,
     sessionStatus,

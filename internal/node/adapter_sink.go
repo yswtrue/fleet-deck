@@ -21,6 +21,12 @@ type connSink struct {
 
 var _ adapters.EventSink = (*connSink)(nil)
 
+// ThoughtDelta reports a chunk of the agent's reasoning. It is broadcast live
+// and never persisted or buffered.
+func (s *connSink) ThoughtDelta(_ context.Context, sessionID, text string) {
+	s.emit(protocol.EvSessionThought, protocol.SessionThought{SessionID: sessionID, Text: text})
+}
+
 func (s *connSink) TextDelta(_ context.Context, sessionID, text string) {
 	s.emit(protocol.EvSessionDelta, protocol.SessionDelta{SessionID: sessionID, Text: text})
 }

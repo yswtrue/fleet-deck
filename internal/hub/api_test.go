@@ -210,8 +210,10 @@ func TestSendMessageRefusesWhenNotAwaiting(t *testing.T) {
 	if err != nil || sess.Status != protocol.SessionRunning {
 		t.Fatalf("session status = %q (err %v), want running", sess.Status, err)
 	}
+	// The dispatch prompt is the first transcript line; the rejected reply must
+	// not be buffered.
 	for _, m := range h.textBuffer(ctx, task.SessionID).Messages {
-		if m.Role == protocol.RoleUser {
+		if m.Role == protocol.RoleUser && m.Content != "do the thing" {
 			t.Fatalf("unexpected buffered user message: %+v", m)
 		}
 	}
@@ -1982,7 +1984,21 @@ func TestListMessagesFinishedUnavailable(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	// The prompt is real content the hub still holds, so it is served even
+	// though the agent-side session is gone.
 	resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/messages")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("messages status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	var msgs []protocol.Message
+	if err := json.Unmarshal(raw, &msgs); err != nil || len(msgs) != 1 {
+		t.Fatalf("messages = %s (err %v), want the buffered prompt", raw, err)
+	}
+
+	// A hub restart drops the buffer; with no replay path left, the endpoint
+	// reports that history is unavailable.
+	h.updateTextBuffer(ctx, task.SessionID, func(st *sessionText) { st.Messages = nil })
+	resp, raw = getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/messages")
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("messages status = %d, want 503; body=%s", resp.StatusCode, raw)
 	}

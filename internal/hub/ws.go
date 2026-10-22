@@ -594,6 +594,10 @@ func sessionIDOf(we wireEvent) string {
 		var d protocol.SessionDelta
 		_ = json.Unmarshal(we.Data, &d)
 		return d.SessionID
+	case protocol.EvSessionThought:
+		var th protocol.SessionThought
+		_ = json.Unmarshal(we.Data, &th)
+		return th.SessionID
 	case protocol.EvSessionMessage:
 		var m protocol.SessionMessage
 		_ = json.Unmarshal(we.Data, &m)

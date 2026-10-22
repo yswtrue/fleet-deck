@@ -23,6 +23,10 @@ import (
 // token, runs the fake adapter on task.start, and reports both todo updates and
 // the terminal session state back up the socket.
 func TestNodeReportsAdapterEventsToHub(t *testing.T) {
+	// A dev shell may export FLEETDECK_EVENT_BUFFER_DIR; replaying a stale
+	// on-disk queue into this scripted hub would inject foreign events.
+	t.Setenv("FLEETDECK_EVENT_BUFFER_DIR", "")
+
 	var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 
 	todoCh := make(chan struct{}, 1)

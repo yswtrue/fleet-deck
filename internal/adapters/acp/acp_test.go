@@ -32,23 +32,25 @@ type recorder struct {
 	mu     sync.Mutex
 	events []recEvent
 
-	done    chan struct{}
-	doneOne sync.Once
-	errCh   chan string
-	textCh  chan string
-	todoCh  chan []protocol.Todo
-	userCh  chan string
-	stateCh chan protocol.SessionStatus
+	done      chan struct{}
+	doneOne   sync.Once
+	errCh     chan string
+	textCh    chan string
+	todoCh    chan []protocol.Todo
+	thoughtCh chan string
+	userCh    chan string
+	stateCh   chan protocol.SessionStatus
 }
 
 func newRecorder() *recorder {
 	return &recorder{
-		done:    make(chan struct{}),
-		errCh:   make(chan string, 4),
-		textCh:  make(chan string, 64),
-		todoCh:  make(chan []protocol.Todo, 8),
-		userCh:  make(chan string, 4),
-		stateCh: make(chan protocol.SessionStatus, 64),
+		done:      make(chan struct{}),
+		errCh:     make(chan string, 4),
+		textCh:    make(chan string, 64),
+		todoCh:    make(chan []protocol.Todo, 8),
+		thoughtCh: make(chan string, 16),
+		userCh:    make(chan string, 4),
+		stateCh:   make(chan protocol.SessionStatus, 64),
 	}
 }
 
@@ -185,6 +187,27 @@ func (r *recorder) waitTextContaining(t *testing.T, substr string) {
 	}
 }
 
+// ThoughtDelta records the agent's reasoning stream (ThoughtSink).
+func (r *recorder) ThoughtDelta(_ context.Context, _ string, text string) {
+	r.record(recEvent{kind: "thought", text: text})
+	select {
+	case r.thoughtCh <- text:
+	default:
+	}
+}
+
+func (r *recorder) thoughts() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, e := range r.events {
+		if e.kind == "thought" {
+			out = append(out, e.text)
+		}
+	}
+	return out
+}
+
 func (r *recorder) texts() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -275,6 +298,20 @@ func TestTextDeltaMapping(t *testing.T) {
 	}
 	if got := strings.Join(texts, ""); got != "Hello, world" {
 		t.Fatalf("concatenated text = %q, want %q", got, "Hello, world")
+	}
+}
+
+// Reasoning travels on its own stream, not as assistant text.
+func TestThoughtDeltaMapping(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "deltas"})
+	rec.waitDone(t)
+
+	thoughts := rec.thoughts()
+	if len(thoughts) != 1 || thoughts[0] != "planning the answer" {
+		t.Fatalf("thoughts = %v, want the reasoning chunk", thoughts)
+	}
+	if got := strings.Join(rec.texts(), ""); got != "Hello, world" {
+		t.Fatalf("assistant text = %q, want reasoning excluded", got)
 	}
 }
 
@@ -865,6 +902,7 @@ func runFakeAgent(scenario string) {
 func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenario string) {
 	switch scenario {
 	case "deltas":
+		fakeNotify(enc, "session/update", fakeThought("m1", "planning the answer"))
 		fakeNotify(enc, "session/update", fakeChunk("m1", "Hello"))
 		fakeNotify(enc, "session/update", fakeChunk("m1", ", "))
 		fakeNotify(enc, "session/update", fakeChunk("m1", "world"))
@@ -986,6 +1024,14 @@ func fakeRequest(enc *json.Encoder, id, method string, params any) {
 
 func fakeNotify(enc *json.Encoder, method string, params any) {
 	_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+func fakeThought(messageID, text string) map[string]any {
+	return map[string]any{"sessionId": "agent-sess-1", "update": map[string]any{
+		"sessionUpdate": "agent_thought_chunk",
+		"messageId":     messageID,
+		"content":       map[string]any{"type": "text", "text": text},
+	}}
 }
 
 func fakeChunk(messageID, text string) map[string]any {

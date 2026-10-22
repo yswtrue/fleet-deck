@@ -23,3 +23,12 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
       dispatchEvent: () => false,
     }) as MediaQueryList
 }
+
+// jsdom only defines requestAnimationFrame with pretendToBeVisual; the session
+// view batches streamed text/reasoning on it.
+if (typeof globalThis.requestAnimationFrame !== 'function') {
+  globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+    setTimeout(() => cb(Date.now()), 0)) as typeof requestAnimationFrame
+  globalThis.cancelAnimationFrame = ((id: number) =>
+    clearTimeout(id)) as typeof cancelAnimationFrame
+}

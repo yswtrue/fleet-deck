@@ -85,6 +85,7 @@ func schemaCmd(args []string) {
 		"TaskStatusChanged":         protocol.TaskStatusChanged{},
 		"SubtaskUpdated":            protocol.SubtaskUpdated{},
 		"SessionDelta":              protocol.SessionDelta{},
+		"SessionThought":            protocol.SessionThought{},
 		"SessionMessage":            protocol.SessionMessage{},
 		"SessionStateChanged":       protocol.SessionStateChanged{},
 		"SessionUserInputRequested": protocol.SessionUserInputRequested{},

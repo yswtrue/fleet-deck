@@ -8,6 +8,7 @@ import type {
   SessionDelta,
   SessionMessage,
   SessionStateChanged,
+  SessionThought,
   SessionUserInputRequested,
 } from '../gen/protocol/index.ts'
 
@@ -22,6 +23,7 @@ export type DispatchedEvent =
   | { type: 'task.status_changed'; data: TaskStatusChanged }
   | { type: 'subtask.updated'; data: SubtaskUpdated }
   | { type: 'session.delta'; data: SessionDelta }
+  | { type: 'session.thought'; data: SessionThought }
   | { type: 'session.message'; data: SessionMessage }
   | { type: 'session.state_changed'; data: SessionStateChanged }
   | { type: 'session.user_input_requested'; data: SessionUserInputRequested }
@@ -82,6 +84,10 @@ export function dispatchEvent(evt: ProtocolEvent): DispatchedEvent | null {
     case 'session.delta':
       if (!hasString(data, 'session_id') || !hasString(data, 'text')) return malformed(evt.type)
       return { type: 'session.delta', data: data as unknown as SessionDelta }
+
+    case 'session.thought':
+      if (!hasString(data, 'session_id') || !hasString(data, 'text')) return malformed(evt.type)
+      return { type: 'session.thought', data: data as unknown as SessionThought }
 
     case 'session.message':
       if (

@@ -629,6 +629,15 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 		Type: protocol.EvSessionStateChanged,
 		Data: protocol.SessionStateChanged{SessionID: session.ID, Status: protocol.SessionRunning},
 	})
+	// The instruction is the first transcript line. Without it a live session
+	// opens empty and the operator cannot see what the agent was asked to do.
+	if prompt := strings.TrimSpace(task.Prompt); prompt != "" {
+		inserted := h.recordUserMessage(ctx, session.ID, prompt)
+		h.bus.Publish(protocol.Event{
+			Type: protocol.EvSessionMessage,
+			Data: protocol.SessionMessage{SessionID: session.ID, Message: inserted},
+		})
+	}
 
 	env := protocol.NewEnvelope(protocol.MsgTaskStart, protocol.TaskStartCommand{
 		TaskID:        task.ID,

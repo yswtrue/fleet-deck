@@ -997,6 +997,14 @@ func TestWebWSBroadcastScopedByNodeBinding(t *testing.T) {
 		t.Fatalf("A got task.created %+v (err %v), want task %s", tc.Task, err, created.ID)
 	}
 	waitEnvelope(t, adminEvents, protocol.EvTaskCreated)
+	// The instruction is buffered as the first transcript line, for A and the
+	// admin, never for B.
+	promptEnv := waitEnvelope(t, aEvents, protocol.EvSessionMessage)
+	var pm protocol.SessionMessage
+	if err := promptEnv.Decode(&pm); err != nil || pm.Message.Content != "p" {
+		t.Fatalf("A got session.message %+v (err %v), want the dispatch prompt", pm.Message, err)
+	}
+	waitEnvelope(t, adminEvents, protocol.EvSessionMessage)
 	expectSilent(t, bEvents)
 
 	// A session event in the same subtree (arriving from the node) is scoped

@@ -44,6 +44,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     sessionStatus,
     pendingPermission,
     pendingElicitation,
+    thought,
     send,
   } = useSession(sessionId)
   // The static antd message API renders nothing under React 19; the hook-based
@@ -205,6 +206,12 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
               <EmptyState title={t('transcript.empty')} />
             ) : (
               messages.map((m) => <MessageBubble key={m.id} message={m} />)
+            )}
+            {thought && (
+              <div className={styles.thinking} aria-live="polite">
+                <span className={styles.streamLabel}>{t('transcript.thinking')}</span>
+                <p className={styles.streamText}>{thought}</p>
+              </div>
             )}
             {delta && (
               <div className={styles.streaming} aria-live="polite">

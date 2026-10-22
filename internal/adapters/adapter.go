@@ -65,6 +65,14 @@ type Resumable interface {
 	SetResumeSessionID(externalSessionID string)
 }
 
+// ThoughtSink is implemented by event sinks that can carry the agent's
+// reasoning stream (ACP `agent_thought_chunk`). It is optional: sinks that do
+// not implement it simply lose the trace, which is live-only and never
+// persisted.
+type ThoughtSink interface {
+	ThoughtDelta(ctx context.Context, sessionID, text string)
+}
+
 // PendingAsker is implemented by adapters that can pause on a user-input
 // request (a permission pick or a form elicitation). The node re-emits the
 // outstanding ask after a reconnect: a frame lost while the link was down

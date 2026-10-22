@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -574,5 +575,34 @@ func TestListMessagesEmptyBufferIsArray(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(raw)); got != "[]" {
 		t.Fatalf("empty buffer = %s, want []", got)
+	}
+}
+
+// The instruction is the first transcript line: a live session must not open
+// empty while the agent works through its first tool calls.
+func TestDispatchRecordsPromptInTranscript(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("hub-it-prompt"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatal("dispatch created no session")
+	}
+
+	resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/messages")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("messages = %d %s", resp.StatusCode, raw)
+	}
+	var msgs []protocol.Message
+	if err := json.Unmarshal(raw, &msgs); err != nil {
+		t.Fatalf("decode messages: %v", err)
+	}
+	if len(msgs) != 1 || msgs[0].Role != protocol.RoleUser || msgs[0].Content != "do the thing" {
+		t.Fatalf("transcript = %+v, want the task prompt as the first user message", msgs)
 	}
 }

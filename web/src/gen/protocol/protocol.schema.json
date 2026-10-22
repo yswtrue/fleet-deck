@@ -462,6 +462,23 @@
         "status"
       ]
     },
+    "SessionThought": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "text"
+      ]
+    },
     "SessionUsage": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

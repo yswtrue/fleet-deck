@@ -360,3 +360,18 @@
     align-self: flex-end;
   }
 }
+
+.thinking {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--border);
+  border-radius: var(--radius-sm);
+  opacity: 0.72;
+}
+
+.thinking .streamText {
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: var(--space-1) 0 0;
+}
