@@ -69,9 +69,13 @@ type Node struct {
 	// AgentTypes are the adapter keys this node registered as runnable. The UI
 	// offers exactly these when creating a task; free-form labels stay in
 	// Capabilities.
-	AgentTypes   []string  `json:"agent_types,omitempty"`
-	Capabilities []string  `json:"capabilities,omitempty"`
-	LastSeenAt   time.Time `json:"last_seen_at,omitempty"`
+	AgentTypes []string `json:"agent_types,omitempty"`
+	// DefaultAdapter is the node's configured default agent (its config's
+	// default_adapter). The task form preselects it; empty when the node has
+	// none configured or predates the field.
+	DefaultAdapter string    `json:"default_adapter,omitempty"`
+	Capabilities   []string  `json:"capabilities,omitempty"`
+	LastSeenAt     time.Time `json:"last_seen_at,omitempty"`
 }
 
 // Workspace is a working directory on a node, rendered as a kanban board (1:1).

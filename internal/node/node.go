@@ -150,19 +150,20 @@ func (c *Config) advertisedAgentTypes() []string {
 	return out
 }
 
-// advertisedCapabilities is the deduplicated union of Capabilities and
-// AgentTypes, sent to the hub in RegisterRequest.
+// advertisedCapabilities is the deduplicated free-form label list sent to the
+// hub: the handshake carries it separately from AgentTypes, so adapter keys
+// must not be duplicated into it. It is never nil: an explicit empty array
+// tells the hub to clear stale labels, while an absent field (an older daemon)
+// leaves the stored list untouched.
 func (c *Config) advertisedCapabilities() []string {
-	seen := make(map[string]bool)
-	out := make([]string, 0, len(c.Capabilities)+len(c.AgentTypes))
-	for _, group := range [][]string{c.Capabilities, c.AgentTypes} {
-		for _, c := range group {
-			if c == "" || seen[c] {
-				continue
-			}
-			seen[c] = true
-			out = append(out, c)
+	seen := make(map[string]bool, len(c.Capabilities))
+	out := make([]string, 0, len(c.Capabilities))
+	for _, label := range c.Capabilities {
+		if label == "" || seen[label] {
+			continue
 		}
+		seen[label] = true
+		out = append(out, label)
 	}
 	return out
 }
@@ -268,13 +269,14 @@ func (n *Node) runOnce(ctx context.Context) error {
 	}()
 
 	regEnv := protocol.NewEnvelope(protocol.MsgRegisterRequest, protocol.RegisterRequest{
-		Name:         n.cfg.Name,
-		Host:         n.cfg.Host,
-		AgentTypes:   n.cfg.advertisedAgentTypes(),
-		Capabilities: n.cfg.advertisedCapabilities(),
-		Token:        n.readToken(),
-		JoinToken:    n.cfg.JoinToken,
-		MachineID:    n.cfg.MachineID,
+		Name:           n.cfg.Name,
+		Host:           n.cfg.Host,
+		AgentTypes:     n.cfg.advertisedAgentTypes(),
+		DefaultAdapter: n.cfg.DefaultAdapter,
+		Capabilities:   n.cfg.advertisedCapabilities(),
+		Token:          n.readToken(),
+		JoinToken:      n.cfg.JoinToken,
+		MachineID:      n.cfg.MachineID,
 	})
 	if err := c.write(regEnv); err != nil {
 		return fmt.Errorf("send register_request: %w", err)

@@ -61,7 +61,7 @@
 ### 3.2 数据模型
 
 ```
-node        (id, name, host, status, agent_types, capabilities, token_hash, machine_id?, last_seen_at)
+node        (id, name, host, status, agent_types, default_adapter, capabilities, token_hash, machine_id?, last_seen_at)
 workspace   (id, node_id, name, path, created_at)          -- 1:1 看板,不另设 board 表
 task        (id, workspace_id, title, prompt, status, agent_type,
              session_id?, sort_order, cancelled_at?, created_at, updated_at)

@@ -97,6 +97,9 @@
           },
           "type": "array"
         },
+        "default_adapter": {
+          "type": "string"
+        },
         "capabilities": {
           "items": {
             "type": "string"
@@ -151,6 +154,9 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "default_adapter": {
+          "type": "string"
         },
         "capabilities": {
           "items": {

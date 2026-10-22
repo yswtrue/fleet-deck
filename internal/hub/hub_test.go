@@ -113,6 +113,14 @@ func dialNode(t *testing.T, ts *httptest.Server, st *store.Store, name string) (
 // the hub issued on that first registration instead.
 func dialNodeAs(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string) (*websocket.Conn, protocol.RegisterResponse) {
 	t.Helper()
+	return dialNodeWithCaps(t, ts, st, name, token, joinToken, []string{"fake"}, true)
+}
+
+// dialNodeWithCaps registers a node with explicit capability labels. With
+// includeCaps false the capabilities field is omitted entirely (what a daemon
+// predating the field sends).
+func dialNodeWithCaps(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string, caps []string, includeCaps bool) (*websocket.Conn, protocol.RegisterResponse) {
+	t.Helper()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/node"
 	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -121,11 +129,13 @@ func dialNodeAs(t *testing.T, ts *httptest.Server, st *store.Store, name, token,
 	}
 
 	req := protocol.RegisterRequest{
-		Name:         name,
-		Host:         "test-host",
-		Capabilities: []string{"fake"},
-		Token:        token,
-		MachineID:    "test-machine:" + name,
+		Name:      name,
+		Host:      "test-host",
+		Token:     token,
+		MachineID: "test-machine:" + name,
+	}
+	if includeCaps {
+		req.Capabilities = caps
 	}
 	if token == "" {
 		req.JoinToken = joinToken
@@ -177,12 +187,13 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 	agentTypes := []string{"codex", "omp"}
 
 	node, token, err := h.registerNode(ctx, protocol.RegisterRequest{
-		Name:         name,
-		Host:         "test-host",
-		AgentTypes:   agentTypes,
-		Capabilities: agentTypes,
-		JoinToken:    testJoinToken,
-		MachineID:    machineID,
+		Name:           name,
+		Host:           "test-host",
+		AgentTypes:     agentTypes,
+		DefaultAdapter: "omp",
+		Capabilities:   agentTypes,
+		JoinToken:      testJoinToken,
+		MachineID:      machineID,
 	})
 	if err != nil {
 		t.Fatalf("register node: %v", err)
@@ -197,14 +208,19 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 	if !slices.Equal(node.AgentTypes, agentTypes) {
 		t.Fatalf("registered agent_types = %v, want %v", node.AgentTypes, agentTypes)
 	}
+	if node.DefaultAdapter != "omp" {
+		t.Fatalf("registered default_adapter = %q, want omp", node.DefaultAdapter)
+	}
 
 	// A reconnect with a changed list replaces the stored one (a newly
-	// installed or removed agent must show up without re-pairing).
+	// installed or removed agent must show up without re-pairing), and the
+	// default travels with it.
 	_, _, err = h.registerNode(ctx, protocol.RegisterRequest{
-		Name:       name,
-		Token:      token,
-		AgentTypes: []string{"codex"},
-		MachineID:  machineID,
+		Name:           name,
+		Token:          token,
+		AgentTypes:     []string{"codex"},
+		DefaultAdapter: "codex",
+		MachineID:      machineID,
 	})
 	if err != nil {
 		t.Fatalf("reconnect node: %v", err)
@@ -216,8 +232,12 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 	if !slices.Equal(stored.AgentTypes, []string{"codex"}) {
 		t.Fatalf("reconnected agent_types = %v, want [codex]", stored.AgentTypes)
 	}
+	if stored.DefaultAdapter != "codex" {
+		t.Fatalf("reconnected default_adapter = %q, want codex", stored.DefaultAdapter)
+	}
 
-	// A daemon that predates the field sends nil; that must not wipe the list.
+	// A daemon that predates the field sends nil; that must not wipe the list
+	// or the default.
 	_, _, err = h.registerNode(ctx, protocol.RegisterRequest{
 		Name:      name,
 		Token:     token,
@@ -229,6 +249,9 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 	stored, err = st.Queries().GetNode(ctx, node.ID)
 	if err != nil {
 		t.Fatalf("get node after legacy reconnect: %v", err)
+	}
+	if stored.DefaultAdapter != "codex" {
+		t.Fatalf("legacy reconnect wiped default_adapter: %q", stored.DefaultAdapter)
 	}
 	if !slices.Equal(stored.AgentTypes, []string{"codex"}) {
 		t.Fatalf("legacy reconnect wiped agent_types: %v", stored.AgentTypes)
@@ -814,5 +837,56 @@ func TestDispatchRecordsPromptInTranscript(t *testing.T) {
 	}
 	if len(msgs) != 1 || msgs[0].Role != protocol.RoleUser || msgs[0].Content != "do the thing" {
 		t.Fatalf("transcript = %+v, want the task prompt as the first user message", msgs)
+	}
+}
+
+// Capability labels are free-form metadata (adapter keys live in agent_types);
+// a reconnecting node refreshes them, while a daemon that omits the field keeps
+// whatever is stored.
+func TestReconnectSyncsCapabilityLabels(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	name := uniqueName("hub-it-caps")
+	join := postJSON[struct {
+		Token string `json:"token"`
+	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
+
+	first, reg := dialNodeWithCaps(t, ts, st, name, "", join.Token, []string{"gpu"}, true)
+	defer func() { _ = first.Close() }()
+	ctx := context.Background()
+	row, err := st.Queries().GetNode(ctx, reg.NodeID)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if len(row.Capabilities) != 1 || row.Capabilities[0] != "gpu" {
+		t.Fatalf("capabilities = %v, want [gpu]", row.Capabilities)
+	}
+
+	// Reconnect with edited labels: the stored row follows.
+	second, reg2 := dialNodeWithCaps(t, ts, st, name, reg.Token, "", []string{"gpu", "nixos"}, true)
+	defer func() { _ = second.Close() }()
+	if reg2.NodeID != reg.NodeID {
+		t.Fatalf("reconnect node id = %q, want %q", reg2.NodeID, reg.NodeID)
+	}
+	row, err = st.Queries().GetNode(ctx, reg.NodeID)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if len(row.Capabilities) != 2 || row.Capabilities[1] != "nixos" {
+		t.Fatalf("capabilities after reconnect = %v, want [gpu nixos]", row.Capabilities)
+	}
+
+	// An older daemon omits the field: the stored labels survive.
+	third, _ := dialNodeWithCaps(t, ts, st, name, reg.Token, "", nil, false)
+	defer func() { _ = third.Close() }()
+	row, err = st.Queries().GetNode(ctx, reg.NodeID)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if len(row.Capabilities) != 2 {
+		t.Fatalf("capabilities after omitting field = %v, want the stored list", row.Capabilities)
 	}
 }

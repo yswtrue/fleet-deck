@@ -28,6 +28,13 @@ export function NewTaskForm({ workspaceId, nodeId, onClose }: NewTaskFormProps) 
   })
   const agentTypes = useMemo(() => node?.agent_types ?? [], [node])
   const agentOptions = useMemo(() => agentTypes.map((value) => ({ value })), [agentTypes])
+  // The node advertises the operator's configured default separately from the
+  // registered list (which is sorted), so preselect it instead of agentTypes[0].
+  const defaultAgent = useMemo(() => {
+    const preferred = node?.default_adapter
+    if (preferred && agentTypes.includes(preferred)) return preferred
+    return agentTypes[0]
+  }, [node, agentTypes])
   const { form, formProps, saveButtonProps, formLoading } = useForm({
     action: 'create',
     resource: 'tasks',
@@ -47,11 +54,11 @@ export function NewTaskForm({ workspaceId, nodeId, onClose }: NewTaskFormProps) 
   // Seed the default agent once the node's registered list arrives. antd only
   // applies `initialValues` at mount, and the node query resolves after it.
   useEffect(() => {
-    if (agentTypes.length === 0) return
+    if (!defaultAgent) return
     if (!form.getFieldValue('agent_type')) {
-      form.setFieldValue('agent_type', agentTypes[0])
+      form.setFieldValue('agent_type', defaultAgent)
     }
-  }, [agentTypes, form])
+  }, [defaultAgent, form])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

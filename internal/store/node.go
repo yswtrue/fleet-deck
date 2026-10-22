@@ -14,12 +14,14 @@ import (
 // CreateNodeParams are the fields required to register a new node. LastSeenAt
 // is set to now() by the database.
 type CreateNodeParams struct {
-	Name         string
-	Host         string
-	Status       protocol.NodeStatus
-	AgentTypes   []string
-	Capabilities []string
-	TokenHash    string
+	Name       string
+	Host       string
+	Status     protocol.NodeStatus
+	AgentTypes []string
+	// DefaultAdapter is the node's configured default agent; empty allowed.
+	DefaultAdapter string
+	Capabilities   []string
+	TokenHash      string
 	// MachineID is the stable machine fingerprint (already hashed by the
 	// caller). Empty stores NULL, which the partial unique index ignores.
 	MachineID string
@@ -32,13 +34,14 @@ func (q *Queries) CreateNode(ctx context.Context, p CreateNodeParams) (protocol.
 		agentTypes = []string{}
 	}
 	row, err := q.q.CreateNode(ctx, sqlcgen.CreateNodeParams{
-		Name:         p.Name,
-		Host:         p.Host,
-		Status:       string(p.Status),
-		AgentTypes:   agentTypes,
-		Capabilities: p.Capabilities,
-		TokenHash:    p.TokenHash,
-		MachineID:    pgtype.Text{String: p.MachineID, Valid: p.MachineID != ""},
+		Name:           p.Name,
+		Host:           p.Host,
+		Status:         string(p.Status),
+		AgentTypes:     agentTypes,
+		DefaultAdapter: p.DefaultAdapter,
+		Capabilities:   p.Capabilities,
+		TokenHash:      p.TokenHash,
+		MachineID:      pgtype.Text{String: p.MachineID, Valid: p.MachineID != ""},
 	})
 	if err != nil {
 		return protocol.Node{}, fmt.Errorf("store: create node: %w", err)
@@ -106,16 +109,31 @@ func (q *Queries) ListNodes(ctx context.Context) ([]protocol.Node, error) {
 	return nodesFromRows(rows), nil
 }
 
-// UpdateNodeAgentTypes replaces a node's registered adapter list.
-func (q *Queries) UpdateNodeAgentTypes(ctx context.Context, id string, agentTypes []string) error {
+// UpdateNodeAgents replaces a node's registered adapter list and default.
+func (q *Queries) UpdateNodeAgents(ctx context.Context, id string, agentTypes []string, defaultAdapter string) error {
 	if agentTypes == nil {
 		agentTypes = []string{}
 	}
-	if err := q.q.UpdateNodeAgentTypes(ctx, sqlcgen.UpdateNodeAgentTypesParams{
-		ID:         id,
-		AgentTypes: agentTypes,
+	if err := q.q.UpdateNodeAgents(ctx, sqlcgen.UpdateNodeAgentsParams{
+		ID:             id,
+		AgentTypes:     agentTypes,
+		DefaultAdapter: defaultAdapter,
 	}); err != nil {
-		return fmt.Errorf("store: update node agent types: %w", err)
+		return fmt.Errorf("store: update node agents: %w", err)
+	}
+	return nil
+}
+
+// UpdateNodeCapabilities replaces a node's free-form capability labels.
+func (q *Queries) UpdateNodeCapabilities(ctx context.Context, id string, capabilities []string) error {
+	if capabilities == nil {
+		capabilities = []string{}
+	}
+	if err := q.q.UpdateNodeCapabilities(ctx, sqlcgen.UpdateNodeCapabilitiesParams{
+		ID:           id,
+		Capabilities: capabilities,
+	}); err != nil {
+		return fmt.Errorf("store: update node capabilities: %w", err)
 	}
 	return nil
 }

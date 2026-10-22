@@ -36,10 +36,10 @@ const node = {
 }
 
 /** Node lookup plus the task creation POST the form issues. */
-const mockFormFetch = () => {
+const mockFormFetch = (nodeBody: unknown = node) => {
   fetchMock.mockImplementation((input: unknown) => {
     const url = String(input)
-    if (url === '/api/nodes/n-1') return Promise.resolve(json(node))
+    if (url === '/api/nodes/n-1') return Promise.resolve(json(nodeBody))
     return Promise.resolve(json(createdTask()))
   })
 }
@@ -116,6 +116,36 @@ describe('NewTaskForm auto_start toggle', () => {
 })
 
 describe('NewTaskForm agent type', () => {
+  it('preselects the node’s default_adapter over the first registered agent', async () => {
+    // agent_types is sorted; the operator's default need not be first.
+    mockFormFetch({ ...node, default_adapter: 'omp' })
+    renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
+
+    fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
+      target: { value: 'Run with the default agent' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
+      target: { value: 'Do the thing.' },
+    })
+    await waitFor(() =>
+      expect(screen.getByText('omp', { selector: '.ant-select-selection-item' })).toBeTruthy()
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(taskPost()).toBeTruthy())
+    expect(JSON.parse(String(taskPost()?.[1]?.body))).toMatchObject({ agent_type: 'omp' })
+  })
+
+  it('falls back to the first registered agent when the default is not offered', async () => {
+    mockFormFetch({ ...node, default_adapter: 'stale-agent' })
+    renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
+
+    fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
+      target: { value: 'Do the thing.' },
+    })
+    await waitForAgentDefault()
+  })
+
   it('offers only the node’s registered agents and submits the picked one', async () => {
     mockFormFetch()
     renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)

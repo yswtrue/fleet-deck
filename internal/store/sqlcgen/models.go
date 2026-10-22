@@ -29,15 +29,16 @@ type Event struct {
 }
 
 type Node struct {
-	ID           string
-	Name         string
-	Host         string
-	Status       string
-	Capabilities []string
-	TokenHash    string
-	LastSeenAt   time.Time
-	MachineID    pgtype.Text
-	AgentTypes   []string
+	ID             string
+	Name           string
+	Host           string
+	Status         string
+	Capabilities   []string
+	TokenHash      string
+	LastSeenAt     time.Time
+	MachineID      pgtype.Text
+	AgentTypes     []string
+	DefaultAdapter string
 }
 
 type NodeJoinToken struct {

@@ -60,6 +60,7 @@ export interface Node {
   host?: string;
   status: "online" | "offline";
   agent_types?: string[];
+  default_adapter?: string;
   capabilities?: string[];
   last_seen_at?: string;
 }
@@ -71,6 +72,7 @@ export interface RegisterRequest {
   name: string;
   host?: string;
   agent_types: string[];
+  default_adapter?: string;
   capabilities: string[];
   token?: string;
   join_token?: string;

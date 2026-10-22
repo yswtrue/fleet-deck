@@ -123,8 +123,12 @@ type RegisterRequest struct {
 	// AgentTypes are the adapter keys this daemon can run. A daemon that
 	// predates this field omits it (nil), in which case the hub keeps the
 	// stored list; current daemons always send an array, empty when cleared.
-	AgentTypes   []string `json:"agent_types"`
-	Capabilities []string `json:"capabilities"`
+	AgentTypes []string `json:"agent_types"`
+	// DefaultAdapter is the config's default_adapter. It is only read when
+	// AgentTypes is present: an older daemon that omits the list also omits
+	// this and must not clear the stored default.
+	DefaultAdapter string   `json:"default_adapter,omitempty"`
+	Capabilities   []string `json:"capabilities"`
 	// Token is the node credential issued by a previous registration.
 	Token string `json:"token,omitempty"`
 	// JoinToken is the single-use pairing token required for a node that has

@@ -103,13 +103,14 @@ func nodeFromRow(r sqlcgen.Node) protocol.Node {
 		agentTypes = []string{}
 	}
 	return protocol.Node{
-		ID:           r.ID,
-		Name:         r.Name,
-		Host:         r.Host,
-		Status:       protocol.NodeStatus(r.Status),
-		AgentTypes:   agentTypes,
-		Capabilities: caps,
-		LastSeenAt:   r.LastSeenAt,
+		ID:             r.ID,
+		Name:           r.Name,
+		Host:           r.Host,
+		Status:         protocol.NodeStatus(r.Status),
+		AgentTypes:     agentTypes,
+		DefaultAdapter: r.DefaultAdapter,
+		Capabilities:   caps,
+		LastSeenAt:     r.LastSeenAt,
 	}
 }
 

@@ -1,6 +1,6 @@
 -- name: CreateNode :one
-INSERT INTO node (name, host, status, agent_types, capabilities, token_hash, machine_id, last_seen_at)
-VALUES ($1, $2, $3, $4, $5, $6, sqlc.narg('machine_id'), now())
+INSERT INTO node (name, host, status, agent_types, default_adapter, capabilities, token_hash, machine_id, last_seen_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, sqlc.narg('machine_id'), now())
 RETURNING *;
 
 -- name: GetNode :one
@@ -38,9 +38,14 @@ UPDATE node
 SET machine_id = $2
 WHERE id = $1;
 
--- name: UpdateNodeAgentTypes :exec
+-- name: UpdateNodeAgents :exec
 UPDATE node
-SET agent_types = $2
+SET agent_types = $2, default_adapter = $3
+WHERE id = $1;
+
+-- name: UpdateNodeCapabilities :exec
+UPDATE node
+SET capabilities = $2
 WHERE id = $1;
 
 -- NOTE: This query is not the auth path; bcrypt salting prevents hash equality
