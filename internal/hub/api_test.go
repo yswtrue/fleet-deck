@@ -1875,7 +1875,7 @@ func TestListMessagesReplaysFromNode(t *testing.T) {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
 
-	_, st, ts, auth := newTestHub(t)
+	h, st, ts, auth := newTestHub(t)
 	c, nodeID := dialNode(t, ts, st, uniqueName("hist-node"))
 	defer func() { _ = c.Close() }()
 	envelopes := readEnvelopes(c)
@@ -1921,6 +1921,10 @@ func TestListMessagesReplaysFromNode(t *testing.T) {
 			}))
 		}
 	}()
+
+	// A hub restart drops the live buffer; with no buffered extras the
+	// response is exactly the agent-side replay (TestMergeHistory covers the union).
+	h.updateTextBuffer(context.Background(), task.SessionID, func(st *sessionText) { st.Messages = nil })
 
 	resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/messages")
 	if resp.StatusCode != http.StatusOK {

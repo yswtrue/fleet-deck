@@ -44,7 +44,11 @@ func (h *Hub) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		msgs, err := h.replaySessionHistory(ctx, session)
 		if err == nil {
-			writeJSON(w, http.StatusOK, limitMessages(msgs, limit))
+			// The agent's own replay is the model conversation; the buffer holds
+			// everything that actually transited the hub (including output an
+			// agent does not record, e.g. pi-acp's startup banner). Serve both.
+			buf := h.textBuffer(r.Context(), sessionID)
+			writeJSON(w, http.StatusOK, limitMessages(mergeHistory(msgs, buf.Messages), limit))
 			return
 		}
 		h.log.Warn("history replay unavailable; falling back to text buffer",
@@ -57,6 +61,26 @@ func (h *Hub) handleListMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, limitMessages(buf.Messages, limit))
+}
+
+// mergeHistory appends buffered messages the replay does not contain. The
+// replay wins on order and identity; buffered rows are matched by role and
+// content because the two sources mint different ids.
+func mergeHistory(replay, buffered []protocol.Message) []protocol.Message {
+	seen := make(map[string]bool, len(replay))
+	for _, m := range replay {
+		seen[string(m.Role)+"\x00"+m.Content] = true
+	}
+	out := replay
+	for _, m := range buffered {
+		key := string(m.Role) + "\x00" + m.Content
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, m)
+	}
+	return out
 }
 
 // limitMessages applies the endpoint's limit semantics: up to limit messages,
