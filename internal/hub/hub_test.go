@@ -70,6 +70,10 @@ func newTestHub(t *testing.T) (*Hub, *store.Store, *httptest.Server, testAuth) {
 	ts := httptest.NewServer(h.Handler())
 	t.Cleanup(ts.Close)
 
+	// Production debounces the offline cascade by 30 s so a reconnect keeps its
+	// sessions; tests that assert the cascade need it to fire promptly.
+	h.offlineGrace = 50 * time.Millisecond
+
 	user, token := setupUserWithRole(t, st, "admin")
 	return h, st, ts, testAuth{user: user, token: token}
 }
@@ -97,6 +101,15 @@ func seedNode(t *testing.T, st *store.Store, name string) protocol.Node {
 // not read commands unless the caller does.
 func dialNode(t *testing.T, ts *httptest.Server, st *store.Store, name string) (*websocket.Conn, string) {
 	t.Helper()
+	c, resp := dialNodeAs(t, ts, st, name, "", testJoinToken)
+	return c, resp.NodeID
+}
+
+// dialNodeAs registers a node connection. With an empty token the deployment
+// join token is presented (first registration); a reconnect passes the token
+// the hub issued on that first registration instead.
+func dialNodeAs(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string) (*websocket.Conn, protocol.RegisterResponse) {
+	t.Helper()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/node"
 	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -104,13 +117,17 @@ func dialNode(t *testing.T, ts *httptest.Server, st *store.Store, name string) (
 		t.Fatalf("dial node ws: %v", err)
 	}
 
-	regEnv := protocol.NewEnvelope(protocol.MsgRegisterRequest, protocol.RegisterRequest{
+	req := protocol.RegisterRequest{
 		Name:         name,
 		Host:         "test-host",
 		Capabilities: []string{"fake"},
-		JoinToken:    testJoinToken,
+		Token:        token,
 		MachineID:    "test-machine:" + name,
-	})
+	}
+	if token == "" {
+		req.JoinToken = joinToken
+	}
+	regEnv := protocol.NewEnvelope(protocol.MsgRegisterRequest, req)
 	if err := c.WriteJSON(regEnv); err != nil {
 		t.Fatalf("send register: %v", err)
 	}
@@ -126,7 +143,7 @@ func dialNode(t *testing.T, ts *httptest.Server, st *store.Store, name string) (
 		t.Fatalf("decode register response: %v", err)
 	}
 	if regResp.NodeID == "" {
-		t.Fatal("register response had empty node_id")
+		t.Fatalf("register response had empty node_id (error %q)", regResp.Error)
 	}
 	t.Cleanup(func() {
 		bg, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -135,7 +152,7 @@ func dialNode(t *testing.T, ts *httptest.Server, st *store.Store, name string) (
 			t.Logf("cleanup: delete node: %v", err)
 		}
 	})
-	return c, regResp.NodeID
+	return c, regResp
 }
 
 func uniqueName(prefix string) string {
@@ -343,4 +360,124 @@ func postJSON[T any](t *testing.T, token, url string, body any) T {
 	t.Helper()
 	resp, raw := postRaw(t, token, url, body)
 	return decodeOK[T](t, url, resp, raw)
+}
+
+// A node reports the agent-side session id once the adapter opens (or
+// reattaches) a session. The hub must persist it: without it a finished
+// session cannot be replayed and GET /api/sessions/{id}/messages answers 503.
+func TestNodeSessionStartedRecordsExternalID(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	node := seedNode(t, st, uniqueName("hub-it-ext"))
+	task := createWorkspaceAndTask(t, auth.token, ts, node.ID)
+
+	ctx := context.Background()
+	session, err := st.Queries().CreateSession(ctx, store.CreateSessionParams{
+		TaskID:    task.ID,
+		NodeID:    node.ID,
+		AgentType: "fake",
+		Status:    protocol.SessionRunning,
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	h.handleNodeMessage(ctx, node.ID, protocol.NewEnvelope(protocol.MsgSessionStarted, protocol.SessionStarted{
+		SessionID:         session.ID,
+		ExternalSessionID: "agent-side-42",
+	}))
+
+	got, err := st.Queries().GetSession(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.ExternalSessionID != "agent-side-42" {
+		t.Fatalf("external_session_id = %q, want agent-side-42", got.ExternalSessionID)
+	}
+}
+
+// A reconnect supersedes the previous connection. The stale handler must not
+// evict the live connection or mark the node offline: doing so stops its pings
+// and kills the node again one read-timeout later, which flaps forever.
+func TestStaleConnectionCleanupKeepsReconnectedNode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	name := uniqueName("hub-it-recon")
+
+	// First registration burns a single-use pairing token and yields the node
+	// token every later handshake must present.
+	join := postJSON[struct {
+		Token string `json:"token"`
+	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
+	first, firstResp := dialNodeAs(t, ts, st, name, "", join.Token)
+	if firstResp.Token == "" {
+		t.Fatal("hub did not issue a node token")
+	}
+	second, secondResp := dialNodeAs(t, ts, st, name, firstResp.Token, "")
+	defer func() { _ = second.Close() }()
+	nodeID := firstResp.NodeID
+	if secondResp.NodeID != nodeID {
+		t.Fatalf("reconnect created a new node %q, want %q", secondResp.NodeID, nodeID)
+	}
+
+	// The hub closes the superseded socket as soon as the new one registers;
+	// its handler then runs its cleanup. The node must stay online.
+	_ = first.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !h.nodeOnline(nodeID) {
+			t.Fatal("stale connection cleanup evicted the reconnected node")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A node that reconnects within the grace period keeps its running session:
+// the offline cascade must not fail a task for a one-second blip, because the
+// adapter process on the node is still alive.
+func TestReconnectWithinGraceKeepsSessionRunning(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	// Long enough that the reconnect below always lands inside the window.
+	h.offlineGrace = 2 * time.Second
+	name := uniqueName("hub-it-grace")
+
+	join := postJSON[struct {
+		Token string `json:"token"`
+	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
+	c, reg := dialNodeAs(t, ts, st, name, "", join.Token)
+	if reg.NodeID == "" {
+		t.Fatalf("register: %s", reg.Error)
+	}
+	task := createWorkspaceAndTask(t, auth.token, ts, reg.NodeID)
+	if task.SessionID == "" {
+		t.Fatal("dispatch created no session")
+	}
+
+	// Drop the connection and reconnect right away, exactly like the daemon.
+	_ = c.Close()
+	back, backReg := dialNodeAs(t, ts, st, name, reg.Token, "")
+	defer func() { _ = back.Close() }()
+	if backReg.NodeID != reg.NodeID {
+		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
+	}
+
+	// Past the grace period the node is still connected, so nothing was failed.
+	time.Sleep(3 * time.Second)
+	session, err := st.Queries().GetSession(context.Background(), task.SessionID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if session.Status != protocol.SessionRunning {
+		t.Fatalf("session status = %q, want running", session.Status)
+	}
 }

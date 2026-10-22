@@ -34,6 +34,10 @@ const (
 	MsgTodoUpdate      = "todo_update"
 	MsgEvent           = "event"
 	MsgSessionEvent    = "session.event"
+	// MsgSessionStarted reports the agent-side session id obtained from
+	// session/new (or session/load on resume) so the hub can replay the
+	// conversation later.
+	MsgSessionStarted = "session.started"
 
 	// Hub -> Node.
 	MsgRegisterResponse = "register_response"

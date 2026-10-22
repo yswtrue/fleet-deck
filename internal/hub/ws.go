@@ -153,8 +153,7 @@ func (h *Hub) handleNodeWS(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = c.SetWriteDeadline(time.Time{})
 
-	nc := h.addNode(registered.ID)
-	defer h.removeNode(registered.ID)
+	nc := h.addNode(registered.ID, c)
 	h.log.Info("node online", "node_id", registered.ID, "name", registered.Name)
 	h.bus.Publish(protocol.Event{
 		Type: protocol.EvNodeStatusChanged,
@@ -178,11 +177,19 @@ func (h *Hub) handleNodeWS(w http.ResponseWriter, r *http.Request) {
 		h.handleNodeMessage(ctx, registered.ID, env)
 	}
 
-	// Unblock the writer, then reflect the disconnect.
-	h.removeNode(registered.ID)
+	// Unblock this connection's writer, then reflect the disconnect — but only
+	// when this handler still owns the node: a reconnect supersedes it, and a
+	// stale handler must neither evict the live connection nor mark the node
+	// offline.
+	current := h.removeNode(nc)
 	<-writerDone
-	h.markNodeOffline(ctx, registered.ID)
+	if !current {
+		return
+	}
 	h.log.Info("node offline", "node_id", registered.ID, "name", registered.Name)
+	// Fail its sessions only if the node does not come back within the grace
+	// period: a reconnect keeps the adapters running on the node.
+	h.scheduleOffline(registered.ID)
 }
 
 // nodeWriteLoop drains a node's outbound queue and sends periodic pings. It
@@ -224,6 +231,21 @@ func (h *Hub) handleNodeMessage(ctx context.Context, nodeID string, env protocol
 			return
 		}
 		h.applyTodoUpdate(ctx, tu)
+	case protocol.MsgSessionStarted:
+		var st protocol.SessionStarted
+		if err := env.Decode(&st); err != nil {
+			h.log.Warn("bad session.started", "node_id", nodeID, "err", err)
+			return
+		}
+		if st.ExternalSessionID == "" {
+			return
+		}
+		// Persisted so a finished session can be replayed through the node
+		// later; without it GET /api/sessions/{id}/messages has no way back to
+		// the agent-side session and answers 503.
+		if err := h.store.Queries().UpdateSessionExternalID(ctx, st.SessionID, st.ExternalSessionID); err != nil {
+			h.log.Warn("record external session id", "session_id", st.SessionID, "err", err)
+		}
 	case protocol.MsgSessionEvent:
 		var sm protocol.SessionMessage
 		if err := env.Decode(&sm); err != nil {

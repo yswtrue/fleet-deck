@@ -73,7 +73,9 @@ event       (id, session_id, type, payload_json, seq, ts)   -- 事件流:仅状�
 **隐私存储模型(会话内容不落服务端)**:会话正文(消息、delta)不进 Postgres——唯一持久记录是
 agent 自己的会话存储(在 node 机器上)。`GET /api/sessions/{id}/messages` 对已结束会话通过 node 按需
 replay(`session.history_req/resp`,ACP `session/load` 全量回放)取回;活跃会话读 hub 的**内存文本缓冲**
-(24h TTL,存完整消息 + 待答 ask 的 prompt,重启即失)。`event` 表只存状态类事件的出现记录,
+(24h TTL,存完整消息 + 待答 ask 的 prompt,重启即失)。node 在 `session/new`(或 resume 的
+`session/load`)成功后上报 `session.started`,hub 把 agent 侧会话 id 写进 `session.external_session_id`
+——没有它,回放无从定位,`GET /api/sessions/{id}/messages` 只能靠文本缓冲,缓冲没了就是 503。`event` 表只存状态类事件的出现记录,
 `user_input_requested` 持久化时剥掉 prompt(空 prompt 占位,保持 web 事件契约)。
 
 **任务状态机**(4 状态,固定):
@@ -98,7 +100,7 @@ waiting ──start──▶ running ──agent_done──▶ done
 `internal/protocol` 里的 Go struct 是**唯一真源**。`cmd/fleetctl schema export` 导出 JSON Schema,`web/` 再生成 TS 类型。三端(hub/node/web)共享同一套消息形状。
 
 - **Hub ↔ Web(订阅/推送)**:事件类型如 `task.created` / `task.status_changed` / `subtask.updated` / `session.delta` / `session.user_input_requested` / `node.status_changed`。
-- **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史)/ `fs.list_req`(目录浏览);node 上报文本增量、todo 更新、状态变更、请求用户输入、`session.history_resp`、`fs.list_resp`。
+- **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史)/ `fs.list_req`(目录浏览);node 上报文本增量、todo 更新、状态变更、请求用户输入、`session.started`(agent 侧会话 id,供后续回放)、`session.history_resp`、`fs.list_resp`。
 - **node 注册**:未知节点名必须出示一次性加入令牌(`POST /api/nodes/join-tokens` 生成,任何已登录用户可生成;或部署级 `FLEETDECK_NODE_JOIN_TOKEN`)。hub 在创建节点行的同一事务里烧掉令牌,并把令牌创建者绑定到该节点;随后签发 node token(存 `token_file`),后续重连只用 node token。`POST /api/nodes` 已移除,不能凭空预建可被抢注的节点行。
 - **工作空间创建**:web「新建工作区」的目录选择器经 `GET /api/nodes/{id}/fs?path=` 把 `fs.list_req` / `fs.list_resp` 转发给节点(只列目录、返回 symlink 解析后的绝对路径;空 `path` 从节点用户 home 开始;节点离线 503,路径不可读 400)。`fleetdeck-node workspace add|list` 从节点机器经 hub REST 管理工作空间,使用**用户** Bearer(`--token` / `FLEETDECK_HUB_TOKEN`,或 `--email`/`--password`;hub 地址取 `FLEETDECK_HUB_URL` 或配置里的 `hub_url`)——node token 从不用于 REST。hub 仍是唯一 DB 写入者。
 

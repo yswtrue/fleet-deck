@@ -145,6 +145,16 @@ type SendMessageCommand struct {
 	Message   string `json:"message"`
 }
 
+// SessionStarted reports the agent-side session id an adapter obtained when it
+// opened (session/new) or reattached (session/load) a session. The hub stores
+// it so GET /api/sessions/{id}/messages can replay the conversation through the
+// owning node after the session finishes: message content is never persisted
+// server-side.
+type SessionStarted struct {
+	SessionID         string `json:"session_id"`
+	ExternalSessionID string `json:"external_session_id"`
+}
+
 // SessionResumeCommand revives a finished (done/failed) session with the
 // user's follow-up: the node reattaches to the agent-side session via
 // session/load and then prompts with Message. ExternalSessionID is the

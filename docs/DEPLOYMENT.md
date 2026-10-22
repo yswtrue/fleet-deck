@@ -289,9 +289,10 @@ git pull
 docker compose up -d --build     # migrate runs first, then hub restarts
 ```
 
-Nodes are independent: rebuild/restart them at will; the hub marks sessions of
-disconnected nodes as failed (offline cascade) and nodes re-register on
-startup.
+Nodes are independent: rebuild/restart them at will; nodes re-register on
+startup. A disconnected node's running sessions are failed by the offline
+cascade only after a 30 s grace period, so a reconnect (network blip, ingress
+restart) keeps the task alive.
 
 ## Smoke checks
 

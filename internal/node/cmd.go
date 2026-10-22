@@ -121,7 +121,22 @@ func (n *Node) startSession(ctx context.Context, cmd protocol.TaskStartCommand) 
 			return
 		}
 		log.Info("session started", "external_session_id", result.ExternalSessionID)
+		n.reportExternalSessionID(cmd.SessionID, result.ExternalSessionID)
 	}()
+}
+
+// reportExternalSessionID tells the hub which agent-side session id the
+// adapter opened (or reattached). Without it the hub cannot replay the
+// conversation after the session finishes: GET /api/sessions/{id}/messages
+// answers 503 once content is no longer in the in-memory text buffer.
+func (n *Node) reportExternalSessionID(sessionID, externalID string) {
+	if externalID == "" {
+		return
+	}
+	n.enqueue(protocol.NewEnvelope(protocol.MsgSessionStarted, protocol.SessionStarted{
+		SessionID:         sessionID,
+		ExternalSessionID: externalID,
+	}))
 }
 
 func (n *Node) session(sessionID string) adapters.Adapter {
@@ -200,6 +215,7 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 			return
 		}
 		log.Info("session resumed", "external_session_id", result.ExternalSessionID)
+		n.reportExternalSessionID(cmd.SessionID, result.ExternalSessionID)
 	}()
 }
 

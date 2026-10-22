@@ -27,6 +27,7 @@ func TestNodeReportsAdapterEventsToHub(t *testing.T) {
 
 	todoCh := make(chan struct{}, 1)
 	doneCh := make(chan struct{}, 1)
+	startedCh := make(chan protocol.SessionStarted, 1)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ws/node", func(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +61,14 @@ func TestNodeReportsAdapterEventsToHub(t *testing.T) {
 				return
 			}
 			switch env.Type {
+			case protocol.MsgSessionStarted:
+				var st protocol.SessionStarted
+				if env.Decode(&st) == nil {
+					select {
+					case startedCh <- st:
+					default:
+					}
+				}
 			case protocol.MsgTodoUpdate:
 				select {
 				case todoCh <- struct{}{}:
@@ -108,6 +117,17 @@ func TestNodeReportsAdapterEventsToHub(t *testing.T) {
 
 	waitSignal(t, todoCh, 5*time.Second, "todo_update")
 	waitSignal(t, doneCh, 5*time.Second, "session done event")
+
+	// The hub persists this id to replay the conversation later; without it
+	// GET /api/sessions/{id}/messages cannot reach the agent-side session.
+	select {
+	case st := <-startedCh:
+		if st.SessionID != "s1" || st.ExternalSessionID != "fake-s1" {
+			t.Fatalf("session.started = %+v, want s1 / fake-s1", st)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for session.started")
+	}
 
 	if _, err := os.Stat(cfg.TokenFile); err != nil {
 		t.Fatalf("expected issued token to be persisted at %s: %v", cfg.TokenFile, err)

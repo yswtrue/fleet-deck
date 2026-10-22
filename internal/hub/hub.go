@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -67,12 +68,25 @@ type Hub struct {
 	// nodes without a database-backed token; UI-minted tokens remain the
 	// normal path.
 	joinToken string
+
+	// offlineMu/offlineTimers debounce the offline cascade: a node that
+	// reconnects within offlineGrace keeps its running sessions instead of
+	// having them failed by a one-second network blip.
+	offlineMu     sync.Mutex
+	offlineTimers map[string]*time.Timer
+	offlineGrace  time.Duration
 }
+
+// nodeOfflineGrace is how long a node may stay disconnected before its running
+// sessions are failed. The node keeps its adapter processes alive across a
+// reconnect, so a short outage must not destroy a task.
+const nodeOfflineGrace = 30 * time.Second
 
 // nodeConn is the hub's side of a registered node connection: a buffered
 // outbound queue drained by a single writer goroutine.
 type nodeConn struct {
 	id   string
+	ws   *websocket.Conn
 	send chan []byte
 	done chan struct{}
 	once sync.Once
@@ -90,15 +104,17 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 		c = cache.Noop{}
 	}
 	h := &Hub{
-		store:    st,
-		registry: registry,
-		log:      slog.Default().With("component", "hub"),
-		cache:    c,
-		bindings: newBindingCache(),
-		nodes:    make(map[string]*nodeConn),
-		text:     make(map[string]textBufferEntry),
-		histWait: make(map[string]chan protocol.SessionHistoryResponse),
-		fsWait:   make(map[string]chan protocol.FSListResponse),
+		store:         st,
+		registry:      registry,
+		log:           slog.Default().With("component", "hub"),
+		cache:         c,
+		bindings:      newBindingCache(),
+		nodes:         make(map[string]*nodeConn),
+		offlineTimers: make(map[string]*time.Timer),
+		offlineGrace:  nodeOfflineGrace,
+		text:          make(map[string]textBufferEntry),
+		histWait:      make(map[string]chan protocol.SessionHistoryResponse),
+		fsWait:        make(map[string]chan protocol.FSListResponse),
 		// Deployment-level pairing secret for automated nodes; unset means only
 		// UI-minted single-use tokens can register a new node.
 		joinToken: os.Getenv("FLEETDECK_NODE_JOIN_TOKEN"),
@@ -170,24 +186,66 @@ func (h *Hub) invalidateTasks(ctx context.Context, workspaceID string) {
 
 // ---- node connection registry ---------------------------------------------
 
-func (h *Hub) addNode(id string) *nodeConn {
-	nc := &nodeConn{id: id, send: make(chan []byte, 64), done: make(chan struct{})}
+func (h *Hub) addNode(id string, ws *websocket.Conn) *nodeConn {
+	nc := &nodeConn{id: id, ws: ws, send: make(chan []byte, 64), done: make(chan struct{})}
 	h.nodesMu.Lock()
 	if old, ok := h.nodes[id]; ok {
 		old.close()
+		// Stop the superseded reader now: it must not linger until its read
+		// deadline and then tear down this connection during cleanup.
+		_ = old.ws.Close()
 	}
 	h.nodes[id] = nc
 	h.nodesMu.Unlock()
+	// The node is back: a pending offline cascade must not fire.
+	h.cancelOffline(id)
 	return nc
 }
 
-func (h *Hub) removeNode(id string) {
-	h.nodesMu.Lock()
-	if nc, ok := h.nodes[id]; ok {
-		delete(h.nodes, id)
-		nc.close()
+// scheduleOffline runs the offline cascade (fail running sessions, flip their
+// tasks) once the node has been gone for offlineGrace. A reconnect cancels it.
+func (h *Hub) scheduleOffline(nodeID string) {
+	h.offlineMu.Lock()
+	defer h.offlineMu.Unlock()
+	if t, ok := h.offlineTimers[nodeID]; ok {
+		t.Stop()
 	}
-	h.nodesMu.Unlock()
+	h.offlineTimers[nodeID] = time.AfterFunc(h.offlineGrace, func() {
+		h.offlineMu.Lock()
+		delete(h.offlineTimers, nodeID)
+		h.offlineMu.Unlock()
+		if h.nodeOnline(nodeID) {
+			h.log.Debug("offline cascade cancelled: node reconnected", "node_id", nodeID)
+			return
+		}
+		h.log.Info("offline cascade: node stayed offline", "node_id", nodeID)
+		h.markNodeOffline(context.Background(), nodeID)
+	})
+}
+
+// cancelOffline drops a pending offline cascade for a node that reconnected.
+func (h *Hub) cancelOffline(nodeID string) {
+	h.offlineMu.Lock()
+	defer h.offlineMu.Unlock()
+	if t, ok := h.offlineTimers[nodeID]; ok {
+		t.Stop()
+		delete(h.offlineTimers, nodeID)
+	}
+}
+
+// removeNode drops nc and stops its writer. It reports false when a newer
+// connection has already taken over the node id: the stale handler must not
+// evict the live connection (that would stop its pings and kill the node's
+// reconnect a read-timeout later).
+func (h *Hub) removeNode(nc *nodeConn) bool {
+	h.nodesMu.Lock()
+	defer h.nodesMu.Unlock()
+	if cur, ok := h.nodes[nc.id]; !ok || cur != nc {
+		return false
+	}
+	delete(h.nodes, nc.id)
+	nc.close()
+	return true
 }
 
 // liveNodeStatus reports a node's actual connectivity. The in-memory
