@@ -4,6 +4,27 @@
   line-height: 1.55;
 }
 
+.download {
+  margin: 0 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.download a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.downloadHint {
+  font-size: 0.8rem;
+  color: var(--text);
+  opacity: 0.85;
+  line-height: 1.5;
+}
+
 .steps {
   margin: 0;
   padding-left: var(--space-5);

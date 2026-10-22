@@ -79,6 +79,8 @@
   "addNode": {
     "title": "添加节点",
     "intro": "生成一次性加入令牌，然后用它启动节点守护进程。令牌 15 分钟后过期。",
+    "downloadLabel": "节点二进制：",
+    "downloadHint": "按机器下载对应压缩包（fleetdeck-node_<version>_<os>_<arch>.tar.gz，Windows 为 .zip），并用 SHA256SUMS 校验。每个版本都提供 Linux、macOS、Windows 的 amd64/arm64 包。",
     "generate": "生成令牌",
     "onceTitle": "请立即复制",
     "onceBody": "令牌只显示一次，且只能注册一个节点。",

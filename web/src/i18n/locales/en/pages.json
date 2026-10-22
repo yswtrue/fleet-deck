@@ -79,6 +79,8 @@
   "addNode": {
     "title": "Add a node",
     "intro": "Generate a single-use join token, then start the node daemon with it. The token expires in 15 minutes.",
+    "downloadLabel": "Node binary:",
+    "downloadHint": "Download the archive for this machine (fleetdeck-node_<version>_<os>_<arch>.tar.gz, .zip on Windows) and verify it against SHA256SUMS. Linux, macOS, and Windows on amd64/arm64 are published for every tag.",
     "generate": "Generate token",
     "onceTitle": "Copy this token now",
     "onceBody": "It is shown only once and can register exactly one node.",

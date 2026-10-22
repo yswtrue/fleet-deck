@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AddNodeModal } from './AddNodeModal.tsx'
+import { AddNodeModal, NODE_RELEASES_URL } from './AddNodeModal.tsx'
 
 const fetchMock = vi.fn()
 
@@ -33,6 +33,11 @@ describe('AddNodeModal', () => {
       })
     )
     renderModal()
+    // The operator needs a binary before the command makes sense; the release
+    // link is shown both before and after minting.
+    expect(screen.getByRole('link', { name: NODE_RELEASES_URL }).getAttribute('href')).toBe(
+      NODE_RELEASES_URL
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Generate token' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     expect(fetchMock.mock.calls[0][0]).toBe('/api/nodes/join-tokens')
@@ -45,6 +50,10 @@ describe('AddNodeModal', () => {
     expect(document.body.textContent).toContain('--hub-url')
     expect(document.body.textContent).toContain('/ws/node')
     expect(document.body.textContent).toContain('Application Support/fleetdeck')
+    // Still shown once the token exists, so a fresh machine can be set up in one pass.
+    expect(screen.getByRole('link', { name: NODE_RELEASES_URL }).getAttribute('href')).toBe(
+      NODE_RELEASES_URL
+    )
     expect(document.body.textContent).not.toContain('FLEETDECK_NODE_JOIN_TOKEN')
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy command' }))

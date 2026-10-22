@@ -37,6 +37,9 @@ function nodeHubURL(): string {
   return `${base.replace(/^http/, 'ws')}/ws/node`
 }
 
+/** Published node-daemon builds (one archive per OS/arch, plus SHA256SUMS). */
+export const NODE_RELEASES_URL = 'https://github.com/yswtrue/fleet-deck/releases/latest'
+
 /**
  * Add-node flow: mint a single-use join token and hand the operator a
  * copy-ready start command. The token is displayed exactly once (only its hash
@@ -93,6 +96,13 @@ export function AddNodeModal({ open, onClose }: { open: boolean; onClose: () => 
     >
       {messageHolder}
       <p className={styles.intro}>{t('addNode.intro')}</p>
+      <p className={styles.download}>
+        {t('addNode.downloadLabel')}{' '}
+        <a href={NODE_RELEASES_URL} target="_blank" rel="noreferrer">
+          {NODE_RELEASES_URL}
+        </a>
+        <span className={styles.downloadHint}>{t('addNode.downloadHint')}</span>
+      </p>
       {token ? (
         <div className={styles.generated}>
           <Alert
