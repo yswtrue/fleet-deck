@@ -134,6 +134,22 @@ func (c *Config) ApplyDefaults() {
 	}
 }
 
+// advertisedAgentTypes is the configured adapter list sent to the hub. It is
+// never nil: an explicit empty array tells the hub to clear a stale list,
+// while an absent field (an older daemon) leaves the stored list untouched.
+func (c *Config) advertisedAgentTypes() []string {
+	seen := make(map[string]bool, len(c.AgentTypes))
+	out := make([]string, 0, len(c.AgentTypes))
+	for _, a := range c.AgentTypes {
+		if a == "" || seen[a] {
+			continue
+		}
+		seen[a] = true
+		out = append(out, a)
+	}
+	return out
+}
+
 // advertisedCapabilities is the deduplicated union of Capabilities and
 // AgentTypes, sent to the hub in RegisterRequest.
 func (c *Config) advertisedCapabilities() []string {
@@ -254,6 +270,7 @@ func (n *Node) runOnce(ctx context.Context) error {
 	regEnv := protocol.NewEnvelope(protocol.MsgRegisterRequest, protocol.RegisterRequest{
 		Name:         n.cfg.Name,
 		Host:         n.cfg.Host,
+		AgentTypes:   n.cfg.advertisedAgentTypes(),
 		Capabilities: n.cfg.advertisedCapabilities(),
 		Token:        n.readToken(),
 		JoinToken:    n.cfg.JoinToken,

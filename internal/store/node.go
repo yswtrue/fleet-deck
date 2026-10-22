@@ -17,6 +17,7 @@ type CreateNodeParams struct {
 	Name         string
 	Host         string
 	Status       protocol.NodeStatus
+	AgentTypes   []string
 	Capabilities []string
 	TokenHash    string
 	// MachineID is the stable machine fingerprint (already hashed by the
@@ -26,10 +27,15 @@ type CreateNodeParams struct {
 
 // CreateNode inserts a node and returns the stored row.
 func (q *Queries) CreateNode(ctx context.Context, p CreateNodeParams) (protocol.Node, error) {
+	agentTypes := p.AgentTypes
+	if agentTypes == nil {
+		agentTypes = []string{}
+	}
 	row, err := q.q.CreateNode(ctx, sqlcgen.CreateNodeParams{
 		Name:         p.Name,
 		Host:         p.Host,
 		Status:       string(p.Status),
+		AgentTypes:   agentTypes,
 		Capabilities: p.Capabilities,
 		TokenHash:    p.TokenHash,
 		MachineID:    pgtype.Text{String: p.MachineID, Valid: p.MachineID != ""},
@@ -98,6 +104,20 @@ func (q *Queries) ListNodes(ctx context.Context) ([]protocol.Node, error) {
 		return nil, fmt.Errorf("store: list nodes: %w", err)
 	}
 	return nodesFromRows(rows), nil
+}
+
+// UpdateNodeAgentTypes replaces a node's registered adapter list.
+func (q *Queries) UpdateNodeAgentTypes(ctx context.Context, id string, agentTypes []string) error {
+	if agentTypes == nil {
+		agentTypes = []string{}
+	}
+	if err := q.q.UpdateNodeAgentTypes(ctx, sqlcgen.UpdateNodeAgentTypesParams{
+		ID:         id,
+		AgentTypes: agentTypes,
+	}); err != nil {
+		return fmt.Errorf("store: update node agent types: %w", err)
+	}
+	return nil
 }
 
 // UpdateNodeStatus sets a node's connectivity status and last-seen timestamp.

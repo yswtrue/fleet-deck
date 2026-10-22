@@ -28,6 +28,31 @@ afterEach(() => {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+const node = {
+  id: 'n-1',
+  name: 'node-1',
+  status: 'online',
+  agent_types: ['codex', 'omp'],
+}
+
+/** Node lookup plus the task creation POST the form issues. */
+const mockFormFetch = () => {
+  fetchMock.mockImplementation((input: unknown) => {
+    const url = String(input)
+    if (url === '/api/nodes/n-1') return Promise.resolve(json(node))
+    return Promise.resolve(json(createdTask()))
+  })
+}
+
+const taskPost = () =>
+  fetchMock.mock.calls.find(([url, init]) => url === '/api/tasks' && init?.method === 'POST')
+
+/** The node query seeds the first registered agent, not a hardcoded fake. */
+const waitForAgentDefault = () =>
+  waitFor(() =>
+    expect(screen.getByText('codex', { selector: '.ant-select-selection-item' })).toBeTruthy()
+  )
+
 const createdTask = (overrides: Record<string, unknown> = {}) => ({
   id: 't-1',
   workspace_id: 'w-1',
@@ -68,9 +93,9 @@ function renderWithProviders(ui: React.ReactNode) {
 
 describe('NewTaskForm auto_start toggle', () => {
   it('sends auto_start: false when the switch is turned off', async () => {
-    fetchMock.mockImplementation(() => Promise.resolve(json(createdTask())))
+    mockFormFetch()
     const onClose = vi.fn()
-    renderWithProviders(<NewTaskForm workspaceId="w-1" onClose={onClose} />)
+    renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={onClose} />)
 
     fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
       target: { value: 'Backlog item' },
@@ -80,20 +105,20 @@ describe('NewTaskForm auto_start toggle', () => {
     })
     // "Start immediately" defaults on; turning it off creates a backlog task.
     fireEvent.click(screen.getByRole('switch', { name: 'Start immediately' }))
+    await waitForAgentDefault()
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-    const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/tasks')
-    expect(init?.method).toBe('POST')
-    expect(JSON.parse(String(init?.body))).toMatchObject({ auto_start: false })
+    // The node lookup runs alongside; locate the task POST rather than
+    // assuming it is the only request.
+    await waitFor(() => expect(taskPost()).toBeTruthy())
+    expect(JSON.parse(String(taskPost()?.[1]?.body))).toMatchObject({ auto_start: false })
   })
 })
 
 describe('NewTaskForm agent type', () => {
-  it('submits the agent picked in the suggestion list', async () => {
-    fetchMock.mockImplementation(() => Promise.resolve(json(createdTask())))
-    renderWithProviders(<NewTaskForm workspaceId="w-1" onClose={() => {}} />)
+  it('offers only the node’s registered agents and submits the picked one', async () => {
+    mockFormFetch()
+    renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
 
     fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
       target: { value: 'Run with omp' },
@@ -104,25 +129,26 @@ describe('NewTaskForm agent type', () => {
     // The agent field is an AutoComplete: picking a suggestion must reach the
     // POST body. It previously lived inside a wrapper <div>, so Form.Item never
     // received the value and every task fell back to the `fake` default.
+    await waitForAgentDefault()
     const agentInput = screen.getByRole('combobox')
     // Open the list and pick an option without typing: a selection alone fires
     // no bubbling `change` event, which is how the wrapper <div> used to lose
-    // the value (leaving the `fake` initialValue in the form store).
+    // the value.
     fireEvent.mouseDown(agentInput)
-    fireEvent.click(await screen.findByTitle('omp'))
+    const ompOption = await screen.findByTitle('omp')
+    expect(screen.queryByTitle('fake')).toBeNull()
+    fireEvent.click(ompOption)
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-    const [url, init] = fetchMock.mock.calls[0]
-    expect(url).toBe('/api/tasks')
-    expect(JSON.parse(String(init?.body))).toMatchObject({ agent_type: 'omp' })
+    await waitFor(() => expect(taskPost()).toBeTruthy())
+    expect(JSON.parse(String(taskPost()?.[1]?.body))).toMatchObject({ agent_type: 'omp' })
   })
 })
 
 describe('NewTaskForm derived title', () => {
   it('fills the title from the prompt and submits it', async () => {
-    fetchMock.mockImplementation(() => Promise.resolve(json(createdTask())))
-    renderWithProviders(<NewTaskForm workspaceId="w-1" onClose={() => {}} />)
+    mockFormFetch()
+    renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
 
     fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
       target: { value: 'Update the flake inputs\n\nand rebuild' },
@@ -130,15 +156,16 @@ describe('NewTaskForm derived title', () => {
     const title = screen.getByPlaceholderText('What should the agent do?') as HTMLInputElement
     expect(title.value).toBe('Update the flake inputs')
 
+    await waitForAgentDefault()
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body))
+    await waitFor(() => expect(taskPost()).toBeTruthy())
+    const body = JSON.parse(String(taskPost()?.[1]?.body))
     expect(body).toMatchObject({ title: 'Update the flake inputs' })
   })
 
   it('stops mirroring the prompt once the title is edited', async () => {
-    fetchMock.mockImplementation(() => Promise.resolve(json(createdTask())))
-    renderWithProviders(<NewTaskForm workspaceId="w-1" onClose={() => {}} />)
+    mockFormFetch()
+    renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
 
     const title = screen.getByPlaceholderText('What should the agent do?') as HTMLInputElement
     fireEvent.change(title, { target: { value: 'Custom label' } })
@@ -165,7 +192,7 @@ describe('Board archived filter', () => {
       }
       throw new Error(`unexpected fetch: ${url}`)
     })
-    renderWithProviders(<Board workspaceId="w-1" />)
+    renderWithProviders(<Board workspaceId="w-1" nodeId="n-1" />)
 
     // Default view: the archived row is excluded, so the board is empty.
     await waitFor(() => expect(screen.getByText('No tasks yet')).toBeTruthy())

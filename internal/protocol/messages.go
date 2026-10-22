@@ -113,8 +113,12 @@ type SessionUsage struct {
 
 // RegisterRequest is sent by a node when it first connects to the hub.
 type RegisterRequest struct {
-	Name         string   `json:"name"`
-	Host         string   `json:"host,omitempty"`
+	Name string `json:"name"`
+	Host string `json:"host,omitempty"`
+	// AgentTypes are the adapter keys this daemon can run. A daemon that
+	// predates this field omits it (nil), in which case the hub keeps the
+	// stored list; current daemons always send an array, empty when cleared.
+	AgentTypes   []string `json:"agent_types"`
 	Capabilities []string `json:"capabilities"`
 	// Token is the node credential issued by a previous registration.
 	Token string `json:"token,omitempty"`

@@ -93,11 +93,16 @@ func nodeFromRow(r sqlcgen.Node) protocol.Node {
 	if caps == nil {
 		caps = []string{}
 	}
+	agentTypes := r.AgentTypes
+	if agentTypes == nil {
+		agentTypes = []string{}
+	}
 	return protocol.Node{
 		ID:           r.ID,
 		Name:         r.Name,
 		Host:         r.Host,
 		Status:       protocol.NodeStatus(r.Status),
+		AgentTypes:   agentTypes,
 		Capabilities: caps,
 		LastSeenAt:   r.LastSeenAt,
 	}

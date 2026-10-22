@@ -37,6 +37,7 @@ type Node struct {
 	TokenHash    string
 	LastSeenAt   time.Time
 	MachineID    pgtype.Text
+	AgentTypes   []string
 }
 
 type NodeJoinToken struct {

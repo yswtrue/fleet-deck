@@ -1,26 +1,33 @@
-import { useEffect, useRef } from 'react'
-import { Modal, Form, Input, Button, AutoComplete, Switch } from 'antd'
-import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef } from 'react'
+import { Modal, Form, Input, Button, Select, Switch } from 'antd'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from '@refinedev/antd'
+import { useHubApi } from '../hooks/useHubApi.ts'
 import { useTranslation } from '../i18n/index.ts'
 import { deriveTaskTitle } from '../taskTitle.ts'
 
 interface NewTaskFormProps {
   workspaceId: string
+  /** Node that owns the workspace; its registered agents fill the picker. */
+  nodeId: string
   onClose: () => void
 }
-
-const AGENT_TYPE_SUGGESTIONS = ['fake', 'opencode', 'codex', 'claude', 'pi', 'omp'].map(
-  (value) => ({ value })
-)
 
 /**
  * Uses the app-wide `<Refine>` provider (see providers/RefineProvider.tsx) for
  * `useForm`; no local Refine/DataProvider wrapper is needed.
  */
-export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
+export function NewTaskForm({ workspaceId, nodeId, onClose }: NewTaskFormProps) {
   const { t } = useTranslation('board')
+  const api = useHubApi()
   const queryClient = useQueryClient()
+  const { data: node, isLoading: nodeLoading } = useQuery({
+    queryKey: ['nodes', nodeId],
+    queryFn: () => api.getNode(nodeId),
+    enabled: !!nodeId,
+  })
+  const agentTypes = useMemo(() => node?.agent_types ?? [], [node])
+  const agentOptions = useMemo(() => agentTypes.map((value) => ({ value })), [agentTypes])
   const { form, formProps, saveButtonProps, formLoading } = useForm({
     action: 'create',
     resource: 'tasks',
@@ -34,11 +41,17 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
     },
   })
 
-  // While the agent-type suggestion list is open, Enter picks the highlighted
-  // suggestion instead of submitting the form.
-  const agentMenuOpenRef = useRef(false)
   // Once the operator edits the title, stop mirroring the prompt into it.
   const titleEditedRef = useRef(false)
+
+  // Seed the default agent once the node's registered list arrives. antd only
+  // applies `initialValues` at mount, and the node query resolves after it.
+  useEffect(() => {
+    if (agentTypes.length === 0) return
+    if (!form.getFieldValue('agent_type')) {
+      form.setFieldValue('agent_type', agentTypes[0])
+    }
+  }, [agentTypes, form])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -65,7 +78,7 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
       <Form
         {...formProps}
         layout="vertical"
-        initialValues={{ agent_type: 'fake', auto_start: true }}
+        initialValues={{ auto_start: true }}
         onValuesChange={(changed: Record<string, unknown>) => {
           if ('title' in changed) {
             titleEditedRef.current = true
@@ -105,20 +118,14 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
           rules={[{ required: true, whitespace: true, message: t('form.agentRequired') }]}
           extra={t('form.agentHelp')}
         >
-          {/* The AutoComplete must be Form.Item's direct child: a wrapper
-              element swallows the injected value/onChange, so a click on a
-              suggestion would never reach the form store. */}
-          <AutoComplete
-            options={AGENT_TYPE_SUGGESTIONS}
+          {/* The Select must be Form.Item's direct child: a wrapper element
+              swallows the injected value/onChange, so a selection would never
+              reach the form store. */}
+          <Select
+            options={agentOptions}
+            showSearch
             placeholder={t('form.agentPlaceholder')}
-            onOpenChange={(open) => {
-              agentMenuOpenRef.current = open
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' || event.shiftKey || agentMenuOpenRef.current) return
-              event.preventDefault()
-              void form.submit()
-            }}
+            notFoundContent={nodeLoading ? undefined : t('form.noAgents')}
             style={{ width: '100%' }}
           />
         </Form.Item>

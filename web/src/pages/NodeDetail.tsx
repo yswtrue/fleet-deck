@@ -22,12 +22,6 @@ export function NodeDetail() {
     // the error state immediately instead of retrying behind a skeleton.
     retry: false,
   })
-  const tasksQuery = useQuery({
-    queryKey: ['tasks-by-workspace', nodeId],
-    queryFn: () => api.listTasksByNode(nodeId ?? ''),
-    enabled: !!nodeId,
-  })
-
   if (!nodeId) return <ErrorState title={t('node.invalid')} />
   // An invisible or deleted node is a dead end: do not render the workspaces
   // section (and its create button) below for a node the user cannot see.
@@ -39,11 +33,7 @@ export function NodeDetail() {
     )
 
   const node = nodeQuery.data
-  // Agent types are whatever the node's tasks ran with; the node itself does
-  // not advertise them.
-  const seenAgentTypes = new Set<string>()
-  for (const task of tasksQuery.data ?? []) seenAgentTypes.add(task.agent_type)
-  const agentTypes = [...seenAgentTypes].sort()
+  const agentTypes = node?.agent_types ?? []
   const capabilities = node?.capabilities ?? []
 
   return (

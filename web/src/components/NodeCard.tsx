@@ -30,10 +30,7 @@ export function NodeCard({ node }: { node: Node }) {
   const tasks = tasksQuery.data ?? []
   const workspaceCount = workspacesQuery.data?.length ?? 0
   const activeTaskCount = tasks.filter((task) => task.status !== 'done').length
-  // Dynamic membership: which agent types appear on this node's tasks.
-  const seenAgentTypes = new Set<string>()
-  for (const task of tasks) seenAgentTypes.add(task.agent_type)
-  const agentTypes = [...seenAgentTypes].sort()
+  const agentTypes = node.agent_types ?? []
   const capabilities = node.capabilities ?? []
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {

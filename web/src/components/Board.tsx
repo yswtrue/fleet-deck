@@ -12,7 +12,7 @@ import type { Task } from '../types.ts'
 
 const COLUMNS: Task['status'][] = ['waiting', 'running', 'awaiting_user', 'done']
 
-export function Board({ workspaceId }: { workspaceId: string }) {
+export function Board({ workspaceId, nodeId }: { workspaceId: string; nodeId: string }) {
   const { t } = useTranslation('board')
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -100,7 +100,9 @@ export function Board({ workspaceId }: { workspaceId: string }) {
           ))}
         </div>
       )}
-      {showForm && <NewTaskForm workspaceId={workspaceId} onClose={() => setShowForm(false)} />}
+      {showForm && (
+        <NewTaskForm workspaceId={workspaceId} nodeId={nodeId} onClose={() => setShowForm(false)} />
+      )}
     </div>
   )
 }

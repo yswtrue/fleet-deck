@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -159,6 +160,79 @@ func dialNodeAs(t *testing.T, ts *httptest.Server, st *store.Store, name, token,
 
 func uniqueName(prefix string) string {
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+}
+
+// TestRegisterNodeTracksAgentTypes covers the picker's data source: the
+// handshake's agent list is persisted, refreshed on reconnect, and preserved
+// when an older daemon omits the field entirely.
+func TestRegisterNodeTracksAgentTypes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, _, _ := newTestHub(t)
+	ctx := context.Background()
+	name := uniqueName("agents-node")
+	machineID := "agents-machine:" + name
+	agentTypes := []string{"codex", "omp"}
+
+	node, token, err := h.registerNode(ctx, protocol.RegisterRequest{
+		Name:         name,
+		Host:         "test-host",
+		AgentTypes:   agentTypes,
+		Capabilities: agentTypes,
+		JoinToken:    testJoinToken,
+		MachineID:    machineID,
+	})
+	if err != nil {
+		t.Fatalf("register node: %v", err)
+	}
+	t.Cleanup(func() {
+		bg, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if _, err := st.Pool().Exec(bg, "DELETE FROM node WHERE id = $1", node.ID); err != nil {
+			t.Logf("cleanup: delete node: %v", err)
+		}
+	})
+	if !slices.Equal(node.AgentTypes, agentTypes) {
+		t.Fatalf("registered agent_types = %v, want %v", node.AgentTypes, agentTypes)
+	}
+
+	// A reconnect with a changed list replaces the stored one (a newly
+	// installed or removed agent must show up without re-pairing).
+	_, _, err = h.registerNode(ctx, protocol.RegisterRequest{
+		Name:       name,
+		Token:      token,
+		AgentTypes: []string{"codex"},
+		MachineID:  machineID,
+	})
+	if err != nil {
+		t.Fatalf("reconnect node: %v", err)
+	}
+	stored, err := st.Queries().GetNode(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if !slices.Equal(stored.AgentTypes, []string{"codex"}) {
+		t.Fatalf("reconnected agent_types = %v, want [codex]", stored.AgentTypes)
+	}
+
+	// A daemon that predates the field sends nil; that must not wipe the list.
+	_, _, err = h.registerNode(ctx, protocol.RegisterRequest{
+		Name:      name,
+		Token:     token,
+		MachineID: machineID,
+	})
+	if err != nil {
+		t.Fatalf("legacy reconnect: %v", err)
+	}
+	stored, err = st.Queries().GetNode(ctx, node.ID)
+	if err != nil {
+		t.Fatalf("get node after legacy reconnect: %v", err)
+	}
+	if !slices.Equal(stored.AgentTypes, []string{"codex"}) {
+		t.Fatalf("legacy reconnect wiped agent_types: %v", stored.AgentTypes)
+	}
 }
 
 func createWorkspaceAndTask(t *testing.T, token string, ts *httptest.Server, nodeID string) protocol.Task {

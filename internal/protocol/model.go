@@ -62,12 +62,16 @@ const (
 
 // Node is a machine running a FleetDeck node daemon.
 type Node struct {
-	ID           string     `json:"id"`
-	Name         string     `json:"name"`
-	Host         string     `json:"host,omitempty"`
-	Status       NodeStatus `json:"status" jsonschema:"enum=online,enum=offline"`
-	Capabilities []string   `json:"capabilities,omitempty"`
-	LastSeenAt   time.Time  `json:"last_seen_at,omitempty"`
+	ID     string     `json:"id"`
+	Name   string     `json:"name"`
+	Host   string     `json:"host,omitempty"`
+	Status NodeStatus `json:"status" jsonschema:"enum=online,enum=offline"`
+	// AgentTypes are the adapter keys this node registered as runnable. The UI
+	// offers exactly these when creating a task; free-form labels stay in
+	// Capabilities.
+	AgentTypes   []string  `json:"agent_types,omitempty"`
+	Capabilities []string  `json:"capabilities,omitempty"`
+	LastSeenAt   time.Time `json:"last_seen_at,omitempty"`
 }
 
 // Workspace is a working directory on a node, rendered as a kanban board (1:1).

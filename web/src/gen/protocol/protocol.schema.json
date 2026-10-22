@@ -91,6 +91,12 @@
             "offline"
           ]
         },
+        "agent_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "capabilities": {
           "items": {
             "type": "string"
@@ -140,6 +146,12 @@
         "host": {
           "type": "string"
         },
+        "agent_types": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "capabilities": {
           "items": {
             "type": "string"
@@ -160,6 +172,7 @@
       "type": "object",
       "required": [
         "name",
+        "agent_types",
         "capabilities"
       ]
     },

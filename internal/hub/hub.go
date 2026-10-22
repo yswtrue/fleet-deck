@@ -430,6 +430,7 @@ func (h *Hub) registerNewNode(ctx context.Context, name string, req protocol.Reg
 			Name:         name,
 			Host:         req.Host,
 			Status:       protocol.NodeOnline,
+			AgentTypes:   req.AgentTypes,
 			Capabilities: req.Capabilities,
 			TokenHash:    hash,
 			MachineID:    req.MachineID,
@@ -471,11 +472,28 @@ func (h *Hub) acceptExistingNode(ctx context.Context, existing protocol.Node, re
 	if err := h.claimMachineID(ctx, h.store.Queries(), existing.ID, req.MachineID); err != nil {
 		return protocol.Node{}, "", err
 	}
+	if err := h.syncNodeAgentTypes(ctx, &existing, req); err != nil {
+		return protocol.Node{}, "", err
+	}
 	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {
 		return protocol.Node{}, "", err
 	}
 	existing.Status = protocol.NodeOnline
 	return existing, "", nil
+}
+
+// syncNodeAgentTypes refreshes a reconnecting node's runnable adapter list.
+// A nil slice means the daemon predates the field; keep the stored list rather
+// than wiping it. Current daemons always send an array (possibly empty).
+func (h *Hub) syncNodeAgentTypes(ctx context.Context, node *protocol.Node, req protocol.RegisterRequest) error {
+	if req.AgentTypes == nil {
+		return nil
+	}
+	if err := h.store.Queries().UpdateNodeAgentTypes(ctx, node.ID, req.AgentTypes); err != nil {
+		return err
+	}
+	node.AgentTypes = req.AgentTypes
+	return nil
 }
 
 // claimExistingNode issues the first node token for a legacy hash-less row and
@@ -499,6 +517,9 @@ func (h *Hub) claimExistingNode(ctx context.Context, existing protocol.Node, req
 		return linkJoinToken(ctx, q, jt, static, existing.ID)
 	})
 	if err != nil {
+		return protocol.Node{}, "", err
+	}
+	if err := h.syncNodeAgentTypes(ctx, &existing, req); err != nil {
 		return protocol.Node{}, "", err
 	}
 	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {

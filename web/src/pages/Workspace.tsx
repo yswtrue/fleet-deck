@@ -43,7 +43,7 @@ export function Workspace() {
           <code title={workspace.path}>{workspace.path}</code>
         </p>
       </header>
-      <Board workspaceId={workspaceId} />
+      <Board workspaceId={workspaceId} nodeId={workspace.node_id} />
     </div>
   )
 }
