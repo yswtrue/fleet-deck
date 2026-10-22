@@ -625,7 +625,7 @@ func TestBinaryNotFound(t *testing.T) {
 	a := New("codex")
 	a.cfg = agentConfig{command: "definitely-not-a-real-acp-agent-xyz"}
 
-	_, err := a.Start(context.Background(), adapters.StartRequest{SessionID: "sess-1"}, newRecorder())
+	_, err := a.Start(context.Background(), adapters.StartRequest{SessionID: "sess-1", Prompt: "hi"}, newRecorder())
 	if err == nil {
 		t.Fatal("Start: got nil error, want exec.ErrNotFound")
 	}

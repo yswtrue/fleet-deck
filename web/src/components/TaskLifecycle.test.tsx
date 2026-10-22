@@ -75,6 +75,9 @@ describe('NewTaskForm auto_start toggle', () => {
     fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
       target: { value: 'Backlog item' },
     })
+    fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
+      target: { value: 'Do the thing.' },
+    })
     // "Start immediately" defaults on; turning it off creates a backlog task.
     fireEvent.click(screen.getByRole('switch', { name: 'Start immediately' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
@@ -94,6 +97,9 @@ describe('NewTaskForm agent type', () => {
 
     fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
       target: { value: 'Run with omp' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
+      target: { value: 'Do the thing.' },
     })
     // The agent field is an AutoComplete: picking a suggestion must reach the
     // POST body. It previously lived inside a wrapper <div>, so Form.Item never

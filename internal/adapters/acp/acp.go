@@ -259,6 +259,11 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 	if command == "" {
 		return adapters.StartResult{}, fmt.Errorf("acp: no launch configuration for agent type %q", a.agentType)
 	}
+	// Without a prompt the agent would sit on an open session that never
+	// produces anything; fail loudly instead of hanging the task.
+	if strings.TrimSpace(req.Prompt) == "" && req.ResumeSessionID == "" {
+		return adapters.StartResult{}, errors.New("acp: empty prompt: refusing to open an idle session")
+	}
 
 	env := append(os.Environ(), a.cfg.env...)
 	proc, err := startProcess(ctx, command, a.cfg.args, env, req.WorkspacePath)

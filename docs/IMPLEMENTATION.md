@@ -193,7 +193,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 - **续跑**:对 `done`/`failed` 会话发消息(`POST /api/sessions/{id}/send`)即重开——会话→`running`、任务经 `moveTaskTo` 重开 `running`(手动 PATCH 表保持 `done` 终态不变),hub 下发 `MsgSessionResume`,node 以 `session/load` 重挂 agent 侧会话续跑;无法重挂(external id 缺失/未知会话)则**以该追问为 prompt 开新会话**兜底,保证用户消息必有回应。
 - **完成门**:会话自然结束(`end_turn`)时,若镜像子任务仍有未完成项,任务停靠 `awaiting_user` 而非 `done`(零子任务或全完成则照旧);`failed` 仍收敛 `done`。
-- **待办任务**:`POST /api/tasks` 带 `auto_start:false` 则不派发、停在 `waiting`(卡片带"待办"徽章);`POST /api/tasks/{id}/start` 手动派发(已启动/非 waiting → 409;节点离线 → 202 停 waiting)。
+- **待办任务**:`POST /api/tasks` 带 `auto_start:false` 则不派发、停在 `waiting`(卡片带"待办"徽章);`POST /api/tasks/{id}/start` 手动派发(已启动/非 waiting → 409;节点离线 → 202 停 waiting)。任务必须有非空 `prompt`(创建和手动启动都校验,400):ACP 适配器在 prompt 为空时不发 `session/prompt`,会话会一直 running 且没有任何输出。
 - **归档**:`PATCH {archived:true}` 仅限 `done` 任务(否则 409),列表默认排除、`?archived=1` 只看归档;取消归档随时可用。
 
 ### 3.11 Token 统计 / 移动端 / 通知

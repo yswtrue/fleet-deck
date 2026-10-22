@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strconv"
@@ -479,5 +480,46 @@ func TestReconnectWithinGraceKeepsSessionRunning(t *testing.T) {
 	}
 	if session.Status != protocol.SessionRunning {
 		t.Fatalf("session status = %q, want running", session.Status)
+	}
+}
+
+// A task without an instruction would open an agent session that never gets a
+// prompt and sits in "running" forever, so both creation and start reject it.
+func TestTaskPromptIsRequired(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	node := seedNode(t, st, uniqueName("hub-it-noprompt"))
+	workspace := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": node.ID,
+		"name":    uniqueName("it-ws"),
+		"path":    "/tmp/it-ws",
+	})
+
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": workspace.ID,
+		"title":        "no instruction",
+		"agent_type":   "fake",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("create without prompt = %d %s, want 400", resp.StatusCode, raw)
+	}
+
+	// A backlog task that somehow lost its prompt cannot be started either.
+	task := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]any{
+		"workspace_id": workspace.ID,
+		"title":        "backlog without instruction",
+		"prompt":       "placeholder",
+		"agent_type":   "fake",
+		"auto_start":   false,
+	})
+	if _, err := st.Pool().Exec(context.Background(), "UPDATE task SET prompt = '' WHERE id = $1", task.ID); err != nil {
+		t.Fatalf("clear prompt: %v", err)
+	}
+	resp, raw = postRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID+"/start", map[string]string{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("start without prompt = %d %s, want 400", resp.StatusCode, raw)
 	}
 }

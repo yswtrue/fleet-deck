@@ -60,13 +60,14 @@
     "titlePlaceholder": "What should the agent do?",
     "titleRequired": "Please enter a title",
     "promptLabel": "Prompt",
-    "promptPlaceholder": "Describe the task in detail (optional)...",
+    "promptPlaceholder": "Describe the task in detail…",
     "agentLabel": "Agent type",
     "agentPlaceholder": "Which agent should run this?",
     "agentRequired": "Please enter an agent type",
     "agentHelp": "Known agents: fake, opencode, codex, claude, pi, omp",
     "autoStartLabel": "Start immediately",
-    "autoStartHelp": "Off creates a backlog task: it waits until you start it."
+    "autoStartHelp": "Off creates a backlog task: it waits until you start it.",
+    "promptRequired": "Please describe what the agent should do"
   },
   "subtask": {
     "progress": "{{done}} of {{total}} subtasks done",

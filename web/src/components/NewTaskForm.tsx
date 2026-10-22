@@ -82,7 +82,13 @@ export function NewTaskForm({ workspaceId, onClose }: NewTaskFormProps) {
         >
           <Input placeholder={t('form.titlePlaceholder')} onPressEnter={() => void form.submit()} />
         </Form.Item>
-        <Form.Item label={t('form.promptLabel')} name="prompt" rules={[{ required: false }]}>
+        {/* Required: a task without an instruction opens an agent session that
+            never receives a prompt, so it would sit in "running" forever. */}
+        <Form.Item
+          label={t('form.promptLabel')}
+          name="prompt"
+          rules={[{ required: true, whitespace: true, message: t('form.promptRequired') }]}
+        >
           <Input.TextArea rows={5} placeholder={t('form.promptPlaceholder')} />
         </Form.Item>
         <Form.Item

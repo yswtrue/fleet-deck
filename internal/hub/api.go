@@ -356,6 +356,14 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	// An agent task without an instruction can never finish: the ACP adapter
+	// opens a session and never sends session/prompt, leaving it running
+	// forever with no output. Validate after authorization so an unbound user
+	// still gets 403 rather than a payload error.
+	if strings.TrimSpace(req.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, "prompt is required: the agent needs an instruction")
+		return
+	}
 	autoStart := true
 	if req.AutoStart != nil {
 		autoStart = *req.AutoStart
@@ -412,6 +420,12 @@ func (h *Hub) handleStartTask(w http.ResponseWriter, r *http.Request) {
 	if task.Status != protocol.TaskWaiting {
 		writeError(w, http.StatusConflict,
 			fmt.Sprintf("only waiting tasks can be started (status %s)", task.Status))
+		return
+	}
+	// Backlog tasks created before the prompt check (or edited elsewhere) must
+	// not start an agent with nothing to do.
+	if strings.TrimSpace(task.Prompt) == "" {
+		writeError(w, http.StatusBadRequest, "prompt is required: the agent needs an instruction")
 		return
 	}
 
