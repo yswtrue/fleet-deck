@@ -17,7 +17,8 @@
   "role": {
     "user": "你",
     "assistant": "助手",
-    "system": "系统"
+    "system": "系统",
+    "thinking": "思考"
   },
   "permission": {
     "tag": "权限",

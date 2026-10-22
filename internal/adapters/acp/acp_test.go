@@ -1227,3 +1227,43 @@ func fakeSelectedOption(raw json.RawMessage) string {
 	}
 	return r.Outcome.OptionID
 }
+
+// A session/load replay carries the agent's reasoning too; the hub serves it
+// as `thinking` history rows so a finished task keeps its full trail.
+func TestReplayAssemblesThinking(t *testing.T) {
+	a := New("fake")
+	asm := &replayAssembler{sessionID: "sess-1"}
+	a.replayAsm = asm
+
+	notify := func(update map[string]any) {
+		params, _ := json.Marshal(map[string]any{"sessionId": "sess-1", "update": update})
+		a.handleNotification(context.Background(), "sess-1", discardSink{}, inbound{
+			Method: "session/update",
+			Params: params,
+		})
+	}
+	notify(map[string]any{"sessionUpdate": "user_message_chunk", "messageId": "u1",
+		"content": map[string]any{"type": "text", "text": "question"}})
+	notify(map[string]any{"sessionUpdate": "agent_thought_chunk", "messageId": "t1",
+		"content": map[string]any{"type": "text", "text": "weighing options"}})
+	notify(map[string]any{"sessionUpdate": "agent_message_chunk", "messageId": "a1",
+		"content": map[string]any{"type": "text", "text": "answer"}})
+
+	msgs := asm.messages()
+	if len(msgs) != 3 {
+		t.Fatalf("messages = %d, want 3", len(msgs))
+	}
+	want := []struct {
+		role    protocol.MessageRole
+		content string
+	}{
+		{protocol.RoleUser, "question"},
+		{protocol.RoleThinking, "weighing options"},
+		{protocol.RoleAssistant, "answer"},
+	}
+	for i, w := range want {
+		if msgs[i].Role != w.role || msgs[i].Content != w.content {
+			t.Fatalf("msg[%d] = {%s,%q}, want {%s,%q}", i, msgs[i].Role, msgs[i].Content, w.role, w.content)
+		}
+	}
+}

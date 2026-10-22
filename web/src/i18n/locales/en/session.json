@@ -17,7 +17,8 @@
   "role": {
     "user": "You",
     "assistant": "Assistant",
-    "system": "System"
+    "system": "System",
+    "thinking": "Thinking"
   },
   "permission": {
     "tag": "Permission",

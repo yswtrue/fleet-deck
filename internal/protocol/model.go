@@ -53,6 +53,9 @@ const (
 	RoleUser      MessageRole = "user"
 	RoleAssistant MessageRole = "assistant"
 	RoleSystem    MessageRole = "system"
+	// RoleThinking is the agent's reasoning, replayed from its own session
+	// store for finished sessions (live turns stream it as session.thought).
+	RoleThinking MessageRole = "thinking"
 )
 
 // ---- Entities (DB-backed) ------------------------------------------------
@@ -123,7 +126,7 @@ type Session struct {
 type Message struct {
 	ID        string      `json:"id"`
 	SessionID string      `json:"session_id"`
-	Role      MessageRole `json:"role" jsonschema:"enum=user,enum=assistant,enum=system"`
+	Role      MessageRole `json:"role" jsonschema:"enum=user,enum=assistant,enum=system,enum=thinking"`
 	Content   string      `json:"content"`
 	CreatedAt time.Time   `json:"created_at"`
 }

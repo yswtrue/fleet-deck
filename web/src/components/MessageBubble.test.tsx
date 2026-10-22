@@ -6,6 +6,16 @@ import type { Message } from '../types.ts'
 const base = { id: 'm-1', session_id: 'sess-1', created_at: '2026-09-28T00:00:00Z' }
 
 describe('MessageBubble', () => {
+  it('labels replayed reasoning and renders its text', () => {
+    render(
+      <MessageBubble
+        message={{ ...base, role: 'thinking', content: 'weighing the options' } as Message}
+      />
+    )
+    expect(screen.getByText('Thinking')).toBeTruthy()
+    expect(screen.getByText('weighing the options')).toBeTruthy()
+  })
+
   it('renders a permission reply as the chosen option, never the raw marker', () => {
     render(
       <MessageBubble

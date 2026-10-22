@@ -75,7 +75,8 @@ agent 自己的会话存储(在 node 机器上)。`GET /api/sessions/{id}/messag
 replay(`session.history_req/resp`,ACP `session/load` 全量回放)取回;活跃会话读 hub 的**内存文本缓冲**
 (24h TTL,存完整消息 + 待答 ask 的 prompt,重启即失)。node 在 `session/new`(或 resume 的
 `session/load`)成功后上报 `session.started`,hub 把 agent 侧会话 id 写进 `session.external_session_id`
-——没有它,回放无从定位,`GET /api/sessions/{id}/messages` 只能靠文本缓冲,缓冲没了就是 503。任务下发时 hub 把 prompt 作为会话第一条 user 消息写入文本缓冲,运行中的会话一打开就能看到指令。`event` 表只存状态类事件的出现记录,
+——没有它,回放无从定位,`GET /api/sessions/{id}/messages` 只能靠文本缓冲,缓冲没了就是 503。任务下发时 hub 把 prompt 作为会话第一条 user 消息写入文本缓冲,运行中的会话一打开就能看到指令。已结束会话的回放还包含 agent 自己的 thinking 片段(`role=thinking`,来自 `session/load` 的
+`agent_thought_chunk`);实时回合的推理走 `session.thought` 实时流,两者都不入库。`event` 表只存状态类事件的出现记录,
 `user_input_requested` 持久化时剥掉 prompt(空 prompt 占位,保持 web 事件契约)。
 
 **任务状态机**(4 状态,固定):

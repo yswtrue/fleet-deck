@@ -893,14 +893,17 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 			}
 		}
 	case "agent_thought_chunk":
-		// Reasoning is not assistant text: it travels on its own live-only
-		// stream (ThoughtSink) so the UI can show progress without mixing it
-		// into the answer. Replay ignores it.
-		if a.replayAsm == nil {
+		// Reasoning is not assistant text: live turns stream it on the
+		// ThoughtSink (never mixed into the answer), and a session/load replay
+		// rebuilds it as a `thinking` history message — the agent's own store
+		// is the durable copy.
+		if text := p.Update.Content.Text; text != "" {
+			if a.replayAsm != nil {
+				a.replayAsm.chunk(p.Update.MessageID, protocol.RoleThinking, text)
+				return
+			}
 			if ts, ok := sink.(adapters.ThoughtSink); ok {
-				if text := p.Update.Content.Text; text != "" {
-					ts.ThoughtDelta(ctx, sessionID, text)
-				}
+				ts.ThoughtDelta(ctx, sessionID, text)
 			}
 		}
 	case "plan":

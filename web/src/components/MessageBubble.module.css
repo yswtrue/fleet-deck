@@ -31,6 +31,19 @@
   color: var(--status-running-text);
 }
 
+/* Replayed reasoning is context, not an answer: keep it quiet and compact. */
+.role[data-role='thinking'] {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text);
+  opacity: 0.75;
+}
+
+.bubble[data-role='thinking'] .content {
+  opacity: 0.75;
+  font-size: 0.9em;
+}
+
 .time {
   font-size: 12px;
   color: var(--text);

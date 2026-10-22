@@ -50,7 +50,8 @@
           "enum": [
             "user",
             "assistant",
-            "system"
+            "system",
+            "thinking"
           ]
         },
         "content": {
@@ -305,7 +306,8 @@
               "enum": [
                 "user",
                 "assistant",
-                "system"
+                "system",
+                "thinking"
               ]
             },
             "content": {
@@ -368,7 +370,8 @@
               "enum": [
                 "user",
                 "assistant",
-                "system"
+                "system",
+                "thinking"
               ]
             },
             "content": {
