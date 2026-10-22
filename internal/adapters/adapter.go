@@ -81,6 +81,14 @@ type ThoughtSink interface {
 	ThoughtDelta(ctx context.Context, sessionID, text string)
 }
 
+// TitleSink is implemented by event sinks that can carry the title an agent
+// assigned to its own session (ACP `session_info_update`). It is optional:
+// sinks that do not implement it simply lose the title, and the task keeps its
+// provisional prompt-derived label.
+type TitleSink interface {
+	Title(ctx context.Context, sessionID, title string)
+}
+
 // PendingAsker is implemented by adapters that can pause on a user-input
 // request (a permission pick or a form elicitation). The node re-emits the
 // outstanding ask after a reconnect: a frame lost while the link was down

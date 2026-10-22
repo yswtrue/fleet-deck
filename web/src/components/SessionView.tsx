@@ -67,7 +67,11 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   // the header shows the task title (Refine getOne('sessions') maps to
   // GET /api/sessions/{id}, which returns the owning task). useOne exposes the
   // unwrapped record as `result`, not react-query's `data`.
-  const { result: snapshot } = useOne<SessionSnapshot>({ resource: 'sessions', id: sessionId })
+  const { result: snapshot, query: snapshotQuery } = useOne<SessionSnapshot>({
+    resource: 'sessions',
+    id: sessionId,
+  })
+  const refetchSnapshot = snapshotQuery.refetch
   const resolvedTask = task ?? taskFromState ?? snapshot?.task ?? undefined
   const session = snapshot?.session
 
@@ -92,16 +96,22 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     queryFn: () => api.listSubtasks(taskId),
     enabled: !!taskId,
   })
-  const handleSubtaskEvent = useCallback(
+  const handleSessionEvent = useCallback(
     (event: ProtocolEvent) => {
       const evt = dispatchEvent(event)
-      if (evt?.type === 'subtask.updated' && evt.data.task_id === taskId) {
+      if (!evt || !taskId) return
+      if (evt.type === 'subtask.updated' && evt.data.task_id === taskId) {
         void queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
       }
+      if (evt.type === 'task.title_changed' && evt.data.task_id === taskId) {
+        // The session snapshot carries the owning task; refetch it so the
+        // header shows the agent-assigned title.
+        void refetchSnapshot()
+      }
     },
-    [taskId, queryClient]
+    [taskId, queryClient, refetchSnapshot]
   )
-  const { connectionState } = useWebSocket(handleSubtaskEvent)
+  const { connectionState } = useWebSocket(handleSessionEvent)
 
   // Session meta: resolve the node name from the shared nodes list (the hub
   // has no GET /api/nodes/{id}; `getNode` 404s into the SPA fallback).

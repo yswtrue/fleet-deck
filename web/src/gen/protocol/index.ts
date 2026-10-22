@@ -31,6 +31,7 @@ export interface ProtocolSchema {
   TaskStats?: TaskStats;
   TaskStatsStatusCount?: TaskStatsStatusCount;
   TaskStatusChanged?: TaskStatusChanged;
+  TaskTitleChanged?: TaskTitleChanged;
   Todo?: Todo;
   TodoUpdate?: TodoUpdate;
   TokenUsageByModel?: TokenUsageByModel;
@@ -198,6 +199,10 @@ export interface TaskStatusChanged {
   task_id: string;
   from: "waiting" | "running" | "done" | "awaiting_user";
   to: "waiting" | "running" | "done" | "awaiting_user";
+}
+export interface TaskTitleChanged {
+  task_id: string;
+  title: string;
 }
 export interface Todo {
   id: string;

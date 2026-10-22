@@ -51,6 +51,13 @@
 // Unparseable payloads are skipped silently: a todo mirror must never break a
 // running session.
 //
+// # Session title
+//
+// `session_info_update` carries the title the agent assigns to its session
+// (omp derives one from the first prompt). It is relayed through the optional
+// adapters.TitleSink so the hub can backfill a provisional task title; replay
+// runs never emit it.
+//
 // # Usage & model capture
 //
 // Evidence (raw frames from `opencode acp`, scripts/smoke_acp_opencode.sh):
@@ -944,6 +951,16 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 			}
 			if ts, ok := sink.(adapters.ThoughtSink); ok {
 				ts.ThoughtDelta(ctx, sessionID, text)
+			}
+		}
+	case "session_info_update":
+		// Agents name their session (omp derives a title from the first
+		// prompt). The hub backfills a provisional task title from it; a title
+		// the operator chose is never touched. A replay run must not mutate
+		// the task, so it is skipped there.
+		if title := strings.TrimSpace(p.Update.Title); title != "" && a.replayAsm == nil {
+			if ts, ok := sink.(adapters.TitleSink); ok {
+				ts.Title(ctx, sessionID, title)
 			}
 		}
 	case "plan":

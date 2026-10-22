@@ -59,7 +59,11 @@ export interface NodeDirListing {
 
 export interface CreateTaskInput {
   workspace_id: string
-  title: string
+  /**
+   * Optional board label. When omitted, the hub keeps a provisional title
+   * derived from the prompt until the agent reports its own session title.
+   */
+  title?: string
   prompt?: string
   agent_type: string
   /** False creates a backlog task: it stays `waiting` until explicitly started. */

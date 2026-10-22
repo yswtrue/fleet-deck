@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Modal, Form, Input, Button, Select, Switch } from 'antd'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from '@refinedev/antd'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { useTranslation } from '../i18n/index.ts'
-import { deriveTaskTitle } from '../taskTitle.ts'
 
 interface NewTaskFormProps {
   workspaceId: string
@@ -48,9 +47,6 @@ export function NewTaskForm({ workspaceId, nodeId, onClose }: NewTaskFormProps) 
     },
   })
 
-  // Once the operator edits the title, stop mirroring the prompt into it.
-  const titleEditedRef = useRef(false)
-
   // Seed the default agent once the node's registered list arrives. antd only
   // applies `initialValues` at mount, and the node query resolves after it.
   useEffect(() => {
@@ -82,20 +78,7 @@ export function NewTaskForm({ workspaceId, nodeId, onClose }: NewTaskFormProps) 
         </Button>,
       ]}
     >
-      <Form
-        {...formProps}
-        layout="vertical"
-        initialValues={{ auto_start: true }}
-        onValuesChange={(changed: Record<string, unknown>) => {
-          if ('title' in changed) {
-            titleEditedRef.current = true
-            return
-          }
-          if ('prompt' in changed && !titleEditedRef.current) {
-            form.setFieldValue('title', deriveTaskTitle(String(changed.prompt ?? '')))
-          }
-        }}
-      >
+      <Form {...formProps} layout="vertical" initialValues={{ auto_start: true }}>
         <Form.Item
           label={t('form.autoStartLabel')}
           name="auto_start"
@@ -107,6 +90,8 @@ export function NewTaskForm({ workspaceId, nodeId, onClose }: NewTaskFormProps) 
         <Form.Item name="workspace_id" initialValue={workspaceId} hidden>
           <Input />
         </Form.Item>
+        {/* Optional: when omitted, the hub keeps a prompt-derived label until
+            the agent assigns its own session title. */}
         <Form.Item label={t('form.titleLabel')} name="title" extra={t('form.titleHelp')}>
           <Input placeholder={t('form.titlePlaceholder')} onPressEnter={() => void form.submit()} />
         </Form.Item>

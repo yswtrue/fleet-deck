@@ -8,7 +8,7 @@
  * `?archived=1`.
  */
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Refine } from '@refinedev/core'
@@ -17,6 +17,7 @@ import { NewTaskForm } from './NewTaskForm.tsx'
 import { Board } from './Board.tsx'
 import { WebSocketContext } from '../hooks/WebSocketContext.ts'
 import { dataProvider } from '../dataProvider.ts'
+import type { Event as ProtocolEvent } from '../gen/protocol/index.ts'
 
 const fetchMock = vi.fn()
 vi.stubGlobal('fetch', fetchMock)
@@ -67,7 +68,10 @@ const createdTask = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 })
 
-function renderWithProviders(ui: React.ReactNode) {
+function renderWithProviders(
+  ui: React.ReactNode,
+  subscribe: (listener: (event: ProtocolEvent) => void) => () => void = () => () => {}
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
@@ -80,7 +84,7 @@ function renderWithProviders(ui: React.ReactNode) {
               seq: 0,
               lastSeq: 0,
               error: null,
-              subscribe: () => () => {},
+              subscribe,
             }}
           >
             {ui}
@@ -97,7 +101,7 @@ describe('NewTaskForm auto_start toggle', () => {
     const onClose = vi.fn()
     renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={onClose} />)
 
-    fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
+    fireEvent.change(await screen.findByPlaceholderText('Leave empty — the agent will name it'), {
       target: { value: 'Backlog item' },
     })
     fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
@@ -121,7 +125,7 @@ describe('NewTaskForm agent type', () => {
     mockFormFetch({ ...node, default_adapter: 'omp' })
     renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
 
-    fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
+    fireEvent.change(await screen.findByPlaceholderText('Leave empty — the agent will name it'), {
       target: { value: 'Run with the default agent' },
     })
     fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
@@ -150,7 +154,7 @@ describe('NewTaskForm agent type', () => {
     mockFormFetch()
     renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
 
-    fireEvent.change(await screen.findByPlaceholderText('What should the agent do?'), {
+    fireEvent.change(await screen.findByPlaceholderText('Leave empty — the agent will name it'), {
       target: { value: 'Run with omp' },
     })
     fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
@@ -175,34 +179,45 @@ describe('NewTaskForm agent type', () => {
   })
 })
 
-describe('NewTaskForm derived title', () => {
-  it('fills the title from the prompt and submits it', async () => {
+describe('NewTaskForm title', () => {
+  it('leaves the title empty and omits it from the create body', async () => {
     mockFormFetch()
     renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
 
     fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
       target: { value: 'Update the flake inputs\n\nand rebuild' },
     })
-    const title = screen.getByPlaceholderText('What should the agent do?') as HTMLInputElement
-    expect(title.value).toBe('Update the flake inputs')
+    const title = screen.getByPlaceholderText(
+      'Leave empty — the agent will name it'
+    ) as HTMLInputElement
+    expect(title.value).toBe('')
 
     await waitForAgentDefault()
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
     await waitFor(() => expect(taskPost()).toBeTruthy())
     const body = JSON.parse(String(taskPost()?.[1]?.body))
-    expect(body).toMatchObject({ title: 'Update the flake inputs' })
+    // The hub derives a provisional title from the prompt and lets the agent
+    // replace it, so an empty field must not send a user-chosen title.
+    expect(body.title ?? '').toBe('')
   })
 
-  it('stops mirroring the prompt once the title is edited', async () => {
+  it('keeps an operator-entered title instead of mirroring the prompt', async () => {
     mockFormFetch()
     renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
 
-    const title = screen.getByPlaceholderText('What should the agent do?') as HTMLInputElement
+    const title = screen.getByPlaceholderText(
+      'Leave empty — the agent will name it'
+    ) as HTMLInputElement
     fireEvent.change(title, { target: { value: 'Custom label' } })
     fireEvent.change(screen.getByPlaceholderText('Describe the task in detail…'), {
       target: { value: 'Update the flake inputs' },
     })
     expect(title.value).toBe('Custom label')
+
+    await waitForAgentDefault()
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(taskPost()).toBeTruthy())
+    expect(JSON.parse(String(taskPost()?.[1]?.body))).toMatchObject({ title: 'Custom label' })
   })
 })
 
@@ -229,6 +244,33 @@ describe('Board failure column', () => {
     const done = screen.getByRole('region', { name: 'Done tasks' })
     expect(within(done).getByText('Finished work')).toBeTruthy()
     expect(within(done).queryByText('Pi crashed')).toBeNull()
+  })
+})
+
+describe('Board live title', () => {
+  it('replaces the provisional title when the agent names the task', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.startsWith('/api/tasks')) {
+        return Promise.resolve(json([createdTask({ title: 'Fix the parser' })]))
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    let emit: ((event: ProtocolEvent) => void) | undefined
+    renderWithProviders(<Board workspaceId="w-1" nodeId="n-1" />, (listener) => {
+      emit = listener
+      return () => {}
+    })
+
+    expect(await screen.findByText('Fix the parser')).toBeTruthy()
+    act(() => {
+      emit?.({
+        type: 'task.title_changed',
+        data: { task_id: 't-1', title: 'Parser recovery' },
+      } as ProtocolEvent)
+    })
+    expect(await screen.findByText('Parser recovery')).toBeTruthy()
+    expect(screen.queryByText('Fix the parser')).toBeNull()
   })
 })
 

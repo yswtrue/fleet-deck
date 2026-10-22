@@ -24,9 +24,12 @@ type Event struct {
 
 // Event type string constants (hub -> web).
 const (
-	EvNodeStatusChanged       = "node.status_changed"
-	EvTaskCreated             = "task.created"
-	EvTaskStatusChanged       = "task.status_changed"
+	EvNodeStatusChanged = "node.status_changed"
+	EvTaskCreated       = "task.created"
+	EvTaskStatusChanged = "task.status_changed"
+	// EvTaskTitleChanged reports an agent-generated title replacing the
+	// provisional prompt-derived one (see task.title_auto).
+	EvTaskTitleChanged        = "task.title_changed"
 	EvSubtaskUpdated          = "subtask.updated"
 	EvSessionDelta            = "session.delta"
 	EvSessionThought          = "session.thought"
@@ -54,6 +57,14 @@ type TaskStatusChanged struct {
 	TaskID string     `json:"task_id"`
 	From   TaskStatus `json:"from" jsonschema:"enum=waiting,enum=running,enum=done,enum=awaiting_user"`
 	To     TaskStatus `json:"to" jsonschema:"enum=waiting,enum=running,enum=done,enum=awaiting_user"`
+}
+
+// TaskTitleChanged reports an agent-assigned task title. Only tasks whose
+// title is provisional (the caller left it out on create) receive one; a
+// user-supplied title is never overwritten.
+type TaskTitleChanged struct {
+	TaskID string `json:"task_id"`
+	Title  string `json:"title"`
 }
 
 // SubtaskUpdated reports a subtask being created, updated, or removed. When
@@ -175,6 +186,14 @@ type SendMessageCommand struct {
 type SessionStarted struct {
 	SessionID         string `json:"session_id"`
 	ExternalSessionID string `json:"external_session_id"`
+}
+
+// SessionTitle reports a title the agent assigned to its session (ACP
+// session_info_update). The hub applies it to the owning task only while that
+// task still carries a provisional title.
+type SessionTitle struct {
+	SessionID string `json:"session_id"`
+	Title     string `json:"title"`
 }
 
 // SessionResumeCommand revives a finished (done/failed) session with the

@@ -38,6 +38,7 @@ type recorder struct {
 	textCh    chan string
 	todoCh    chan []protocol.Todo
 	thoughtCh chan string
+	titleCh   chan string
 	userCh    chan string
 	stateCh   chan protocol.SessionStatus
 }
@@ -49,6 +50,7 @@ func newRecorder() *recorder {
 		textCh:    make(chan string, 64),
 		todoCh:    make(chan []protocol.Todo, 8),
 		thoughtCh: make(chan string, 16),
+		titleCh:   make(chan string, 4),
 		userCh:    make(chan string, 4),
 		stateCh:   make(chan protocol.SessionStatus, 64),
 	}
@@ -94,6 +96,15 @@ func (r *recorder) UserInputRequested(_ context.Context, _ string, prompt string
 	r.record(recEvent{kind: "user_input", prompt: prompt})
 	select {
 	case r.userCh <- prompt:
+	default:
+	}
+}
+
+// Title records the agent's self-assigned session title (TitleSink).
+func (r *recorder) Title(_ context.Context, _ string, title string) {
+	r.record(recEvent{kind: "title", text: title})
+	select {
+	case r.titleCh <- title:
 	default:
 	}
 }
@@ -1285,6 +1296,33 @@ func fakeSelectedOption(raw json.RawMessage) string {
 		return r.Outcome.Outcome
 	}
 	return r.Outcome.OptionID
+}
+
+// ACP session_info_update carries the agent's own session title; the adapter
+// relays it so the hub can replace a provisional task title.
+func TestSessionInfoTitleMapping(t *testing.T) {
+	a := New("fake")
+	rec := newRecorder()
+	params, _ := json.Marshal(map[string]any{
+		"sessionId": "sess-1",
+		"update": map[string]any{
+			"sessionUpdate": "session_info_update",
+			"title":         "Fix the parser",
+		},
+	})
+	a.handleNotification(context.Background(), "sess-1", rec, inbound{
+		Method: "session/update",
+		Params: params,
+	})
+
+	select {
+	case got := <-rec.titleCh:
+		if got != "Fix the parser" {
+			t.Fatalf("title = %q, want %q", got, "Fix the parser")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("session title was not reported")
+	}
 }
 
 // A session/load replay carries the agent's reasoning too; the hub serves it

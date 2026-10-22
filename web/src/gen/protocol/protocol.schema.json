@@ -931,6 +931,23 @@
         "to"
       ]
     },
+    "TaskTitleChanged": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_id",
+        "title"
+      ]
+    },
     "Todo": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

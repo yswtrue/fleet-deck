@@ -115,9 +115,9 @@ func (q *Queries) AggregateTaskStatsByStatus(ctx context.Context, arg AggregateT
 }
 
 const createTask = `-- name: CreateTask :one
-INSERT INTO task (workspace_id, title, prompt, status, agent_type, sort_order, auto_start)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at
+INSERT INTO task (workspace_id, title, prompt, status, agent_type, sort_order, auto_start, title_auto)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto
 `
 
 type CreateTaskParams struct {
@@ -128,6 +128,7 @@ type CreateTaskParams struct {
 	AgentType   string
 	SortOrder   int32
 	AutoStart   bool
+	TitleAuto   bool
 }
 
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error) {
@@ -139,6 +140,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		arg.AgentType,
 		arg.SortOrder,
 		arg.AutoStart,
+		arg.TitleAuto,
 	)
 	var i Task
 	err := row.Scan(
@@ -155,12 +157,13 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.ArchivedAt,
 		&i.AutoStart,
 		&i.CancelledAt,
+		&i.TitleAuto,
 	)
 	return i, err
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at FROM task WHERE id = $1
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto FROM task WHERE id = $1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
@@ -180,12 +183,13 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.ArchivedAt,
 		&i.AutoStart,
 		&i.CancelledAt,
+		&i.TitleAuto,
 	)
 	return i, err
 }
 
 const getTaskBySessionID = `-- name: GetTaskBySessionID :one
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at FROM task WHERE session_id = $1
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto FROM task WHERE session_id = $1
 `
 
 func (q *Queries) GetTaskBySessionID(ctx context.Context, sessionID *string) (Task, error) {
@@ -205,12 +209,13 @@ func (q *Queries) GetTaskBySessionID(ctx context.Context, sessionID *string) (Ta
 		&i.ArchivedAt,
 		&i.AutoStart,
 		&i.CancelledAt,
+		&i.TitleAuto,
 	)
 	return i, err
 }
 
 const listArchivedTasksByNode = `-- name: ListArchivedTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.archived_at IS NOT NULL
 ORDER BY t.sort_order, t.created_at
@@ -239,6 +244,7 @@ func (q *Queries) ListArchivedTasksByNode(ctx context.Context, nodeID string) ([
 			&i.ArchivedAt,
 			&i.AutoStart,
 			&i.CancelledAt,
+			&i.TitleAuto,
 		); err != nil {
 			return nil, err
 		}
@@ -251,7 +257,7 @@ func (q *Queries) ListArchivedTasksByNode(ctx context.Context, nodeID string) ([
 }
 
 const listArchivedTasksByWorkspace = `-- name: ListArchivedTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at FROM task WHERE workspace_id = $1 AND archived_at IS NOT NULL ORDER BY sort_order, created_at
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto FROM task WHERE workspace_id = $1 AND archived_at IS NOT NULL ORDER BY sort_order, created_at
 `
 
 func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID string) ([]Task, error) {
@@ -277,6 +283,7 @@ func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID 
 			&i.ArchivedAt,
 			&i.AutoStart,
 			&i.CancelledAt,
+			&i.TitleAuto,
 		); err != nil {
 			return nil, err
 		}
@@ -289,7 +296,7 @@ func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID 
 }
 
 const listTasksByNode = `-- name: ListTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.archived_at IS NULL
 ORDER BY t.sort_order, t.created_at
@@ -318,6 +325,7 @@ func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]Task, e
 			&i.ArchivedAt,
 			&i.AutoStart,
 			&i.CancelledAt,
+			&i.TitleAuto,
 		); err != nil {
 			return nil, err
 		}
@@ -330,7 +338,7 @@ func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]Task, e
 }
 
 const listTasksByWorkspace = `-- name: ListTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at FROM task WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY sort_order, created_at
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto FROM task WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY sort_order, created_at
 `
 
 func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) ([]Task, error) {
@@ -356,6 +364,7 @@ func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) 
 			&i.ArchivedAt,
 			&i.AutoStart,
 			&i.CancelledAt,
+			&i.TitleAuto,
 		); err != nil {
 			return nil, err
 		}
@@ -368,7 +377,7 @@ func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) 
 }
 
 const searchArchivedTasksByNode = `-- name: SearchArchivedTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1
   AND t.archived_at IS NOT NULL
@@ -404,6 +413,7 @@ func (q *Queries) SearchArchivedTasksByNode(ctx context.Context, arg SearchArchi
 			&i.ArchivedAt,
 			&i.AutoStart,
 			&i.CancelledAt,
+			&i.TitleAuto,
 		); err != nil {
 			return nil, err
 		}
@@ -416,7 +426,7 @@ func (q *Queries) SearchArchivedTasksByNode(ctx context.Context, arg SearchArchi
 }
 
 const searchArchivedTasksByWorkspace = `-- name: SearchArchivedTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at FROM task
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto FROM task
 WHERE workspace_id = $1
   AND archived_at IS NOT NULL
   AND (title ILIKE '%' || $2 || '%' OR title % $2)
@@ -451,6 +461,7 @@ func (q *Queries) SearchArchivedTasksByWorkspace(ctx context.Context, arg Search
 			&i.ArchivedAt,
 			&i.AutoStart,
 			&i.CancelledAt,
+			&i.TitleAuto,
 		); err != nil {
 			return nil, err
 		}
@@ -463,7 +474,7 @@ func (q *Queries) SearchArchivedTasksByWorkspace(ctx context.Context, arg Search
 }
 
 const searchTasksByNode = `-- name: SearchTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1
   AND t.archived_at IS NULL
@@ -499,6 +510,7 @@ func (q *Queries) SearchTasksByNode(ctx context.Context, arg SearchTasksByNodePa
 			&i.ArchivedAt,
 			&i.AutoStart,
 			&i.CancelledAt,
+			&i.TitleAuto,
 		); err != nil {
 			return nil, err
 		}
@@ -511,7 +523,7 @@ func (q *Queries) SearchTasksByNode(ctx context.Context, arg SearchTasksByNodePa
 }
 
 const searchTasksByWorkspace = `-- name: SearchTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at FROM task
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto FROM task
 WHERE workspace_id = $1
   AND archived_at IS NULL
   AND (title ILIKE '%' || $2 || '%' OR title % $2)
@@ -546,6 +558,7 @@ func (q *Queries) SearchTasksByWorkspace(ctx context.Context, arg SearchTasksByW
 			&i.ArchivedAt,
 			&i.AutoStart,
 			&i.CancelledAt,
+			&i.TitleAuto,
 		); err != nil {
 			return nil, err
 		}
@@ -561,7 +574,7 @@ const updateTaskArchivedAt = `-- name: UpdateTaskArchivedAt :one
 UPDATE task
 SET archived_at = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto
 `
 
 type UpdateTaskArchivedAtParams struct {
@@ -586,6 +599,7 @@ func (q *Queries) UpdateTaskArchivedAt(ctx context.Context, arg UpdateTaskArchiv
 		&i.ArchivedAt,
 		&i.AutoStart,
 		&i.CancelledAt,
+		&i.TitleAuto,
 	)
 	return i, err
 }
@@ -626,7 +640,7 @@ const updateTaskStatus = `-- name: UpdateTaskStatus :one
 UPDATE task
 SET status = $2, updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto
 `
 
 type UpdateTaskStatusParams struct {
@@ -651,6 +665,7 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 		&i.ArchivedAt,
 		&i.AutoStart,
 		&i.CancelledAt,
+		&i.TitleAuto,
 	)
 	return i, err
 }
@@ -665,7 +680,7 @@ SET status = $2,
     END,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto
 `
 
 type UpdateTaskStatusManualParams struct {
@@ -690,6 +705,43 @@ func (q *Queries) UpdateTaskStatusManual(ctx context.Context, arg UpdateTaskStat
 		&i.ArchivedAt,
 		&i.AutoStart,
 		&i.CancelledAt,
+		&i.TitleAuto,
+	)
+	return i, err
+}
+
+const updateTaskTitleIfAuto = `-- name: UpdateTaskTitleIfAuto :one
+UPDATE task
+SET title = $2, updated_at = now()
+WHERE session_id = $1
+  AND title_auto
+  AND title IS DISTINCT FROM $2
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto
+`
+
+type UpdateTaskTitleIfAutoParams struct {
+	SessionID *string
+	Title     string
+}
+
+func (q *Queries) UpdateTaskTitleIfAuto(ctx context.Context, arg UpdateTaskTitleIfAutoParams) (Task, error) {
+	row := q.db.QueryRow(ctx, updateTaskTitleIfAuto, arg.SessionID, arg.Title)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Prompt,
+		&i.Status,
+		&i.AgentType,
+		&i.SessionID,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+		&i.AutoStart,
+		&i.CancelledAt,
+		&i.TitleAuto,
 	)
 	return i, err
 }

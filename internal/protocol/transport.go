@@ -38,6 +38,9 @@ const (
 	// session/new (or session/load on resume) so the hub can replay the
 	// conversation later.
 	MsgSessionStarted = "session.started"
+	// MsgSessionTitle reports a title the agent assigned to its session so the
+	// hub can backfill a provisional task title.
+	MsgSessionTitle = "session.title"
 
 	// Hub -> Node.
 	MsgRegisterResponse = "register_response"

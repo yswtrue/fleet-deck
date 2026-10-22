@@ -57,8 +57,8 @@
   },
   "form": {
     "title": "New task",
-    "titleLabel": "Title",
-    "titlePlaceholder": "What should the agent do?",
+    "titleLabel": "Title (optional)",
+    "titlePlaceholder": "Leave empty — the agent will name it",
     "promptLabel": "Prompt",
     "promptPlaceholder": "Describe the task in detail…",
     "agentLabel": "Agent type",
@@ -69,7 +69,7 @@
     "autoStartLabel": "Start immediately",
     "autoStartHelp": "Off creates a backlog task: it waits until you start it.",
     "promptRequired": "Please describe what the agent should do",
-    "titleHelp": "Leave empty to use the first line of the prompt."
+    "titleHelp": "Leave empty and the agent names the task; the first prompt line is shown until then."
   },
   "subtask": {
     "progress": "{{done}} of {{total}} subtasks done",

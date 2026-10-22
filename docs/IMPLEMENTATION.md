@@ -102,8 +102,8 @@ waiting ──start──▶ running ──agent_done──▶ done
 
 `internal/protocol` 里的 Go struct 是**唯一真源**。`cmd/fleetctl schema export` 导出 JSON Schema,`web/` 再生成 TS 类型。三端(hub/node/web)共享同一套消息形状。
 
-- **Hub ↔ Web(订阅/推送)**:事件类型如 `task.created` / `task.status_changed` / `subtask.updated` / `session.delta` / `session.thought`(agent 推理流:仅实时广播,不落库、不进文本缓冲)/ `session.user_input_requested` / `node.status_changed`。
-- **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史)/ `fs.list_req`(目录浏览);node 上报文本增量、todo 更新、状态变更、请求用户输入、`session.started`(agent 侧会话 id,供后续回放)、`session.history_resp`、`fs.list_resp`。
+- **Hub ↔ Web(订阅/推送)**:事件类型如 `task.created` / `task.status_changed` / `task.title_changed` / `subtask.updated` / `session.delta` / `session.thought`(agent 推理流:仅实时广播,不落库、不进文本缓冲)/ `session.user_input_requested` / `node.status_changed`。
+- **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史)/ `fs.list_req`(目录浏览);node 上报文本增量、todo 更新、状态变更、请求用户输入、`session.started`(agent 侧会话 id,供后续回放)、`session.title`(agent 自定会话标题,回填临时任务标题)、`session.history_resp`、`fs.list_resp`。
 - **node 注册**:未知节点名必须出示一次性加入令牌(`POST /api/nodes/join-tokens` 生成,任何已登录用户可生成;或部署级 `FLEETDECK_NODE_JOIN_TOKEN`)。hub 在创建节点行的同一事务里烧掉令牌,并把令牌创建者绑定到该节点;随后签发 node token(存 `token_file`),后续重连只用 node token。`POST /api/nodes` 已移除,不能凭空预建可被抢注的节点行。
 - **工作空间创建**:web「新建工作区」的目录选择器经 `GET /api/nodes/{id}/fs?path=` 把 `fs.list_req` / `fs.list_resp` 转发给节点(只列目录、返回 symlink 解析后的绝对路径;空 `path` 从节点用户 home 开始;节点离线 503,路径不可读 400)。`fleetdeck-node workspace add|list` 从节点机器经 hub REST 管理工作空间,使用**用户** Bearer(`--token` / `FLEETDECK_HUB_TOKEN`,或 `--email`/`--password`;hub 地址取 `FLEETDECK_HUB_URL` 或配置里的 `hub_url`)——node token 从不用于 REST。hub 仍是唯一 DB 写入者。
 
@@ -196,7 +196,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 - **续跑**:对 `done`/`failed` 会话发消息(`POST /api/sessions/{id}/send`)即重开——会话→`running`、任务经 `moveTaskTo` 重开 `running`(手动 PATCH 表保持 `done` 终态不变),hub 下发 `MsgSessionResume`,node 以 `session/load` 重挂 agent 侧会话续跑;无法重挂(external id 缺失/未知会话)则**以该追问为 prompt 开新会话**兜底,保证用户消息必有回应。
 - **完成门**:会话自然结束(`end_turn`)时,若镜像子任务仍有未完成项,任务停靠 `awaiting_user` 而非 `done`(零子任务或全完成则照旧);`failed` 仍收敛 `done`。
-- **待办任务**:`POST /api/tasks` 带 `auto_start:false` 则不派发、停在 `waiting`(卡片带"待办"徽章);`POST /api/tasks/{id}/start` 手动派发(已启动/非 waiting → 409;节点离线 → 202 停 waiting)。任务必须有非空 `prompt`(创建和手动启动都校验,400):ACP 适配器在 prompt 为空时不发 `session/prompt`,会话会一直 running 且没有任何输出。`title` 可省略,缺省取 prompt 第一条非空行(截断到 80 个字符),web 表单在 prompt 输入时自动带出、手动改过标题后不再覆盖。
+- **待办任务**:`POST /api/tasks` 带 `auto_start:false` 则不派发、停在 `waiting`(卡片带"待办"徽章);`POST /api/tasks/{id}/start` 手动派发(已启动/非 waiting → 409;节点离线 → 202 停 waiting)。任务必须有非空 `prompt`(创建和手动启动都校验,400):ACP 适配器在 prompt 为空时不发 `session/prompt`,会话会一直 running 且没有任何输出。`title` 可省略:缺省取 prompt 第一条非空行(截断到 80 个字符)作为**临时标题**(`task.title_auto`),ACP 的 `session_info_update` 标题经 `MsgSessionTitle` 上报后由 hub 回填并广播 `task.title_changed`;用户填写了标题则永不覆盖。web 表单不再把 prompt 镜像到标题框。
 - **归档**:`PATCH {archived:true}` 仅限 `done` 任务(否则 409),列表默认排除、`?archived=1` 只看归档;取消归档随时可用。
 
 ### 3.11 Token 统计 / 移动端 / 通知

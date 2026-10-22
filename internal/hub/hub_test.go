@@ -890,3 +890,83 @@ func TestReconnectSyncsCapabilityLabels(t *testing.T) {
 		t.Fatalf("capabilities after omitting field = %v, want the stored list", row.Capabilities)
 	}
 }
+
+// TestSessionTitleBackfillsProvisionalTask pins the title policy: a task
+// created without a title starts with the prompt's first line and is renamed
+// when the agent reports its session title; an operator-supplied title is
+// never overwritten.
+func TestSessionTitleBackfillsProvisionalTask(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("title-node"))
+	defer func() { _ = c.Close() }()
+
+	workspace := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID,
+		"name":    uniqueName("title-ws"),
+		"path":    "/tmp/title-ws",
+	})
+	auto := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": workspace.ID,
+		"prompt":       "Fix the parser\nAdd regression tests.",
+		"agent_type":   "fake",
+	})
+	if auto.Title != "Fix the parser" {
+		t.Fatalf("provisional title = %q, want the first prompt line", auto.Title)
+	}
+	if auto.SessionID == "" {
+		t.Fatalf("provisional task was not dispatched: %+v", auto)
+	}
+
+	supplied := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": workspace.ID,
+		"title":        "Operator title",
+		"prompt":       "Do the thing",
+		"agent_type":   "fake",
+	})
+	if supplied.SessionID == "" {
+		t.Fatalf("titled task was not dispatched: %+v", supplied)
+	}
+
+	events, unsubscribe := h.bus.Subscribe(EventScope{All: true})
+	defer unsubscribe()
+
+	ctx := context.Background()
+	h.handleNodeMessage(ctx, nodeID, protocol.NewEnvelope(protocol.MsgSessionTitle, protocol.SessionTitle{
+		SessionID: auto.SessionID,
+		Title:     "Parser recovery",
+	}))
+
+	stored, err := st.Queries().GetTask(ctx, auto.ID)
+	if err != nil {
+		t.Fatalf("get provisional task: %v", err)
+	}
+	if stored.Title != "Parser recovery" {
+		t.Fatalf("provisional title = %q, want the agent title", stored.Title)
+	}
+
+	select {
+	case evt := <-events:
+		d, ok := evt.Data.(protocol.TaskTitleChanged)
+		if evt.Type != protocol.EvTaskTitleChanged || !ok || d.TaskID != auto.ID || d.Title != "Parser recovery" {
+			t.Fatalf("event = %q %+v, want task.title_changed for %s", evt.Type, evt.Data, auto.ID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for task.title_changed")
+	}
+
+	h.handleNodeMessage(ctx, nodeID, protocol.NewEnvelope(protocol.MsgSessionTitle, protocol.SessionTitle{
+		SessionID: supplied.SessionID,
+		Title:     "Agent title",
+	}))
+	stored, err = st.Queries().GetTask(ctx, supplied.ID)
+	if err != nil {
+		t.Fatalf("get titled task: %v", err)
+	}
+	if stored.Title != "Operator title" {
+		t.Fatalf("operator title = %q, want it preserved", stored.Title)
+	}
+}

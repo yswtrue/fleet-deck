@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -246,6 +247,13 @@ func (h *Hub) handleNodeMessage(ctx context.Context, nodeID string, env protocol
 		if err := h.store.Queries().UpdateSessionExternalID(ctx, st.SessionID, st.ExternalSessionID); err != nil {
 			h.log.Warn("record external session id", "session_id", st.SessionID, "err", err)
 		}
+	case protocol.MsgSessionTitle:
+		var st protocol.SessionTitle
+		if err := env.Decode(&st); err != nil {
+			h.log.Warn("bad session.title", "node_id", nodeID, "err", err)
+			return
+		}
+		h.applySessionTitle(ctx, st)
 	case protocol.MsgSessionEvent:
 		var sm protocol.SessionMessage
 		if err := env.Decode(&sm); err != nil {
@@ -382,6 +390,29 @@ func strippedUserInputPayload(sessionID string) json.RawMessage {
 		Prompt:    "",
 	})
 	return payload
+}
+
+// applySessionTitle backfills a provisional task title with the title the
+// agent assigned to its session. A user-supplied title (title_auto=false) is
+// never overwritten, and a repeated title produces no event.
+func (h *Hub) applySessionTitle(ctx context.Context, st protocol.SessionTitle) {
+	title := strings.TrimSpace(st.Title)
+	if st.SessionID == "" || title == "" {
+		return
+	}
+	task, updated, err := h.store.Queries().UpdateTaskTitleIfAuto(ctx, st.SessionID, title)
+	if err != nil {
+		h.log.Warn("update task title from agent", "session_id", st.SessionID, "err", err)
+		return
+	}
+	if !updated {
+		return
+	}
+	h.invalidateTasks(ctx, task.WorkspaceID)
+	h.bus.Publish(protocol.Event{
+		Type: protocol.EvTaskTitleChanged,
+		Data: protocol.TaskTitleChanged{TaskID: task.ID, Title: task.Title},
+	})
 }
 
 // applyUsage persists one reported turn's token usage as a token_usage row.
@@ -664,6 +695,11 @@ func (h *Hub) eventNodeID(evt protocol.Event) string {
 		}
 	case protocol.EvTaskStatusChanged:
 		var d protocol.TaskStatusChanged
+		if decodeEventPayload(evt.Data, &d) {
+			return h.taskNodeID(ctx, d.TaskID)
+		}
+	case protocol.EvTaskTitleChanged:
+		var d protocol.TaskTitleChanged
 		if decodeEventPayload(evt.Data, &d) {
 			return h.taskNodeID(ctx, d.TaskID)
 		}

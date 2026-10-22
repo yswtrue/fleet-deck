@@ -1,6 +1,6 @@
 -- name: CreateTask :one
-INSERT INTO task (workspace_id, title, prompt, status, agent_type, sort_order, auto_start)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO task (workspace_id, title, prompt, status, agent_type, sort_order, auto_start, title_auto)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetTask :one
@@ -79,6 +79,14 @@ WHERE id = $1;
 
 -- name: GetTaskBySessionID :one
 SELECT * FROM task WHERE session_id = $1;
+
+-- name: UpdateTaskTitleIfAuto :one
+UPDATE task
+SET title = $2, updated_at = now()
+WHERE session_id = $1
+  AND title_auto
+  AND title IS DISTINCT FROM $2
+RETURNING *;
 
 -- name: UpdateTaskSortOrder :exec
 UPDATE task

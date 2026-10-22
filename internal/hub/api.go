@@ -329,9 +329,10 @@ func (h *Hub) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tasks)
 }
 
-// taskTitleFromPrompt derives a board label from the prompt: the first
-// non-empty line, capped at maxTaskTitle runes. It is what the web form
-// pre-fills and what the API falls back to when a caller omits the title.
+// taskTitleFromPrompt derives a provisional board label from the prompt: the
+// first non-empty line, capped at maxTaskTitle runes. It is what the API
+// stores when a caller omits the title; the agent may replace it with its own
+// session title (see applySessionTitle).
 func taskTitleFromPrompt(prompt string) string {
 	const maxTaskTitle = 80
 	for _, line := range strings.Split(prompt, "\n") {
@@ -384,8 +385,11 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The prompt is the instruction; the title is only the board label, so
-	// derive it when the caller left it out instead of rejecting the task.
-	if strings.TrimSpace(req.Title) == "" {
+	// derive a provisional one when the caller left it out. The agent may
+	// replace a provisional title with its own session title later; a
+	// user-supplied title is never overwritten.
+	titleAuto := strings.TrimSpace(req.Title) == ""
+	if titleAuto {
 		req.Title = taskTitleFromPrompt(req.Prompt)
 	}
 	autoStart := true
@@ -400,6 +404,7 @@ func (h *Hub) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		AgentType:   req.AgentType,
 		SortOrder:   0,
 		AutoStart:   autoStart,
+		TitleAuto:   titleAuto,
 	})
 	if err != nil {
 		h.serverError(w, "create task", err)

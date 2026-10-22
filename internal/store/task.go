@@ -2,12 +2,14 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store/sqlcgen"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -22,6 +24,9 @@ type CreateTaskParams struct {
 	AgentType   string
 	SortOrder   int
 	AutoStart   bool
+	// TitleAuto marks a prompt-derived title the agent may replace with its
+	// own session title. False means the caller chose the title.
+	TitleAuto bool
 }
 
 // CreateTask inserts a task and returns the stored row.
@@ -34,6 +39,7 @@ func (q *Queries) CreateTask(ctx context.Context, p CreateTaskParams) (protocol.
 		AgentType:   p.AgentType,
 		SortOrder:   int32(p.SortOrder),
 		AutoStart:   p.AutoStart,
+		TitleAuto:   p.TitleAuto,
 	})
 	if err != nil {
 		return protocol.Task{}, fmt.Errorf("store: create task: %w", err)
@@ -198,6 +204,24 @@ func (q *Queries) GetTaskBySessionID(ctx context.Context, sessionID string) (pro
 		return protocol.Task{}, fmt.Errorf("store: get task by session id: %w", err)
 	}
 	return taskFromRow(row), nil
+}
+
+// UpdateTaskTitleIfAuto replaces a provisional (prompt-derived) task title
+// with the title the agent assigned to its session. It reports false when no
+// row changed: the task has a user-chosen title, the agent repeated the current
+// title, or the session has no task.
+func (q *Queries) UpdateTaskTitleIfAuto(ctx context.Context, sessionID, title string) (protocol.Task, bool, error) {
+	row, err := q.q.UpdateTaskTitleIfAuto(ctx, sqlcgen.UpdateTaskTitleIfAutoParams{
+		SessionID: &sessionID,
+		Title:     title,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return protocol.Task{}, false, nil
+	}
+	if err != nil {
+		return protocol.Task{}, false, fmt.Errorf("store: update task title: %w", err)
+	}
+	return taskFromRow(row), true, nil
 }
 
 // UpdateTaskSortOrder repositions a task within its board.

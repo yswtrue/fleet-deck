@@ -91,6 +91,7 @@ type Task struct {
 	ArchivedAt  *time.Time
 	AutoStart   bool
 	CancelledAt *time.Time
+	TitleAuto   bool
 }
 
 type TokenUsage struct {

@@ -20,6 +20,16 @@ type connSink struct {
 }
 
 var _ adapters.EventSink = (*connSink)(nil)
+var _ adapters.TitleSink = (*connSink)(nil)
+
+// Title reports the title the agent assigned to its session. It travels as a
+// dedicated node message so the hub can map it onto the owning task.
+func (s *connSink) Title(_ context.Context, sessionID, title string) {
+	s.n.enqueue(protocol.NewEnvelope(protocol.MsgSessionTitle, protocol.SessionTitle{
+		SessionID: sessionID,
+		Title:     title,
+	}))
+}
 
 // ThoughtDelta reports a chunk of the agent's reasoning. It is broadcast live
 // and never persisted or buffered.

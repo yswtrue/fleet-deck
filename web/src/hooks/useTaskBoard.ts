@@ -72,6 +72,17 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
           )
           break
         }
+        case 'task.title_changed': {
+          const { task_id, title } = evt.data
+          // Patch every board cache under this workspace (canonical and
+          // search-filtered) so a renamed row never keeps the provisional title.
+          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev = []) =>
+            prev.map((t) =>
+              t.id === task_id ? { ...t, title, updated_at: new Date().toISOString() } : t
+            )
+          )
+          break
+        }
         case 'subtask.updated': {
           const { task_id, subtask, removed } = evt.data
           setSubtasksByTask((prev) => {
