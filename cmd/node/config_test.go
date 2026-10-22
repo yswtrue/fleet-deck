@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -187,5 +188,74 @@ func TestRunConfigCreatesXDGConfig(t *testing.T) {
 	tokenFile := filepath.Join(dir, "state", "fleetdeck", "node-token")
 	if !strings.Contains(text, "token_file: "+tokenFile) {
 		t.Fatalf("token file is not the XDG state path:\n%s", text)
+	}
+}
+
+// First start: the wizard runs before the daemon connects, so the node never
+// registers with an empty agent binding.
+func TestSetupAgentsRunsWizardOnFirstStart(t *testing.T) {
+	path := writeConfig(t, "name: my-machine\n")
+	var out bytes.Buffer
+	configured, err := setupAgents(path, true, "", true, strings.NewReader("all\n\n"), &out)
+	if err != nil {
+		t.Fatalf("setupAgents: %v\n%s", err, out.String())
+	}
+	if !configured {
+		t.Fatal("first start did not run the wizard")
+	}
+	text := readConfig(t, path)
+	// Types() is sorted, so the default prompt keeps the first bound agent.
+	if !strings.Contains(text, "agent_types:\n  - claude\n") ||
+		!strings.Contains(text, "default_adapter: claude") {
+		t.Fatalf("binding not written on first start:\n%s", text)
+	}
+}
+
+// An existing config is never re-prompted: an operator may have deliberately
+// bound no agents.
+func TestSetupAgentsLeavesExistingConfigAlone(t *testing.T) {
+	body := "name: my-machine\nagent_types: [fake]\ndefault_adapter: fake\n"
+	path := writeConfig(t, body)
+	configured, err := setupAgents(path, false, "", true, strings.NewReader("all\n\n"), io.Discard)
+	if err != nil {
+		t.Fatalf("setupAgents: %v", err)
+	}
+	if configured {
+		t.Fatal("existing config was rewritten")
+	}
+	if got := readConfig(t, path); got != body {
+		t.Fatalf("config changed:\n%s", got)
+	}
+}
+
+// systemd / containers have no terminal: start must not block or fail.
+func TestSetupAgentsDoesNotPromptWithoutTTY(t *testing.T) {
+	body := "name: my-machine\n"
+	path := writeConfig(t, body)
+	configured, err := setupAgents(path, true, "", false, strings.NewReader(""), io.Discard)
+	if err != nil {
+		t.Fatalf("setupAgents: %v", err)
+	}
+	if configured {
+		t.Fatal("non-interactive start rewrote the config")
+	}
+	if got := readConfig(t, path); got != body {
+		t.Fatalf("config changed:\n%s", got)
+	}
+}
+
+// --adapter already picks the binding, so the wizard is skipped.
+func TestSetupAgentsSkipsWithAdapterFlag(t *testing.T) {
+	body := "name: my-machine\n"
+	path := writeConfig(t, body)
+	configured, err := setupAgents(path, true, "fake", true, strings.NewReader("all\n\n"), io.Discard)
+	if err != nil {
+		t.Fatalf("setupAgents: %v", err)
+	}
+	if configured {
+		t.Fatal("--adapter start still ran the wizard")
+	}
+	if got := readConfig(t, path); got != body {
+		t.Fatalf("config changed:\n%s", got)
 	}
 }

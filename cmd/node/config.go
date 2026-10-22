@@ -6,10 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"golang.org/x/term"
 
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/adapters/acp"
@@ -69,7 +72,33 @@ func runConfig(args []string) error {
 	if interactive && !isTerminal(os.Stdin) {
 		return errors.New("config: stdin is not a terminal; pass --agents opencode,codex (and optionally --default)")
 	}
-	return configure(bufio.NewReader(os.Stdin), os.Stdout, path, *agentsFlag, *defaultFlag, interactive)
+	if err := configure(bufio.NewReader(os.Stdin), os.Stdout, path, *agentsFlag, *defaultFlag, interactive); err != nil {
+		return err
+	}
+	// The path may contain spaces (macOS Application Support), so quote it in
+	// the copy-ready command.
+	fmt.Fprintf(os.Stdout, "Restart the node to advertise them: fleetdeck-node --config \"%s\"\n", path)
+	return nil
+}
+
+// setupAgents runs the agent wizard when the daemon just created its config, so
+// a first start binds agents *before* connecting instead of registering with an
+// empty binding. Existing configs are left untouched (an operator may have
+// deliberately bound none), --adapter already decides, and a non-interactive
+// start (systemd, containers) logs a hint instead of blocking on a prompt.
+// configured reports whether the file was rewritten.
+func setupAgents(path string, created bool, adapterFlag string, interactive bool, in io.Reader, out io.Writer) (bool, error) {
+	if !created || adapterFlag != "" {
+		return false, nil
+	}
+	if !interactive {
+		slog.Warn("node has no agents bound; run `fleetdeck-node config` to pick them", "path", path)
+		return false, nil
+	}
+	if err := configure(bufio.NewReader(in), out, path, "", "", true); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // configure is the testable wizard body: it reads prompts from in and reports
@@ -105,9 +134,6 @@ func configure(in *bufio.Reader, out io.Writer, path, agentsFlag, defaultFlag st
 			fmt.Fprintf(out, "warning: %s needs %q on PATH; tasks for it will fail until the CLI is installed\n", choice.Type, choice.Missing)
 		}
 	}
-	// The path may contain spaces (macOS Application Support), so quote it in
-	// the copy-ready command.
-	fmt.Fprintf(out, "Restart the node to advertise them: fleetdeck-node --config \"%s\"\n", path)
 	return nil
 }
 
@@ -300,7 +326,9 @@ func readLine(in *bufio.Reader) (string, error) {
 	return line, nil
 }
 
+// isTerminal reports whether f is an interactive terminal. A plain
+// ModeCharDevice test is not enough: /dev/null is a character device, and
+// systemd/containers hand it to the daemon as stdin.
 func isTerminal(f *os.File) bool {
-	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(f.Fd()))
 }

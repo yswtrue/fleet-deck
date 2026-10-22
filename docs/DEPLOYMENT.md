@@ -165,13 +165,14 @@ go build -o fleetdeck-node ./cmd/node
 
 # 2. Mint a join token in the UI: Nodes -> Add node -> Generate token
 
-# 3. Pick the agents this machine offers. With no --config the daemon creates
-#    the platform config file with this machine's name (Linux ~/.config, macOS
-#    ~/Library/Application Support, Windows %AppData%); re-run this whenever
-#    you install a new agent CLI:
+# 3. Pick the agents this machine offers. On a first start (no config file
+#    yet) the daemon runs this wizard *before* it connects, then keeps the
+#    binding in the platform config file (Linux ~/.config, macOS
+#    ~/Library/Application Support, Windows %AppData%). Re-run the command
+#    whenever you install a new agent CLI:
 ./fleetdeck-node config
 
-# 4. Run it with the hub endpoint and the one-time token (valid 15 minutes,
+# 4. Start it with the hub endpoint and the one-time token (valid 15 minutes,
 #    single use). Both travel as flags; hub_url is written into the config
 #    file after the hub accepts the registration.
 ./fleetdeck-node --hub-url ws://localhost:7710/ws/node --join-token <token from the UI>
@@ -203,6 +204,12 @@ launchers are actually on this machine (`ready`, `built-in`, or
 `missing: <binary>`), and writes the selection back as `agent_types` plus a
 `default_adapter`. Everything else in the file is left byte-for-byte intact,
 so comments and hand-written settings survive.
+
+A freshly created config runs the same wizard automatically on start, before
+the daemon connects, so a first launch never registers with an empty binding.
+Existing configs are never re-prompted (binding no agents may be deliberate);
+`--adapter` already picks one, and a non-interactive start (systemd, containers,
+stdin not a terminal) skips the wizard and logs a warning instead of blocking.
 
 ```sh
 ./fleetdeck-node config

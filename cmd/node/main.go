@@ -50,21 +50,22 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if created {
-		slog.Info("created default config", "path", path,
-			"next", "run `fleetdeck-node config` to pick agents, then start with --hub-url and --join-token")
-	}
 	cfg, err := node.LoadConfig(path)
 	if err != nil {
 		return err
 	}
-	if *hubURL != "" {
-		cfg.SetHubURL(*hubURL)
+
+	// Flags must survive the first-start wizard's reload of the config file.
+	applyFlags := func(c *node.Config) error {
+		if *hubURL != "" {
+			c.SetHubURL(*hubURL)
+		}
+		if *joinToken != "" {
+			c.JoinToken = *joinToken
+		}
+		return c.Validate()
 	}
-	if *joinToken != "" {
-		cfg.JoinToken = *joinToken
-	}
-	if err := cfg.Validate(); err != nil {
+	if err := applyFlags(&cfg); err != nil {
 		return err
 	}
 	if *adapterFlag != "" {
@@ -80,6 +81,21 @@ func run() error {
 		return err
 	}
 	defer release()
+
+	// A freshly created config has no agents: pick them before dialing out, so
+	// the node never registers with an empty binding.
+	configured, err := setupAgents(path, created, *adapterFlag, isTerminal(os.Stdin), os.Stdin, os.Stdout)
+	if err != nil {
+		return err
+	}
+	if configured {
+		if cfg, err = node.LoadConfig(path); err != nil {
+			return err
+		}
+		if err := applyFlags(&cfg); err != nil {
+			return err
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
