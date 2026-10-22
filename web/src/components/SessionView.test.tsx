@@ -56,15 +56,26 @@ function snapshotWith(status: SessionSnapshot['session']['status']): SessionSnap
   } as unknown as SessionSnapshot
 }
 
-function renderView(sessionStatus: 'done' | 'failed' | 'running') {
+function renderView(
+  sessionStatus: SessionSnapshot['session']['status'],
+  opts: {
+    pending?: string
+    send?: () => Promise<Response>
+    connected?: boolean
+    messages?: unknown
+  } = {}
+) {
+  const snapshot = snapshotWith(sessionStatus)
+  if (opts.pending) snapshot.pending_input = opts.pending
   fetchMock.mockImplementation((input: unknown) => {
     const url = String(input)
-    if (url === '/api/sessions/s-1') return Promise.resolve(json(snapshotWith(sessionStatus)))
-    if (url.startsWith('/api/sessions/s-1/messages')) return Promise.resolve(json([]))
+    if (url === '/api/sessions/s-1') return Promise.resolve(json(snapshot))
+    if (url.startsWith('/api/sessions/s-1/messages'))
+      return Promise.resolve(json(opts.messages ?? []))
     if (url.startsWith('/api/sessions/s-1/events')) return Promise.resolve(json([]))
     if (url === '/api/nodes') return Promise.resolve(json([]))
     if (url.startsWith('/api/tasks/t-1/subtasks')) return Promise.resolve(json({ subtasks: [] }))
-    if (url === '/api/sessions/s-1/send') return Promise.resolve(json({}))
+    if (url === '/api/sessions/s-1/send') return (opts.send ?? (() => Promise.resolve(json({}))))()
     throw new Error(`unexpected fetch: ${url}`)
   })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -74,8 +85,8 @@ function renderView(sessionStatus: 'done' | 'failed' | 'running') {
         <Refine dataProvider={dataProvider} routerProvider={routerProvider}>
           <WebSocketContext.Provider
             value={{
-              connected: false,
-              connectionState: 'closed',
+              connected: opts.connected ?? false,
+              connectionState: opts.connected ? 'open' : 'closed',
               seq: 0,
               lastSeq: 0,
               error: null,
@@ -110,6 +121,54 @@ describe.each(['done', 'failed'] as const)('SessionView finished session (%s)', 
       method: 'POST',
       body: JSON.stringify({ message: 'one more thing' }),
     })
+  })
+})
+
+const PERMISSION_PROMPT =
+  'nix flake update 2>&1 | tail -40\n\n[permission_request] options=' +
+  '[{"id":"allow_once","label":"Allow once"},{"id":"reject_once","label":"Reject"}]'
+
+describe('SessionView permission ask', () => {
+  it('replies with the picked option and keeps the card until the hub answers', async () => {
+    renderView('awaiting_user', { pending: PERMISSION_PROMPT, connected: true })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(true)
+    )
+    const sendCall = fetchMock.mock.calls.find(([url]) => url === '/api/sessions/s-1/send')
+    expect(sendCall?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ message: '[permission_response] option_id="allow_once"' }),
+    })
+  })
+
+  it('keeps the picker and reports a rejected reply instead of failing silently', async () => {
+    renderView('awaiting_user', {
+      pending: PERMISSION_PROMPT,
+      connected: true,
+      send: () => Promise.resolve(json({ error: 'session is running' }, 409)),
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Allow once' }))
+    await waitFor(() => expect(document.body.textContent).toContain('HTTP 409: session is running'))
+    // The card (and its buttons) must survive the failed reply.
+    expect(await screen.findByRole('button', { name: /Allow once/ })).toBeTruthy()
+  })
+
+  it('still sends when the history endpoint has no messages yet (null cache)', async () => {
+    // A live session's buffer starts empty; an older hub answered null, which
+    // crashed the optimistic cache update before the reply left the browser.
+    renderView('awaiting_user', {
+      pending: PERMISSION_PROMPT,
+      connected: true,
+      messages: null,
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: /Allow once/ }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(true)
+    )
   })
 })
 

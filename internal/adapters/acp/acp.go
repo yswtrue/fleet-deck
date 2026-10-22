@@ -183,8 +183,11 @@ type Adapter struct {
 	proc           *process
 	awaitingPerm   chan string
 	awaitingElicit chan string
-	terminals      *terminalManager
-	sink           adapters.EventSink
+	// pendingAsk is the prompt of the outstanding ask (permission or
+	// elicitation) so the node can re-emit it after a reconnect.
+	pendingAsk string
+	terminals  *terminalManager
+	sink       adapters.EventSink
 
 	cancelCh   chan struct{}
 	cancelOnce sync.Once
@@ -405,6 +408,15 @@ func (a *Adapter) modelOrAgentType() string {
 
 // SendMessage either answers a pending permission or elicitation request
 // (when one is open) or starts a new turn with the user's text.
+// PendingAsk reports the outstanding user-input request, if any. The node
+// calls it after reconnecting: the ask may have been emitted while the link
+// was down, and without it the session waits for a reply the hub never saw.
+func (a *Adapter) PendingAsk() (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.pendingAsk, a.pendingAsk != ""
+}
+
 func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message string) error {
 	a.mu.Lock()
 	if !a.started || a.sessionID != sessionID {

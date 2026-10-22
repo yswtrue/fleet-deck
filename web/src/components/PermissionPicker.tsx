@@ -21,9 +21,11 @@ function isDenyish(option: PermissionRequest['options'][number]): boolean {
 export function PermissionPicker({
   request,
   onPick,
+  busy = false,
 }: {
   request: PermissionRequest
   onPick: (optionId: string) => void
+  busy?: boolean
 }) {
   const { t } = useTranslation('session')
   return (
@@ -38,6 +40,8 @@ export function PermissionPicker({
               key={option.id}
               danger={deny}
               type={deny ? 'default' : 'primary'}
+              disabled={busy}
+              loading={busy}
               onClick={() => onPick(option.id)}
             >
               {option.label}

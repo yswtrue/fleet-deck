@@ -77,6 +77,7 @@ func (a *Adapter) handleElicitationRequest(ctx context.Context, sessionID string
 	replyCh := make(chan string, 1)
 	a.mu.Lock()
 	a.awaitingElicit = replyCh
+	a.pendingAsk = prompt
 	a.status = protocol.SessionAwaitingUser
 	proc := a.proc
 	a.mu.Unlock()
@@ -108,6 +109,7 @@ func (a *Adapter) handleElicitationRequest(ctx context.Context, sessionID string
 
 	a.mu.Lock()
 	a.awaitingElicit = nil
+	a.pendingAsk = ""
 	if !exited {
 		a.status = protocol.SessionRunning
 	}

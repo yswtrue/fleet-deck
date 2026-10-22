@@ -58,6 +58,7 @@ func (a *Adapter) handlePermissionRequest(ctx context.Context, sessionID string,
 	replyCh := make(chan string, 1)
 	a.mu.Lock()
 	a.awaitingPerm = replyCh
+	a.pendingAsk = prompt
 	a.status = protocol.SessionAwaitingUser
 	proc := a.proc
 	a.mu.Unlock()
@@ -88,6 +89,7 @@ func (a *Adapter) handlePermissionRequest(ctx context.Context, sessionID string,
 
 	a.mu.Lock()
 	a.awaitingPerm = nil
+	a.pendingAsk = ""
 	if !exited {
 		a.status = protocol.SessionRunning
 	}

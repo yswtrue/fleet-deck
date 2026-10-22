@@ -692,6 +692,10 @@ func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	case protocol.SessionDone, protocol.SessionFailed:
 		h.resumeFinishedSession(w, r, ctx, session, msgText)
 	default:
+		// Surface a rejected reply: a stale "awaiting" card in the browser is
+		// otherwise indistinguishable from a lost click.
+		h.log.Warn("send rejected: session is not awaiting input",
+			"session_id", id, "status", session.Status)
 		writeJSON(w, http.StatusConflict, map[string]string{
 			"error":  "session is running",
 			"status": string(session.Status),

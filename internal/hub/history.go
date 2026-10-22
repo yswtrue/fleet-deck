@@ -62,6 +62,11 @@ func (h *Hub) handleListMessages(w http.ResponseWriter, r *http.Request) {
 // limitMessages applies the endpoint's limit semantics: up to limit messages,
 // oldest first; a limit <= 0 yields none.
 func limitMessages(msgs []protocol.Message, limit int) []protocol.Message {
+	// A live session's buffer starts empty; marshal it as [] rather than null so
+	// clients can treat the response as an array unconditionally.
+	if msgs == nil {
+		msgs = []protocol.Message{}
+	}
 	if limit <= 0 {
 		return []protocol.Message{}
 	}

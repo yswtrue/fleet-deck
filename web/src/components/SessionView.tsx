@@ -53,6 +53,8 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   // Auto-scroll follows the stream only while the reader is pinned to the
   // bottom; scrolling up pauses it until "Jump to latest".
   const [atBottom, setAtBottom] = useState(true)
+  // One reply in flight at a time: a double click must not send two answers.
+  const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const navigate = useNavigate()
@@ -229,14 +231,33 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                   .join(',')}`}
                 request={pendingElicitation}
                 onSubmit={(action, content) => {
-                  void send(formatElicitationReply(action, content))
+                  setSending(true)
+                  send(formatElicitationReply(action, content))
+                    .catch((err: unknown) => {
+                      messageApi.warning(
+                        err instanceof Error
+                          ? t('composer.sendErrorDetail', { message: err.message })
+                          : t('composer.sendError')
+                      )
+                    })
+                    .finally(() => setSending(false))
                 }}
               />
             ) : pendingPermission && isAwaiting ? (
               <PermissionPicker
                 request={pendingPermission}
+                busy={sending}
                 onPick={(optionId) => {
-                  void send(formatPermissionReply(optionId))
+                  setSending(true)
+                  send(formatPermissionReply(optionId))
+                    .catch((err: unknown) => {
+                      messageApi.warning(
+                        err instanceof Error
+                          ? t('composer.sendErrorDetail', { message: err.message })
+                          : t('composer.sendError')
+                      )
+                    })
+                    .finally(() => setSending(false))
                 }}
               />
             ) : (

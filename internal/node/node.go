@@ -239,6 +239,18 @@ func (n *Node) runOnce(ctx context.Context) error {
 	}
 	defer func() { _ = c.close() }()
 
+	// Cancelling the context (SIGINT/SIGTERM) must unblock the read loop:
+	// without this the daemon lingers on a dead connection and needs SIGKILL.
+	connDone := make(chan struct{})
+	defer close(connDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = c.ws.Close()
+		case <-connDone:
+		}
+	}()
+
 	regEnv := protocol.NewEnvelope(protocol.MsgRegisterRequest, protocol.RegisterRequest{
 		Name:         n.cfg.Name,
 		Host:         n.cfg.Host,
@@ -285,6 +297,9 @@ func (n *Node) runOnce(ctx context.Context) error {
 
 	stop := n.startWriter(c)
 	defer stop()
+	// A reconnect is the moment a lost ask becomes recoverable: the hub has
+	// forgotten the prompt, so re-emit whatever the live adapters are paused on.
+	n.reaskPending(ctx)
 
 	for {
 		env, err := c.read()
@@ -292,6 +307,36 @@ func (n *Node) runOnce(ctx context.Context) error {
 			return err
 		}
 		n.handle(ctx, env)
+	}
+}
+
+// reaskPending re-emits each live session's unanswered user-input request.
+// The node calls it right after (re)registering: the hub only knows about asks
+// that arrived over the wire, and a frame lost while the link was down would
+// leave the operator without a picker and the agent waiting forever.
+func (n *Node) reaskPending(ctx context.Context) {
+	n.sessMu.Lock()
+	live := make(map[string]adapters.Adapter, len(n.sessions))
+	for id, a := range n.sessions {
+		live[id] = a
+	}
+	n.sessMu.Unlock()
+	if len(live) == 0 {
+		return
+	}
+	sink := &connSink{n: n}
+	for id, a := range live {
+		asker, ok := a.(adapters.PendingAsker)
+		if !ok {
+			continue
+		}
+		prompt, pending := asker.PendingAsk()
+		if !pending {
+			continue
+		}
+		n.log.Info("re-asking user input after reconnect", "session_id", id)
+		sink.StateChange(ctx, id, protocol.SessionAwaitingUser)
+		sink.UserInputRequested(ctx, id, prompt)
 	}
 }
 
@@ -319,6 +364,10 @@ func (n *Node) startWriter(c *conn) func() {
 				return
 			case env := <-out:
 				if err := c.write(env); err != nil {
+					// A dead socket must end the connection, not just this
+					// writer: otherwise the read loop keeps blocking and every
+					// later event is silently dropped.
+					_ = c.ws.Close()
 					return
 				}
 			}
@@ -383,7 +432,10 @@ func (n *Node) startBufferedWriter(c *conn) func() {
 			}
 			if err := c.write(env); err != nil {
 				// Connection is dead; the envelope stays queued and the
-				// reconnect's writer picks the queue back up.
+				// reconnect's writer picks the queue back up. Close the socket
+				// so the read loop unblocks into a reconnect instead of
+				// lingering with every later event dropped.
+				_ = c.ws.Close()
 				return
 			}
 			if err := n.buf.Remove(path); err != nil {

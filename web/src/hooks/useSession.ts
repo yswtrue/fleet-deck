@@ -20,9 +20,10 @@ import type {
  * - a pending optimistic user message (id `local-*`) with the same content is
  *   replaced by the server's authoritative row, so a reply is not shown twice.
  */
-function mergeMessage(prev: Message[], incoming: Message): Message[] {
-  if (prev.some((m) => m.id === incoming.id)) return prev
-  const withoutOptimisticEcho = prev.filter(
+function mergeMessage(prev: Message[] | null | undefined, incoming: Message): Message[] {
+  const list = prev ?? []
+  if (list.some((m) => m.id === incoming.id)) return list
+  const withoutOptimisticEcho = list.filter(
     (m) => !(m.id.startsWith('local-') && m.role === 'user' && m.content === incoming.content)
   )
   return [...withoutOptimisticEcho, incoming]
@@ -116,7 +117,7 @@ export function useSession(sessionId: string) {
         case 'session.message': {
           const { session_id, message } = evt.data
           if (session_id !== sessionId) return
-          queryClient.setQueryData<Message[]>(['messages', sessionId], (prev = []) =>
+          queryClient.setQueryData<Message[]>(['messages', sessionId], (prev) =>
             mergeMessage(prev, message)
           )
           if (message.role === 'assistant') {
@@ -207,11 +208,12 @@ export function useSession(sessionId: string) {
     async (text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
-      // Any reply answers the current ask (the adapter resumes on SendMessage).
-      setPendingPermission(null)
-      setPendingElicitation(null)
+      // The ask stays visible until the hub accepts the reply: clearing it here
+      // would hide the picker on a 4xx and leave the operator with no feedback.
+      // A successful send flips the session to `running`, whose state event
+      // clears both panels.
       const optimisticID = `local-${Date.now()}`
-      queryClient.setQueryData<Message[]>(['messages', sessionId], (prev = []) =>
+      queryClient.setQueryData<Message[]>(['messages', sessionId], (prev) =>
         mergeMessage(prev, {
           id: optimisticID,
           session_id: sessionId,
@@ -226,8 +228,8 @@ export function useSession(sessionId: string) {
       } catch (err) {
         // The optimistic row never reached the hub (e.g. 409 "session is not
         // awaiting user input"): roll it back and let the caller report why.
-        queryClient.setQueryData<Message[]>(['messages', sessionId], (prev = []) =>
-          prev.filter((m) => m.id !== optimisticID)
+        queryClient.setQueryData<Message[]>(['messages', sessionId], (prev) =>
+          (prev ?? []).filter((m) => m.id !== optimisticID)
         )
         throw err
       }

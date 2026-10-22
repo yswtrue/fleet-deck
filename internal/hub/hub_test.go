@@ -546,3 +546,33 @@ func TestCreateTaskDerivesTitleFromPrompt(t *testing.T) {
 		t.Fatalf("title = %q, want the first prompt line", task.Title)
 	}
 }
+
+// A live session's text buffer starts empty; the endpoint must answer [] (not
+// null) so clients can treat the payload as an array. The web form updates that
+// cache optimistically before sending, and a null crashed the send.
+func TestListMessagesEmptyBufferIsArray(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	node := seedNode(t, st, uniqueName("hub-it-empty"))
+	task := createWorkspaceAndTask(t, auth.token, ts, node.ID)
+	session, err := st.Queries().CreateSession(context.Background(), store.CreateSessionParams{
+		TaskID:    task.ID,
+		NodeID:    node.ID,
+		AgentType: "fake",
+		Status:    protocol.SessionRunning,
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+session.ID+"/messages")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("messages = %d %s", resp.StatusCode, raw)
+	}
+	if got := strings.TrimSpace(string(raw)); got != "[]" {
+		t.Fatalf("empty buffer = %s, want []", got)
+	}
+}

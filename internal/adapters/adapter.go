@@ -65,6 +65,16 @@ type Resumable interface {
 	SetResumeSessionID(externalSessionID string)
 }
 
+// PendingAsker is implemented by adapters that can pause on a user-input
+// request (a permission pick or a form elicitation). The node re-emits the
+// outstanding ask after a reconnect: a frame lost while the link was down
+// would otherwise leave the session waiting for a reply the hub never saw.
+type PendingAsker interface {
+	// PendingAsk returns the prompt of the unanswered ask, and false when
+	// nothing is outstanding.
+	PendingAsk() (prompt string, ok bool)
+}
+
 // ReplayRequest is the input to HistoryReader.ReplaySession.
 type ReplayRequest struct {
 	SessionID         string

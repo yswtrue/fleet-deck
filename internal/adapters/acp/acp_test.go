@@ -359,6 +359,10 @@ func TestPermissionFlow(t *testing.T) {
 	if !strings.Contains(prompt, "Run shell command") {
 		t.Fatalf("prompt missing agent question: %q", prompt)
 	}
+	// The node re-emits this after a reconnect; it must survive until answered.
+	if pending, ok := a.PendingAsk(); !ok || pending != prompt {
+		t.Fatalf("PendingAsk = %q,%v, want the outstanding prompt", pending, ok)
+	}
 
 	if err := a.SendMessage(context.Background(), "sess-1", `[permission_response] option_id="allow"`); err != nil {
 		t.Fatalf("SendMessage: %v", err)
@@ -368,6 +372,9 @@ func TestPermissionFlow(t *testing.T) {
 	// forwarded it as the ACP permission response.
 	rec.waitTextContaining(t, "perm:allow")
 	rec.waitDone(t)
+	if pending, ok := a.PendingAsk(); ok {
+		t.Fatalf("PendingAsk = %q after the reply, want none", pending)
+	}
 }
 
 func TestPermissionReplyUnparseableDefaultsToDeny(t *testing.T) {
