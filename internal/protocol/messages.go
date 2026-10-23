@@ -150,6 +150,14 @@ type RegisterRequest struct {
 	// daemon). The hub allows at most one node per fingerprint, so a second
 	// daemon on the same computer cannot register under another name.
 	MachineID string `json:"machine_id,omitempty"`
+	// Sessions are the sessions whose adapters are still live in this daemon
+	// process. Adapters live in-process, so a reconnect keeps them while an
+	// upgrade or crash restarts the process and loses them: the hub fails the
+	// non-terminal sessions it still believes are running on this node but that
+	// are absent from this list. A daemon that predates the field omits it
+	// (nil), in which case the hub leaves those sessions alone; current daemons
+	// always send an array, empty when no adapter is running.
+	Sessions []string `json:"sessions"`
 }
 
 // RegisterResponse acknowledges registration and issues a node id/token.

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -277,6 +278,7 @@ func (n *Node) runOnce(ctx context.Context) error {
 		Token:          n.readToken(),
 		JoinToken:      n.cfg.JoinToken,
 		MachineID:      n.cfg.MachineID,
+		Sessions:       n.liveSessionIDs(),
 	})
 	if err := c.write(regEnv); err != nil {
 		return fmt.Errorf("send register_request: %w", err)
@@ -327,6 +329,22 @@ func (n *Node) runOnce(ctx context.Context) error {
 		}
 		n.handle(ctx, env)
 	}
+}
+
+// liveSessionIDs snapshots the sessions whose adapters are still running in
+// this process. The register handshake carries the list so the hub can tell a
+// reconnect (adapters kept) from a restart or upgrade (adapters gone): without
+// it, the reconnect cancels the offline cascade and sessions the dead process
+// left behind stay "running" forever.
+func (n *Node) liveSessionIDs() []string {
+	n.sessMu.Lock()
+	defer n.sessMu.Unlock()
+	ids := make([]string, 0, len(n.sessions))
+	for id := range n.sessions {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // reaskPending re-emits each live session's unanswered user-input request.

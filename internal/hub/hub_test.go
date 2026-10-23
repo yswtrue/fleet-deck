@@ -121,6 +121,14 @@ func dialNodeAs(t *testing.T, ts *httptest.Server, st *store.Store, name, token,
 // predating the field sends).
 func dialNodeWithCaps(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string, caps []string, includeCaps bool) (*websocket.Conn, protocol.RegisterResponse) {
 	t.Helper()
+	return dialNodeFull(t, ts, st, name, token, joinToken, caps, includeCaps, nil)
+}
+
+// dialNodeFull registers a scripted node with an explicit live-session list.
+// A nil liveSessions omits the field entirely (a daemon predating it); a
+// current daemon always sends an array, empty when no adapter survived.
+func dialNodeFull(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string, caps []string, includeCaps bool, liveSessions []string) (*websocket.Conn, protocol.RegisterResponse) {
+	t.Helper()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/node"
 	c, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -133,6 +141,7 @@ func dialNodeWithCaps(t *testing.T, ts *httptest.Server, st *store.Store, name, 
 		Host:      "test-host",
 		Token:     token,
 		MachineID: "test-machine:" + name,
+		Sessions:  liveSessions,
 	}
 	if includeCaps {
 		req.Capabilities = caps
@@ -698,9 +707,10 @@ func TestReconnectWithinGraceKeepsSessionRunning(t *testing.T) {
 		t.Fatal("dispatch created no session")
 	}
 
-	// Drop the connection and reconnect right away, exactly like the daemon.
+	// Drop the connection and reconnect right away, exactly like the daemon:
+	// the adapters survived in-process, so the handshake lists the session.
 	_ = c.Close()
-	back, backReg := dialNodeAs(t, ts, st, name, reg.Token, "")
+	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{"fake"}, true, []string{task.SessionID})
 	defer func() { _ = back.Close() }()
 	if backReg.NodeID != reg.NodeID {
 		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
@@ -714,6 +724,62 @@ func TestReconnectWithinGraceKeepsSessionRunning(t *testing.T) {
 	}
 	if session.Status != protocol.SessionRunning {
 		t.Fatalf("session status = %q, want running", session.Status)
+	}
+}
+
+// An upgraded or crashed node restarts and comes back inside the offline grace
+// window with no live adapters. The handshake's empty session list must fail
+// the sessions the previous process left behind, otherwise the cancel-on-
+// reconnect keeps their tasks "running" forever.
+func TestRestartedNodeFailsOrphanedSessions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	// The reconnect below lands well inside the window; without the handshake
+	// list this is exactly the state that used to stick.
+	h.offlineGrace = 30 * time.Second
+	name := uniqueName("hub-it-restart")
+
+	join := postJSON[struct {
+		Token string `json:"token"`
+	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
+	c, reg := dialNodeFull(t, ts, st, name, "", join.Token, []string{"fake"}, true, []string{})
+	if reg.NodeID == "" {
+		t.Fatalf("register: %s", reg.Error)
+	}
+	task := createWorkspaceAndTask(t, auth.token, ts, reg.NodeID)
+	if task.SessionID == "" {
+		t.Fatal("dispatch created no session")
+	}
+
+	// Restart: a fresh process, so no adapter survived the old session.
+	_ = c.Close()
+	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{"fake"}, true, []string{})
+	defer func() { _ = back.Close() }()
+	if backReg.NodeID != reg.NodeID {
+		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
+	}
+
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		session, err := st.Queries().GetSession(ctx, task.SessionID)
+		if err != nil {
+			t.Fatalf("get session: %v", err)
+		}
+		got, err := st.Queries().GetTask(ctx, task.ID)
+		if err != nil {
+			t.Fatalf("get task: %v", err)
+		}
+		if session.Status == protocol.SessionFailed && got.Status == protocol.TaskFailed {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("orphaned session/task = %q/%q, want failed/failed", session.Status, got.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

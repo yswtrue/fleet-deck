@@ -154,6 +154,13 @@ func (h *Hub) handleNodeWS(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = c.SetWriteDeadline(time.Time{})
 
+	// A returning daemon lists the adapters that survived the outage. Anything
+	// the hub still believes is running here but the daemon has lost (an
+	// upgrade restarts the process) is failed now, before the connection joins
+	// the registry and new dispatches can arrive. A reconnect that kept its
+	// adapters keeps its sessions.
+	h.reconcileNodeSessions(ctx, registered.ID, req.Sessions)
+
 	nc := h.addNode(registered.ID, c)
 	h.log.Info("node online", "node_id", registered.ID, "name", registered.Name)
 	h.bus.Publish(protocol.Event{

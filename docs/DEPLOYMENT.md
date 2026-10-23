@@ -342,7 +342,13 @@ docker compose up -d --build     # migrate runs first, then hub restarts
 Nodes are independent: rebuild/restart them at will; nodes re-register on
 startup. A disconnected node's running sessions are failed by the offline
 cascade only after a 30 s grace period, so a reconnect (network blip, ingress
-restart) keeps the task alive.
+restart) keeps the task alive. A reconnect is not a restart: every handshake
+lists the adapters still live in the daemon process (`register_request.sessions`),
+and the hub fails the sessions the daemon no longer holds before the node is
+online again. Restarting a node (including `fleetdeck-node update`) therefore
+fails its in-flight tasks promptly, and the operator can continue them with a
+reply (`POST /api/sessions/{id}/send`) — the agent-side session is reattached
+through `session/load`.
 
 ## Smoke checks
 

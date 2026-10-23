@@ -172,6 +172,12 @@
         },
         "machine_id": {
           "type": "string"
+        },
+        "sessions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "additionalProperties": false,
@@ -179,7 +185,8 @@
       "required": [
         "name",
         "agent_types",
-        "capabilities"
+        "capabilities",
+        "sessions"
       ]
     },
     "RegisterResponse": {

@@ -585,40 +585,83 @@ func (h *Hub) markNodeOffline(ctx context.Context, nodeID string) {
 		h.log.Warn("list sessions for offline node", "node_id", nodeID, "err", err)
 		return
 	}
-	now := time.Now().UTC()
 	for _, s := range sessions {
-		if s.Status == protocol.SessionDone || s.Status == protocol.SessionFailed {
-			continue
-		}
-		ended := now
-		if err := q.UpdateSessionStatus(ctx, s.ID, protocol.SessionFailed, &ended); err != nil {
-			h.log.Warn("fail session on node offline", "session_id", s.ID, "err", err)
-			continue
-		}
-		h.bus.Publish(protocol.Event{
-			Type: protocol.EvSessionStateChanged,
-			Data: protocol.SessionStateChanged{SessionID: s.ID, Status: protocol.SessionFailed},
-		})
-
-		task, err := q.GetTaskBySessionID(ctx, s.ID)
-		if err != nil {
-			continue
-		}
-		newStatus := taskStatusFor(protocol.SessionFailed)
-		if task.Status == newStatus {
-			continue
-		}
-		updated, err := q.UpdateTaskStatus(ctx, task.ID, newStatus)
-		if err != nil {
-			h.log.Warn("complete task on node offline", "task_id", task.ID, "err", err)
-			continue
-		}
-		h.invalidateTasks(ctx, task.WorkspaceID)
-		h.bus.Publish(protocol.Event{
-			Type: protocol.EvTaskStatusChanged,
-			Data: protocol.TaskStatusChanged{TaskID: updated.ID, From: task.Status, To: updated.Status},
-		})
+		h.failSession(ctx, s, "node offline")
 	}
+}
+
+// reconcileNodeSessions fails the non-terminal sessions the hub still believes
+// are running on a (re)connecting node but that the daemon no longer holds.
+// Adapters live in the node process, so a reconnect keeps them and the
+// handshake lists them; an upgraded or crashed daemon comes back with none.
+// Without this reconcile, that reconnect cancels the offline cascade while the
+// new process never reports the loss, and those tasks sit in running forever.
+//
+// live is nil for a daemon that predates the field: it cannot tell us which
+// adapters survived, so nothing is failed on guesswork. The caller runs this
+// before the connection joins the registry, so a task dispatched to the
+// returning node cannot be caught by a stale list.
+func (h *Hub) reconcileNodeSessions(ctx context.Context, nodeID string, live []string) {
+	if live == nil {
+		return
+	}
+	keep := make(map[string]struct{}, len(live))
+	for _, id := range live {
+		if id != "" {
+			keep[id] = struct{}{}
+		}
+	}
+	sessions, err := h.store.Queries().ListSessionsByNode(ctx, nodeID)
+	if err != nil {
+		h.log.Warn("list sessions for session reconcile", "node_id", nodeID, "err", err)
+		return
+	}
+	for _, s := range sessions {
+		if _, ok := keep[s.ID]; ok {
+			continue
+		}
+		h.failSession(ctx, s, "node restarted without the adapter")
+	}
+}
+
+// failSession marks one non-terminal session failed, broadcasts the state
+// change, and moves its task to the derived status. It is the shared write
+// path of the offline cascade and the registration reconcile; terminal
+// sessions and tasks already in the derived status are left alone.
+func (h *Hub) failSession(ctx context.Context, s protocol.Session, reason string) {
+	if s.Status == protocol.SessionDone || s.Status == protocol.SessionFailed {
+		return
+	}
+	q := h.store.Queries()
+	ended := time.Now().UTC()
+	if err := q.UpdateSessionStatus(ctx, s.ID, protocol.SessionFailed, &ended); err != nil {
+		h.log.Warn("fail session", "session_id", s.ID, "reason", reason, "err", err)
+		return
+	}
+	h.log.Info("session failed", "session_id", s.ID, "reason", reason)
+	h.bus.Publish(protocol.Event{
+		Type: protocol.EvSessionStateChanged,
+		Data: protocol.SessionStateChanged{SessionID: s.ID, Status: protocol.SessionFailed},
+	})
+
+	task, err := q.GetTaskBySessionID(ctx, s.ID)
+	if err != nil {
+		return
+	}
+	newStatus := taskStatusFor(protocol.SessionFailed)
+	if task.Status == newStatus {
+		return
+	}
+	updated, err := q.UpdateTaskStatus(ctx, task.ID, newStatus)
+	if err != nil {
+		h.log.Warn("fail task after session failure", "task_id", task.ID, "err", err)
+		return
+	}
+	h.invalidateTasks(ctx, task.WorkspaceID)
+	h.bus.Publish(protocol.Event{
+		Type: protocol.EvTaskStatusChanged,
+		Data: protocol.TaskStatusChanged{TaskID: updated.ID, From: task.Status, To: updated.Status},
+	})
 }
 
 // dispatchTask opens a session for a freshly created task and tells the owning

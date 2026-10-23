@@ -78,6 +78,7 @@ export interface RegisterRequest {
   token?: string;
   join_token?: string;
   machine_id?: string;
+  sessions: string[];
 }
 export interface RegisterResponse {
   node_id?: string;

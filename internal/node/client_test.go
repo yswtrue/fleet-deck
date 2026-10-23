@@ -34,6 +34,7 @@ func TestNodeReportsAdapterEventsToHub(t *testing.T) {
 	startedCh := make(chan protocol.SessionStarted, 1)
 
 	mux := http.NewServeMux()
+	regCh := make(chan protocol.RegisterRequest, 1)
 	mux.HandleFunc("GET /ws/node", func(w http.ResponseWriter, r *http.Request) {
 		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -47,6 +48,13 @@ func TestNodeReportsAdapterEventsToHub(t *testing.T) {
 		}
 		if reg.Type != protocol.MsgRegisterRequest {
 			return
+		}
+		var registered protocol.RegisterRequest
+		if reg.Decode(&registered) == nil {
+			select {
+			case regCh <- registered:
+			default:
+			}
 		}
 		resp := protocol.NewEnvelope(protocol.MsgRegisterResponse, protocol.RegisterResponse{NodeID: "test-node", Token: "test-token"})
 		if err := c.WriteJSON(resp); err != nil {
@@ -121,6 +129,21 @@ func TestNodeReportsAdapterEventsToHub(t *testing.T) {
 
 	waitSignal(t, todoCh, 5*time.Second, "todo_update")
 	waitSignal(t, doneCh, 5*time.Second, "session done event")
+
+	// The hub distinguishes a reconnect (adapters kept) from a restart (none)
+	// by this field; a nil list would mean "predates the field" and never
+	// reconcile an upgraded daemon's lost sessions.
+	select {
+	case registered := <-regCh:
+		if registered.Sessions == nil {
+			t.Fatal("register_request omitted sessions; want an empty array")
+		}
+		if len(registered.Sessions) != 0 {
+			t.Fatalf("first registration sessions = %v, want none", registered.Sessions)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for register_request")
+	}
 
 	// The hub persists this id to replay the conversation later; without it
 	// GET /api/sessions/{id}/messages cannot reach the agent-side session.
