@@ -107,6 +107,20 @@ FLEETDECK_HUB_TOKEN=<bearer token> ./fleetdeck-node workspace add --path /srv/ap
 Prebuilt daemons are attached to every [release](https://github.com/yswtrue/fleet-deck/releases)
 (`fleetdeck-node_vX.Y.Z_{linux,darwin,windows}_{amd64,arm64}`).
 
+```sh
+# Install as a user service (Linux/macOS): copies the binary into ~/.local/bin
+# and registers a systemd --user unit / launchd agent that starts at login and
+# restarts on exit.
+./fleetdeck-node install
+./fleetdeck-node update    # SHA256-verified latest release, restarts the service
+./fleetdeck-node version
+```
+
+`install` enables the service but only starts it once the config has a
+`hub_url` and the node credential exists (otherwise the one-time
+`--join-token` registration command is printed). See
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#install-as-a-user-service).
+
 ### Development (devenv)
 
 ```sh

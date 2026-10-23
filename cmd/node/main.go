@@ -7,6 +7,8 @@
 //	node --config examples/fake-node.config.yaml
 //	node config                            # choose the agents to advertise
 //	node workspace add --path /srv/app     # register a workspace on this node
+//	node install                           # ~/.local/bin + user service (autostart)
+//	node update                            # replace this binary with the latest release
 //	node --hub-url ws://hub.example.com/ws/node --join-token <token from the UI>
 package main
 
@@ -37,6 +39,12 @@ func run() error {
 			return runConfig(os.Args[2:])
 		case "workspace":
 			return runWorkspace(os.Args[2:])
+		case "install":
+			return runInstall(os.Args[2:])
+		case "update":
+			return runUpdate(os.Args[2:])
+		case "version", "--version", "-version", "-v":
+			return runVersion()
 		}
 	}
 

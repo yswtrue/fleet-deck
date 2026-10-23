@@ -181,6 +181,56 @@ go build -o fleetdeck-node ./cmd/node
 ./fleetdeck-node
 ```
 
+### Install as a user service
+
+`fleetdeck-node install` copies the running binary into a per-user bin
+directory and registers a user-scoped autostart unit:
+
+```sh
+./fleetdeck-node install              # install + enable + start
+./fleetdeck-node install --no-start   # write/enable the unit only
+./fleetdeck-node install --bin-dir /opt/bin --config /etc/fleetdeck/node.yaml
+./fleetdeck-node update               # replace the binary with the latest release
+./fleetdeck-node update --check       # print current vs latest
+./fleetdeck-node version
+```
+
+|           | Linux                                                  | macOS                                             |
+| --------- | ------------------------------------------------------ | ------------------------------------------------- |
+| binary    | `$XDG_BIN_HOME` (absolute) or `~/.local/bin`           | same                                              |
+| unit      | `~/.config/systemd/user/fleetdeck-node.service`        | `~/Library/LaunchAgents/com.fleetdeck.node.plist` |
+| autostart | `systemctl --user enable` (+ `loginctl enable-linger`) | `RunAtLoad`                                       |
+| restart   | `Restart=always`, `RestartSec=5s`                      | `KeepAlive`                                       |
+| logs      | `journalctl --user -u fleetdeck-node -f`               | `~/Library/Logs/fleetdeck-node.log`               |
+
+The unit runs `fleetdeck-node --config <resolved config path>`. `install`
+always resolves (and, for the platform default, creates) the config first, so
+the service never starts on a missing file. It only _starts_ the service when
+the config already has a `hub_url` and `token_file` exists; otherwise it prints
+the one-time registration command (`--hub-url ... --join-token ...`), enables
+the unit, and leaves starting to you — starting earlier would just restart-loop
+until the node is registered. Run `fleetdeck-node config` first if the agent
+binding is still empty; a non-interactive service start skips the wizard.
+
+The service inherits the systemd/launchd environment, which is usually a
+minimal `PATH`. If your agent CLIs live outside it (Nix profile, asdf, pnpm),
+extend it with `systemctl --user edit fleetdeck-node`:
+
+```ini
+[Service]
+Environment=PATH=%h/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin
+```
+
+`update` queries the GitHub releases API (override with `--repo`; `--version`
+pins a tag, `$GITHUB_TOKEN`/`$GH_TOKEN` lifts the anonymous rate limit),
+downloads the `fleetdeck-node_<tag>_<os>_<arch>` archive for the running
+platform, verifies it against the release's `SHA256SUMS`, and atomically
+renames the extracted binary over the target (default: the running executable;
+`--bin` selects another path). If an installed user service exists it is
+restarted (`--no-restart` skips that). Windows gets the binary but no user
+service: there is no user-scoped autostart equivalent with crash restarts, so
+register it in Task Scheduler yourself.
+
 ### Config file location
 
 | OS        | node config                                            | node credential                                             |
