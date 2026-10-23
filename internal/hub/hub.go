@@ -18,6 +18,7 @@ import (
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/cache"
 	"fleetdeck/internal/protocol"
+	"fleetdeck/internal/push"
 	"fleetdeck/internal/store"
 )
 
@@ -75,6 +76,16 @@ type Hub struct {
 	offlineMu     sync.Mutex
 	offlineTimers map[string]*time.Timer
 	offlineGrace  time.Duration
+
+	// Web Push: the VAPID sender is nil when the key could not be loaded
+	// (push is then disabled, never a startup failure), the queue buffers
+	// task-status events for the delivery worker, and pushSem bounds
+	// concurrent outbound HTTP requests.
+	pushSender *push.Sender
+	pushQueue  chan protocol.Event
+	pushStop   chan struct{}
+	pushOnce   sync.Once
+	pushSem    chan struct{}
 }
 
 // nodeOfflineGrace is how long a node may stay disconnected before its running
@@ -129,6 +140,7 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 	if err := st.Queries().MarkNodesOffline(ctx); err != nil {
 		h.log.Warn("reset node statuses", "err", err)
 	}
+	h.initPush(ctx)
 	return h
 }
 
@@ -143,6 +155,11 @@ func (h *Hub) Bus() *Broadcaster { return h.bus }
 
 // Close releases broadcaster subscribers. It does not close the store.
 func (h *Hub) Close() error {
+	h.pushOnce.Do(func() {
+		if h.pushStop != nil {
+			close(h.pushStop)
+		}
+	})
 	h.bus.Close()
 	return nil
 }

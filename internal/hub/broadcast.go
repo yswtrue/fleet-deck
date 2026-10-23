@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,6 +65,11 @@ type Broadcaster struct {
 	// unresolvable). It runs exactly once per published event, before fan-out,
 	// so no subscriber triggers its own lookup.
 	resolve func(protocol.Event) string
+
+	// listeners observe every published event synchronously after fan-out.
+	// They must not block (the push notifier only enqueues) and must not call
+	// back into the broadcaster.
+	listeners []func(protocol.Event)
 }
 
 // NewBroadcaster returns an empty broadcaster. resolve maps an event to its
@@ -104,6 +110,21 @@ func (b *Broadcaster) Subscribe(scope EventScope) (<-chan protocol.Event, func()
 	return ch, unsubscribe
 }
 
+// AddListener registers a synchronous observer for every published event. It
+// is used for side channels (push notifications) that must not consume a
+// bounded subscriber queue. The listener must not block.
+func (b *Broadcaster) AddListener(fn func(protocol.Event)) {
+	if fn == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
+	b.listeners = append(b.listeners, fn)
+}
+
 // Publish stamps evt with the next global Seq (and Ts if unset), resolves the
 // owning node once, and fans it out to the subscribers whose scope covers that
 // node. It never blocks: a full subscriber queue causes that event to be
@@ -120,8 +141,8 @@ func (b *Broadcaster) Publish(evt protocol.Event) {
 	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	if b.closed {
+		b.mu.Unlock()
 		return
 	}
 	for sub := range b.subs {
@@ -132,6 +153,12 @@ func (b *Broadcaster) Publish(evt protocol.Event) {
 		case sub.ch <- evt:
 		default:
 		}
+	}
+	listeners := slices.Clone(b.listeners)
+	b.mu.Unlock()
+
+	for _, fn := range listeners {
+		fn(evt)
 	}
 }
 

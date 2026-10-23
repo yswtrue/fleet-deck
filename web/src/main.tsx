@@ -11,6 +11,18 @@ import { WebSocketProvider } from './hooks/WebSocketProvider.tsx'
 import { queryClient } from './queryClient.ts'
 import './index.css'
 
+// PWA: register the offline-shell + push service worker only for the built
+// app. In dev the Vite server serves modules directly, and a cached shell would
+// hide hot updates. Registration is deferred to load so it never competes with
+// the first render.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch((err: unknown) => {
+      console.error('Service worker registration failed', err)
+    })
+  })
+}
+
 // One cache for the whole app. `WebSocketProvider` (below) writes directly to
 // this singleton and `RefineProvider` is configured with the exact same
 // instance, so Refine queries and WS-driven invalidations share one cache.

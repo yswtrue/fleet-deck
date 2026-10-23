@@ -34,6 +34,18 @@ func newSPAHandler(fsys fs.FS) http.HandlerFunc {
 		p := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if p != "" && p != "." {
 			if st, err := fs.Stat(fsys, p); err == nil && !st.IsDir() {
+				// The service worker and manifest must never be served stale:
+				// a cached sw.js pins the old shell until its cache expires.
+				switch p {
+				case "sw.js":
+					w.Header().Set("Cache-Control", "no-cache")
+					w.Header().Set("Service-Worker-Allowed", "/")
+				case "manifest.webmanifest", "index.html":
+					w.Header().Set("Cache-Control", "no-cache")
+				}
+				if p == "manifest.webmanifest" {
+					w.Header().Set("Content-Type", "application/manifest+json")
+				}
 				http.ServeFileFS(w, r, fsys, p)
 				return
 			}

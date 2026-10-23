@@ -19,6 +19,10 @@
     "done": {
       "title": "任务完成",
       "body": "{{title}}"
+    },
+    "failed": {
+      "title": "任务失败",
+      "body": "{{title}}"
     }
   },
   "settings": {
@@ -34,6 +38,10 @@
     "enabledLabel": "任务更新时通知我",
     "unsupported": "你的浏览器不支持浏览器通知。",
     "deniedHelp": "通知已被阻止。请在浏览器网站设置中允许 FleetDeck 以启用通知。",
-    "permissionRequired": "必须先在浏览器中允许通知，才能接收任务更新提醒。"
+    "permissionRequired": "必须先在浏览器中允许通知，才能接收任务更新提醒。",
+    "pushHelp": "关闭 FleetDeck 后仍会收到通知。iOS 用户请先将 FleetDeck 添加到主屏幕。",
+    "pushUnsupported": "当前浏览器不支持后台推送，仅在 FleetDeck 打开时显示通知。",
+    "pushOn": "此设备已启用后台推送",
+    "pushError": "无法启用后台推送：{{error}}"
   }
 }

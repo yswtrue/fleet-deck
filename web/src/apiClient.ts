@@ -35,6 +35,17 @@ export interface NodeJoinTokenResponse {
   expires_at: string
 }
 
+/** One browser Web Push registration (see POST /api/push/subscriptions). */
+export interface PushSubscriptionInput {
+  endpoint: string
+  /** Receiver public key, base64url uncompressed P-256. */
+  p256dh: string
+  /** 16-byte auth secret, base64url. */
+  auth: string
+  /** UI language for the notification copy (`en` / `zh-CN`). */
+  lang: string
+}
+
 export interface CreateWorkspaceInput {
   node_id: string
   name: string
@@ -401,6 +412,24 @@ export const apiClient = {
     }),
 
   getHealth: () => fetchJson<{ status: string }>('/api/health'),
+
+  // ── Web Push ──────────────────────────────────────────────────────────────
+
+  /** GET /api/push/public-key returns the VAPID applicationServerKey. */
+  getPushPublicKey: () => fetchJson<{ public_key: string }>('/api/push/public-key'),
+
+  /** POST /api/push/subscriptions registers (or re-owns) this browser. */
+  savePushSubscription: (sub: PushSubscriptionInput) =>
+    fetchJson<void>('/api/push/subscriptions', {
+      method: 'POST',
+      body: JSON.stringify(sub),
+    }),
+
+  /** DELETE /api/push/subscriptions?endpoint= removes this browser's row. */
+  deletePushSubscription: (endpoint: string) =>
+    fetchJson<void>(`/api/push/subscriptions?endpoint=${encodeURIComponent(endpoint)}`, {
+      method: 'DELETE',
+    }),
 
   listNodes: () => fetchJson<Node[]>('/api/nodes'),
 

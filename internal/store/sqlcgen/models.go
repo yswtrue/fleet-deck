@@ -57,6 +57,24 @@ type NodeMember struct {
 	AddedAt time.Time
 }
 
+type PushSubscription struct {
+	ID         string
+	UserID     string
+	Endpoint   string
+	P256dh     string
+	Auth       string
+	Lang       string
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+}
+
+type PushVapidKey struct {
+	ID         bool
+	PrivateKey []byte
+	PublicKey  []byte
+	CreatedAt  time.Time
+}
+
 type Session struct {
 	ID                string
 	TaskID            string

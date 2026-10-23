@@ -206,7 +206,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 - **任务统计 / 仪表盘**:`GET /api/stats/tasks` 按窗口统计 `created`/`completed` 及当日任务的 `by_status` 分布(过滤/可见性与 `GET /api/stats/tokens` 同契约)。`/` 为仪表盘(今日任务 + Token 统计),节点列表在 `/nodes`。
 - **管理后台布局**:`web/src/components/AppLayout.tsx` 提供左侧菜单栏(可折叠为图标栏;<768px 收为顶部汉堡 + 抽屉菜单)。菜单图标必须转发 antd 注入的 `className`/`style`(`cloneElement` 会加 `ant-menu-item-icon`,折叠态靠 `ant-menu-item-icon + span` 隐藏文字)。
 - **移动端**:<768px 单列布局(看板列纵向堆叠、会话侧栏下沉、弹窗收缩、粗指针触控目标 ≥36px),320px 起可用。
-- **通知**:`TaskNotificationBridge` 订阅 WS 的 `task.created`/`task.status_changed` → 浏览器通知(权限 + `localStorage('fleetdeck.notify')==='on'` 双门控,按任务 tag 合并,点击聚焦标签页)。
+- **通知 / PWA**:web 构建产物注册 service worker(`web/public/sw.js`,仅生产环境;离线缓存 shell,导航 network-first、带哈希资源 cache-first,`/api` 与 `/ws` 不缓存),manifest + 图标使其可安装。`TaskNotificationBridge` 订阅 WS 的 `task.created`/`task.status_changed` → 浏览器通知(权限 + `localStorage('fleetdeck.notify')==='on'` 双门控,按任务 tag 合并,点击聚焦);同时 hub 通过 Web Push 覆盖应用关闭的场景:hub 首次启动生成并持久化 VAPID 密钥(`push_vapid_key`),`GET /api/push/public-key` + `POST/DELETE /api/push/subscriptions` 管理浏览器订阅,广播监听器把每个 `task.status_changed` 交给投递 worker,按**管理员 + 绑定该节点的用户**裁剪后发送 RFC 8291 `aes128gcm` 加密载荷(404/410 自动删订阅)。投递有界且尽力而为,失败只记日志;service worker 在前台窗口已聚焦时跳过系统通知(WS 通知已显示),并按订阅的 `lang` 本地化文案。登出/401 会取消浏览器订阅并删除服务端记录,避免同一设备的下一个账号收到上一个用户的通知。浏览器只在安全上下文(HTTPS 或 localhost)暴露 SW/PushManager。
 
 ## 4. 阶段计划(✅ 已全部完成)
 

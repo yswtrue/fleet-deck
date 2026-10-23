@@ -123,6 +123,17 @@ resolver (e.g. ACME) to the `hub-secure` router — see the
 [Traefik docs](https://doc.traefik.io/traefik/https/overview/). Node URLs
 become `wss://…/ws/node` once TLS is on.
 
+Web Push (and the installable PWA) also requires a **secure context**: browsers
+only expose service workers, `PushManager`, and notifications over HTTPS (plain
+`http://localhost` is the sole exception). Behind the bundled Traefik this is
+already satisfied. Set `FLEETDECK_VAPID_SUBJECT` (a `mailto:` address or
+`https://` URL identifying the sender; defaults to
+`mailto:admin@fleetdeck.local`) if a push service asks for a contact. The hub
+generates and persists its VAPID key pair on first start (`push_vapid_key`
+table), so rotating the key invalidates every existing browser subscription;
+users re-enable notifications to re-subscribe. Notifications are scoped like the
+UI: admins and users bound to the task's node only.
+
 ## Releases (prebuilt artifacts)
 
 Push a tag (`v1.2.3`, or `v1.2.3-rc.1` for a pre-release) and

@@ -2,6 +2,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
 import { apiClient, clearToken, getStoredToken, storeToken } from '../apiClient.ts'
 import type { AuthUser, LoginInput, SetupInput } from '../apiClient.ts'
+import { disablePushNotifications, enablePushNotifications, pushSupported } from '../push.ts'
+import { isNotifyEnabled } from './useTaskNotifications.ts'
+
+/**
+ * Re-binds this device's push subscription to the account that just signed in.
+ * Logout unsubscribes the browser, so this only matters for a session restored
+ * with notifications already enabled (or a stale subscription after an expiry).
+ */
+function syncPushForCurrentUser(): void {
+  if (!pushSupported() || !isNotifyEnabled() || Notification.permission !== 'granted') return
+  void enablePushNotifications().catch(() => {})
+}
 
 export interface UseAuthResult {
   /** Current user, or undefined while loading / when signed out. */
@@ -42,6 +54,7 @@ export function useAuth(): UseAuthResult {
       queryClient.setQueryData(['auth', 'me'], session.user)
       // Refetch whatever anonymous queries cached before sign-in.
       await queryClient.invalidateQueries()
+      syncPushForCurrentUser()
       return session.user
     },
   })
@@ -52,12 +65,18 @@ export function useAuth(): UseAuthResult {
       storeToken(session.token, session.expires_at)
       queryClient.setQueryData(['auth', 'me'], session.user)
       await queryClient.invalidateQueries()
+      syncPushForCurrentUser()
       return session.user
     },
   })
 
   const logout = useMutation<void, Error, void>({
-    mutationFn: () => apiClient.logout(),
+    mutationFn: async () => {
+      // Remove this browser's registration while the token still authorizes
+      // the DELETE; a failed request still unsubscribes locally.
+      await disablePushNotifications().catch(() => {})
+      return apiClient.logout()
+    },
     onSettled: () => {
       clearToken()
       queryClient.clear()

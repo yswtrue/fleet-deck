@@ -19,6 +19,10 @@
     "done": {
       "title": "Task done",
       "body": "{{title}}"
+    },
+    "failed": {
+      "title": "Task failed",
+      "body": "{{title}}"
     }
   },
   "settings": {
@@ -34,6 +38,10 @@
     "enabledLabel": "Notify me about task updates",
     "unsupported": "Your browser does not support browser notifications.",
     "deniedHelp": "Notifications are blocked. Allow FleetDeck in your browser's site settings to enable them.",
-    "permissionRequired": "Notifications must be allowed in your browser for updates to appear."
+    "permissionRequired": "Notifications must be allowed in your browser for updates to appear.",
+    "pushHelp": "Notifications also arrive while FleetDeck is closed. On iOS, add FleetDeck to your Home Screen first.",
+    "pushUnsupported": "Background push isn't supported in this browser; notifications appear only while FleetDeck is open.",
+    "pushOn": "Background push is enabled on this device",
+    "pushError": "Could not enable background push: {{error}}"
   }
 }

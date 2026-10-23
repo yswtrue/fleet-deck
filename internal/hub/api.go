@@ -67,6 +67,12 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/stats/tokens", h.requireAuth(h.handleStatsTokens))
 	mux.HandleFunc("GET /api/stats/tasks", h.requireAuth(h.handleStatsTasks))
 
+	// Web Push: the browser fetches the VAPID key, registers its subscription,
+	// and removes it on logout / when notifications are disabled.
+	mux.HandleFunc("GET /api/push/public-key", h.requireAuth(h.handlePushPublicKey))
+	mux.HandleFunc("POST /api/push/subscriptions", h.requireAuth(h.handleCreatePushSubscription))
+	mux.HandleFunc("DELETE /api/push/subscriptions", h.requireAuth(h.handleDeletePushSubscription))
+
 	mux.HandleFunc("GET /ws/web", h.handleWebWS)
 	mux.HandleFunc("GET /ws/node", h.handleNodeWS)
 
