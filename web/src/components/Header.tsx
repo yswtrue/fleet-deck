@@ -7,6 +7,7 @@ import { WebSocketContext } from '../hooks/WebSocketContext.ts'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { UserMenu } from './UserMenu.tsx'
 import { LanguageSwitcher } from './LanguageSwitcher.tsx'
+import { InstallAppButton } from './InstallAppButton.tsx'
 import { useTranslation } from '../i18n/index.ts'
 import type { Node as HubNode, Workspace as HubWorkspace } from '../types.ts'
 import styles from './Header.module.css'
@@ -207,6 +208,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         </button>
         {/* User menu (auth slice); renders null while signed out. */}
         <div id="headerActions" className={styles.headerActions}>
+          <InstallAppButton />
           <LanguageSwitcher />
           <UserMenu />
         </div>

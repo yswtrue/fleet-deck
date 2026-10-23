@@ -27,6 +27,12 @@
     "hoursAgo": "{{n}}h ago",
     "daysAgo": "{{n}}d ago"
   },
+  "install": {
+    "action": "Install app",
+    "iosTitle": "Add FleetDeck to your Home Screen",
+    "iosBody": "Open the Share menu in Safari, then choose “Add to Home Screen”.",
+    "iosHint": "The installed app opens full screen and keeps notifications working."
+  },
   "misc": {
     "loading": "Loading…",
     "none": "None",

@@ -1,0 +1,21 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.icon {
+  width: 18px;
+  height: 18px;
+}
+
+.label {
+  white-space: nowrap;
+}
+
+/* Below 768px the header is tight: keep the accessible icon-only button. */
+@media (max-width: 768px) {
+  .label {
+    display: none;
+  }
+}

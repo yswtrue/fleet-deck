@@ -27,6 +27,12 @@
     "hoursAgo": "{{n}} 小时前",
     "daysAgo": "{{n}} 天前"
   },
+  "install": {
+    "action": "安装应用",
+    "iosTitle": "将 FleetDeck 添加到主屏幕",
+    "iosBody": "在 Safari 中打开分享菜单，然后选择“添加到主屏幕”。",
+    "iosHint": "安装后可全屏打开，并保持通知正常工作。"
+  },
   "misc": {
     "loading": "加载中…",
     "none": "无",
