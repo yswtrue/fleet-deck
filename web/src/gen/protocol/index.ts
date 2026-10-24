@@ -21,6 +21,8 @@ export interface ProtocolSchema {
   SessionResumeCommand?: SessionResumeCommand;
   SessionStateChanged?: SessionStateChanged;
   SessionThought?: SessionThought;
+  SessionTranscriptRequest?: SessionTranscriptRequest;
+  SessionTranscriptResponse?: SessionTranscriptResponse;
   SessionUsage?: SessionUsage;
   SessionUserInputRequested?: SessionUserInputRequested;
   Subtask?: Subtask;
@@ -37,6 +39,7 @@ export interface ProtocolSchema {
   TokenUsageByModel?: TokenUsageByModel;
   TokenUsageStats?: TokenUsageStats;
   TokenUsageTotals?: TokenUsageTotals;
+  ToolCall?: ToolCall;
   Workspace?: Workspace;
 }
 export interface CancelCommand {
@@ -51,9 +54,16 @@ export interface Event {
 export interface Message {
   id: string;
   session_id: string;
-  role: "user" | "assistant" | "system" | "thinking";
+  role: "user" | "assistant" | "system" | "thinking" | "tool";
   content: string;
+  tool?: ToolCall;
   created_at: string;
+}
+export interface ToolCall {
+  id: string;
+  title?: string;
+  kind?: string;
+  status?: string;
 }
 export interface Node {
   id: string;
@@ -88,6 +98,7 @@ export interface RegisterResponse {
 export interface SendMessageCommand {
   session_id: string;
   message: string;
+  user_message?: Message;
 }
 export interface Session {
   id: string;
@@ -127,6 +138,7 @@ export interface SessionResumeCommand {
   workspace_path: string;
   external_session_id: string;
   message: string;
+  user_message?: Message;
 }
 export interface SessionStateChanged {
   session_id: string;
@@ -135,6 +147,18 @@ export interface SessionStateChanged {
 export interface SessionThought {
   session_id: string;
   text: string;
+}
+export interface SessionTranscriptRequest {
+  req_id: string;
+  session_id: string;
+}
+export interface SessionTranscriptResponse {
+  req_id: string;
+  session_id: string;
+  messages: Message[];
+  partial_output: string;
+  pending_input: string;
+  error?: string;
 }
 export interface SessionUsage {
   session_id: string;
@@ -186,6 +210,7 @@ export interface TaskStartCommand {
   agent_type: string;
   prompt: string;
   workspace_path: string;
+  user_message?: Message;
 }
 export interface TaskStats {
   created: number;

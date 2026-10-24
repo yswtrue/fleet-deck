@@ -752,8 +752,9 @@ func (h *Hub) resumeAwaitingSession(w http.ResponseWriter, r *http.Request, ctx 
 	// not a failure: the caller is told the reply will not run until the node
 	// reconnects.
 	env := protocol.NewEnvelope(protocol.MsgSendMessage, protocol.SendMessageCommand{
-		SessionID: id,
-		Message:   msgText,
+		SessionID:   id,
+		Message:     msgText,
+		UserMessage: &inserted,
 	})
 	if !h.sendToNode(session.NodeID, env) {
 		h.log.Warn("could not deliver session.send_message to node",
@@ -811,6 +812,7 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 		WorkspacePath:     workspacePath,
 		ExternalSessionID: session.ExternalSessionID,
 		Message:           msgText,
+		UserMessage:       &inserted,
 	})
 	if !h.sendToNode(session.NodeID, env) {
 		h.log.Warn("could not deliver session.resume to node",
@@ -841,6 +843,17 @@ type sessionSnapshot struct {
 	PartialOutput string           `json:"partial_output"`
 }
 
+// snapshotNeedsNodeText reports whether the hub buffer has no live text for a
+// running session. Only then is a node round trip worth it: normally every
+// delta and ask also reached the hub buffer, so the cold path is limited to a
+// hub restart (or a session that has not produced live text yet).
+func snapshotNeedsNodeText(session protocol.Session, buffered sessionText) bool {
+	if session.Status == protocol.SessionDone || session.Status == protocol.SessionFailed {
+		return false
+	}
+	return buffered.PartialOutput == nil && buffered.PendingInput == ""
+}
+
 // handleGetSession returns a session and the task it belongs to in one round
 // trip, backing the web's getSession(id) call.
 func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
@@ -858,10 +871,24 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	partial := string(buffered.PartialOutput)
+	// A hub restart loses its text buffer while the node keeps the live
+	// transcript. When the buffer has nothing, read the in-progress turn's
+	// text and (only for an already-awaiting session, so a stale status never
+	// pairs with a prompt) the pending ask from the node.
+	if snapshotNeedsNodeText(session, buffered) {
+		if live, ok := h.nodeTranscript(r.Context(), session); ok {
+			partial = live.PartialOutput
+			if session.Status == protocol.SessionAwaitingUser {
+				pendingInput = live.PendingInput
+			}
+		}
+	}
+
 	snapshot := sessionSnapshot{
 		Session:       session,
 		PendingInput:  pendingInput,
-		PartialOutput: string(buffered.PartialOutput),
+		PartialOutput: partial,
 	}
 	// The parent task should always exist (session.task_id is a FK), but resolve
 	// defensively: an unresolvable task yields JSON null rather than an error.

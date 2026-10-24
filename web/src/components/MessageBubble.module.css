@@ -56,6 +56,68 @@
   color: var(--text-h);
 }
 
+/* A tool call is a compact row, not prose: the agent's answer stays readable
+   while the actions it took sit between text chunks in arrival order. */
+.tool {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-running-border);
+  border-radius: 6px;
+  background: var(--code-bg, var(--status-waiting-bg));
+}
+
+.toolTitle {
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+
+.toolKind {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  opacity: 0.8;
+}
+
+.toolStatus {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--status-waiting-border);
+  background: var(--status-waiting-bg);
+  color: var(--status-waiting-text);
+}
+
+.toolStatus[data-status='in_progress'],
+.toolStatus[data-status='pending'] {
+  border-color: var(--status-running-border);
+  background: var(--status-running-bg);
+  color: var(--status-running-text);
+}
+
+.toolStatus[data-status='completed'] {
+  border-color: var(--status-done-border);
+  background: var(--status-done-bg);
+  color: var(--status-done-text);
+}
+
+.toolStatus[data-status='failed'] {
+  border-color: var(--status-failed-border);
+  background: var(--status-failed-bg);
+  color: var(--status-failed-text);
+}
+
+.toolStatus[data-status='pending'] {
+  border-color: var(--status-awaiting-border);
+  background: var(--status-awaiting-bg);
+  color: var(--status-awaiting-text);
+}
+
 .permission {
   display: flex;
   align-items: center;

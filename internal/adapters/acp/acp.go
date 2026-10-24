@@ -805,20 +805,20 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 		// A turn that reported usage did run the model even when it produced
 		// no text (tool-only or resumed turns); only a turn with no output,
 		// no activity and no usage is a failure.
-		hadOutput := a.emitFinalMessage(ctx, sink) || a.turnActivity.Load() || res.Usage != nil
+		hadOutput := a.flushAssistantText(ctx, sink) || a.turnActivity.Load() || res.Usage != nil
 		if !hadOutput {
 			a.terminate(ctx, sink, errors.New("acp: agent finished the turn without producing any output"))
 			return
 		}
 		a.terminate(ctx, sink, nil)
 	case "cancelled":
-		a.emitFinalMessage(ctx, sink)
+		a.flushAssistantText(ctx, sink)
 		a.terminate(ctx, sink, nil)
 	case "refusal", "max_tokens", "max_turn_requests":
-		a.emitFinalMessage(ctx, sink)
+		a.flushAssistantText(ctx, sink)
 		a.terminate(ctx, sink, fmt.Errorf("acp: prompt stopped: %s", res.StopReason))
 	default:
-		a.emitFinalMessage(ctx, sink)
+		a.flushAssistantText(ctx, sink)
 		a.terminate(ctx, sink, nil)
 	}
 }
@@ -905,13 +905,40 @@ type sessionUpdateParams struct {
 }
 
 type sessionUpdate struct {
-	SessionUpdate string          `json:"sessionUpdate"`
-	MessageID     string          `json:"messageId"`
-	Content       contentBlock    `json:"content"`
-	Title         string          `json:"title"`
-	Kind          string          `json:"kind"`
-	RawInput      json.RawMessage `json:"rawInput"`
-	Entries       []planEntry     `json:"entries"`
+	SessionUpdate string `json:"sessionUpdate"`
+	MessageID     string `json:"messageId"`
+	ToolCallID    string `json:"toolCallId"`
+	// Content is kept raw: a text chunk carries one content block, while a
+	// tool_call's content is an array of blocks. Decoding into a struct made
+	// the whole notification fail for array payloads, silently dropping tool
+	// calls that reported content.
+	Content  json.RawMessage `json:"content"`
+	Title    string          `json:"title"`
+	Kind     string          `json:"kind"`
+	Status   string          `json:"status"`
+	RawInput json.RawMessage `json:"rawInput"`
+	Entries  []planEntry     `json:"entries"`
+}
+
+// contentText returns the text of a chunk payload. It accepts either a single
+// content block (agent/user/thought chunks) or an array (tool call content);
+// non-text blocks yield "".
+func (u sessionUpdate) contentText() string {
+	var block contentBlock
+	if json.Unmarshal(u.Content, &block) == nil {
+		return block.Text
+	}
+	var blocks []contentBlock
+	if json.Unmarshal(u.Content, &blocks) == nil {
+		var b strings.Builder
+		for _, block := range blocks {
+			if block.Type == "text" || block.Text != "" {
+				b.WriteString(block.Text)
+			}
+		}
+		return b.String()
+	}
+	return ""
 }
 
 type planEntry struct {
@@ -936,7 +963,7 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 
 	switch p.Update.SessionUpdate {
 	case "agent_message_chunk":
-		if text := p.Update.Content.Text; text != "" {
+		if text := p.Update.contentText(); text != "" {
 			a.turnActivity.Store(true)
 			if a.replayAsm != nil {
 				a.replayAsm.chunk(p.Update.MessageID, protocol.RoleAssistant, text)
@@ -951,7 +978,7 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 		// Only a session/load replay carries user turns (live agents do not
 		// echo prompts), so this path is replay-only by construction.
 		if a.replayAsm != nil {
-			if text := p.Update.Content.Text; text != "" {
+			if text := p.Update.contentText(); text != "" {
 				a.replayAsm.chunk(p.Update.MessageID, protocol.RoleUser, text)
 			}
 		}
@@ -960,7 +987,7 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 		// ThoughtSink (never mixed into the answer), and a session/load replay
 		// rebuilds it as a `thinking` history message — the agent's own store
 		// is the durable copy.
-		if text := p.Update.Content.Text; text != "" {
+		if text := p.Update.contentText(); text != "" {
 			a.turnActivity.Store(true)
 			if a.replayAsm != nil {
 				a.replayAsm.chunk(p.Update.MessageID, protocol.RoleThinking, text)
@@ -987,8 +1014,32 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 		}
 	case "tool_call", "tool_call_update":
 		a.turnActivity.Store(true)
+		call := adapters.ToolCall{
+			ID:     p.Update.ToolCallID,
+			Title:  strings.TrimSpace(p.Update.Title),
+			Kind:   p.Update.Kind,
+			Status: p.Update.Status,
+		}
+		// session/load replays tool calls too; the assembler turns them into
+		// ordered `tool` history rows for finished sessions.
+		if a.replayAsm != nil {
+			a.replayAsm.tool(call)
+			return
+		}
 		if todos := parseTodoToolCall(p.Update.Title, p.Update.RawInput); len(todos) > 0 && sink != nil {
 			sink.TodoUpdate(ctx, sessionID, todos)
+		}
+		// Close the text segment before the tool row: any text produced before
+		// this call belongs above it in the transcript, and text after it will
+		// start a fresh segment.
+		a.flushAssistantText(ctx, sink)
+		// A tool call without an id cannot be updated in place; showing one row
+		// per lifecycle frame would be noise, so skip it.
+		if call.ID == "" || sink == nil {
+			return
+		}
+		if ts, ok := sink.(adapters.ToolCallSink); ok {
+			ts.ToolCall(ctx, sessionID, call)
 		}
 	}
 }
@@ -1090,11 +1141,12 @@ func (a *Adapter) appendText(text string) {
 	a.accMu.Unlock()
 }
 
-// emitFinalMessage flushes the accumulated agent text as one assistant
-// Message and resets the accumulator for the next turn.
-// emitFinalMessage flushes the accumulated agent text as one assistant
-// Message and reports whether anything was sent.
-func (a *Adapter) emitFinalMessage(ctx context.Context, sink adapters.EventSink) bool {
+// flushAssistantText emits the accumulated agent text as one complete
+// assistant message and resets the accumulator. It is called when a tool call
+// starts (so the transcript reads text → tool → next text instead of putting
+// the whole turn's text after the tool) and at the end of the turn. It reports
+// whether anything was sent.
+func (a *Adapter) flushAssistantText(ctx context.Context, sink adapters.EventSink) bool {
 	if sink == nil {
 		return false
 	}

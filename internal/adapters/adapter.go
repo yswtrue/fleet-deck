@@ -89,6 +89,26 @@ type TitleSink interface {
 	Title(ctx context.Context, sessionID, title string)
 }
 
+// ToolCall is one tool invocation reported by an agent. ID is stable across
+// the call's lifecycle updates (ACP toolCallId); Title/Kind/Status may arrive
+// progressively, and an update with an empty field leaves the prior value
+// untouched. Content is intentionally not copied: the title is the transcript
+// line, and shipping raw tool input/output would leak file contents and
+// command lines into the live view.
+type ToolCall struct {
+	ID     string
+	Title  string
+	Kind   string
+	Status string
+}
+
+// ToolCallSink is implemented by event sinks that can carry the agent's tool
+// calls (ACP `tool_call` / `tool_call_update`). It is optional: sinks that do
+// not implement it lose the rows, and the assistant text alone remains.
+type ToolCallSink interface {
+	ToolCall(ctx context.Context, sessionID string, call ToolCall)
+}
+
 // PendingAsker is implemented by adapters that can pause on a user-input
 // request (a permission pick or a form elicitation). The node re-emits the
 // outstanding ask after a reconnect: a frame lost while the link was down

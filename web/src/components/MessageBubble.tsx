@@ -18,6 +18,7 @@ export function MessageBubble({ message }: { message: Message }) {
   // one.
   const ts = new Date(message.created_at)
   const hasTime = !Number.isNaN(ts.getTime()) && ts.getFullYear() > 2000
+  const tool = message.tool
   return (
     <article className={styles.bubble} data-role={message.role}>
       <header className={styles.meta}>
@@ -30,7 +31,17 @@ export function MessageBubble({ message }: { message: Message }) {
           </time>
         )}
       </header>
-      {permissionOptionID !== null ? (
+      {tool ? (
+        <div className={styles.tool}>
+          <span className={styles.toolTitle}>{tool.title || message.content || tool.id}</span>
+          {tool.kind && <code className={styles.toolKind}>{tool.kind}</code>}
+          {tool.status && (
+            <span className={styles.toolStatus} data-status={tool.status}>
+              {t(`tool.status.${tool.status}`, { defaultValue: tool.status })}
+            </span>
+          )}
+        </div>
+      ) : permissionOptionID !== null ? (
         <div className={styles.permission}>
           <span className={styles.permissionTag}>{t('permission.tag')}</span>
           <code className={styles.permissionOption}>{permissionOptionID}</code>

@@ -1948,6 +1948,98 @@ func TestListMessagesReplaysFromNode(t *testing.T) {
 	}
 }
 
+// TestListMessagesUsesNodeLiveTranscript pins the running-session path: the
+// node's transcript — not the hub's buffer — is the authoritative order, and
+// its tool rows survive the merge. A buffered row with the same id is not
+// duplicated.
+func TestListMessagesUsesNodeLiveTranscript(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("live-tr-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	buf := h.textBuffer(context.Background(), task.SessionID)
+	if len(buf.Messages) == 0 {
+		t.Fatal("dispatch prompt missing from the hub buffer")
+	}
+	prompt := buf.Messages[0]
+
+	reqCh := make(chan protocol.SessionTranscriptRequest, 1)
+	go func() {
+		for {
+			var env protocol.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != protocol.MsgSessionTranscript {
+				continue
+			}
+			var req protocol.SessionTranscriptRequest
+			if err := env.Decode(&req); err != nil {
+				continue
+			}
+			select {
+			case reqCh <- req:
+			default:
+			}
+			now := time.Now().UTC()
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgSessionTranscriptResp, protocol.SessionTranscriptResponse{
+				ReqID:     req.ReqID,
+				SessionID: req.SessionID,
+				Messages: []protocol.Message{
+					prompt,
+					{
+						ID:        "tool-live-1",
+						SessionID: req.SessionID,
+						Role:      protocol.RoleTool,
+						Content:   "Read README.md",
+						Tool:      &protocol.ToolCall{ID: "call-1", Title: "Read README.md", Kind: "read", Status: "completed"},
+						CreatedAt: now,
+					},
+					{
+						ID:        "node-msg-1",
+						SessionID: req.SessionID,
+						Role:      protocol.RoleAssistant,
+						Content:   "the answer",
+						CreatedAt: now,
+					},
+				},
+			}))
+		}
+	}()
+
+	resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/messages")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("messages status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	var msgs []protocol.Message
+	if err := json.Unmarshal(raw, &msgs); err != nil {
+		t.Fatalf("decode messages: %v (%s)", err, raw)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("messages = %+v, want prompt, tool, answer", msgs)
+	}
+	if msgs[0].ID != prompt.ID || msgs[1].Role != protocol.RoleTool || msgs[2].Content != "the answer" {
+		t.Fatalf("transcript = %+v, want the node order with one prompt", msgs)
+	}
+
+	select {
+	case req := <-reqCh:
+		if req.SessionID != task.SessionID {
+			t.Fatalf("transcript request session = %q, want %q", req.SessionID, task.SessionID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no session.transcript_req reached the node")
+	}
+}
+
 // TestListMessagesFinishedUnavailable asserts the privacy trade-off: a
 // finished session whose node cannot replay yields 503 — history lives only
 // with the agent, and the hub reports that instead of inventing a transcript.

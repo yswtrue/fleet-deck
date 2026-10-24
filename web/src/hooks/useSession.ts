@@ -15,14 +15,21 @@ import type {
 } from '../gen/protocol/index.ts'
 
 /**
- * mergeMessage appends a message to a session's list, deduping two ways:
- * - an existing row with the same id wins (server echo or refetch overlap);
+ * mergeMessage appends or updates a message in a session's list:
+ * - an existing row with the same id is replaced in place. The node's live
+ *   transcript is authoritative; tool calls send the same id again as their
+ *   status/title changes, and a repeated assistant echo must not duplicate;
  * - a pending optimistic user message (id `local-*`) with the same content is
  *   replaced by the server's authoritative row, so a reply is not shown twice.
  */
 function mergeMessage(prev: Message[] | null | undefined, incoming: Message): Message[] {
   const list = prev ?? []
-  if (list.some((m) => m.id === incoming.id)) return list
+  const existing = list.findIndex((m) => m.id === incoming.id)
+  if (existing >= 0) {
+    const next = list.slice()
+    next[existing] = incoming
+    return next
+  }
   const withoutOptimisticEcho = list.filter(
     (m) => !(m.id.startsWith('local-') && m.role === 'user' && m.content === incoming.content)
   )
@@ -92,6 +99,29 @@ export function useSession(sessionId: string) {
     [flushThought]
   )
 
+  // discardDelta drops both the painted stream and any chunks still waiting
+  // for the next animation frame. Without cancelling the queued frame, a
+  // terminal state or complete message clears the text and the pending flush
+  // immediately resurrects it — the stale-chunk bug that made a finished turn
+  // bleed into the next one.
+  const discardDelta = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    pendingRef.current = ''
+    setDelta('')
+  }, [])
+
+  const discardThought = useCallback(() => {
+    if (thoughtRafRef.current !== null) {
+      cancelAnimationFrame(thoughtRafRef.current)
+      thoughtRafRef.current = null
+    }
+    pendingThoughtRef.current = ''
+    setThought('')
+  }, [])
+
   useEffect(() => {
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
@@ -128,11 +158,10 @@ export function useSession(sessionId: string) {
           // A pause (awaiting_user) is mid-turn: keep the trace. It is cleared
           // when the turn ends or its answer arrives.
           if (newStatus === 'done' || newStatus === 'failed') {
-            pendingThoughtRef.current = ''
-            setThought('')
+            discardThought()
             // A terminal turn discards any in-progress stream (a successful
             // turn already replaced it with the complete assistant message).
-            setDelta('')
+            discardDelta()
           }
           break
         }
@@ -155,10 +184,11 @@ export function useSession(sessionId: string) {
             mergeMessage(prev, message)
           )
           if (message.role === 'assistant') {
-            setDelta('')
+            // A queued rAF must be cancelled too, or its chunk lands after
+            // the completed message and resurrects the stream.
+            discardDelta()
             // The turn's answer supersedes its reasoning trace.
-            pendingThoughtRef.current = ''
-            setThought('')
+            discardThought()
           }
           break
         }
@@ -175,7 +205,7 @@ export function useSession(sessionId: string) {
           break
       }
     },
-    [sessionId, appendDelta, appendThought, queryClient]
+    [sessionId, appendDelta, appendThought, discardDelta, discardThought, queryClient]
   )
 
   const { connectionState } = useWebSocket(handleEvent)

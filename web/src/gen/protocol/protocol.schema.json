@@ -38,6 +38,29 @@
     },
     "Message": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "ToolCall": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id"
+          ]
+        }
+      },
       "properties": {
         "id": {
           "type": "string"
@@ -51,11 +74,15 @@
             "user",
             "assistant",
             "system",
-            "thinking"
+            "thinking",
+            "tool"
           ]
         },
         "content": {
           "type": "string"
+        },
+        "tool": {
+          "$ref": "#/$defs/ToolCall"
         },
         "created_at": {
           "type": "string",
@@ -207,12 +234,77 @@
     },
     "SendMessageCommand": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Message": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "user",
+                "assistant",
+                "system",
+                "thinking",
+                "tool"
+              ]
+            },
+            "content": {
+              "type": "string"
+            },
+            "tool": {
+              "$ref": "#/$defs/ToolCall"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "session_id",
+            "role",
+            "content",
+            "created_at"
+          ]
+        },
+        "ToolCall": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id"
+          ]
+        }
+      },
       "properties": {
         "session_id": {
           "type": "string"
         },
         "message": {
           "type": "string"
+        },
+        "user_message": {
+          "$ref": "#/$defs/Message"
         }
       },
       "additionalProperties": false,
@@ -333,11 +425,15 @@
                 "user",
                 "assistant",
                 "system",
-                "thinking"
+                "thinking",
+                "tool"
               ]
             },
             "content": {
               "type": "string"
+            },
+            "tool": {
+              "$ref": "#/$defs/ToolCall"
             },
             "created_at": {
               "type": "string",
@@ -352,6 +448,27 @@
             "role",
             "content",
             "created_at"
+          ]
+        },
+        "ToolCall": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id"
           ]
         }
       },
@@ -397,11 +514,15 @@
                 "user",
                 "assistant",
                 "system",
-                "thinking"
+                "thinking",
+                "tool"
               ]
             },
             "content": {
               "type": "string"
+            },
+            "tool": {
+              "$ref": "#/$defs/ToolCall"
             },
             "created_at": {
               "type": "string",
@@ -416,6 +537,27 @@
             "role",
             "content",
             "created_at"
+          ]
+        },
+        "ToolCall": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id"
           ]
         }
       },
@@ -436,6 +578,68 @@
     },
     "SessionResumeCommand": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Message": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "user",
+                "assistant",
+                "system",
+                "thinking",
+                "tool"
+              ]
+            },
+            "content": {
+              "type": "string"
+            },
+            "tool": {
+              "$ref": "#/$defs/ToolCall"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "session_id",
+            "role",
+            "content",
+            "created_at"
+          ]
+        },
+        "ToolCall": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id"
+          ]
+        }
+      },
       "properties": {
         "session_id": {
           "type": "string"
@@ -454,6 +658,9 @@
         },
         "message": {
           "type": "string"
+        },
+        "user_message": {
+          "$ref": "#/$defs/Message"
         }
       },
       "additionalProperties": false,
@@ -506,6 +713,120 @@
       "required": [
         "session_id",
         "text"
+      ]
+    },
+    "SessionTranscriptRequest": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "req_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "req_id",
+        "session_id"
+      ]
+    },
+    "SessionTranscriptResponse": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Message": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "user",
+                "assistant",
+                "system",
+                "thinking",
+                "tool"
+              ]
+            },
+            "content": {
+              "type": "string"
+            },
+            "tool": {
+              "$ref": "#/$defs/ToolCall"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "session_id",
+            "role",
+            "content",
+            "created_at"
+          ]
+        },
+        "ToolCall": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "properties": {
+        "req_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/Message"
+          },
+          "type": "array"
+        },
+        "partial_output": {
+          "type": "string"
+        },
+        "pending_input": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "req_id",
+        "session_id",
+        "messages",
+        "partial_output",
+        "pending_input"
       ]
     },
     "SessionUsage": {
@@ -807,6 +1128,68 @@
     },
     "TaskStartCommand": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "Message": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "user",
+                "assistant",
+                "system",
+                "thinking",
+                "tool"
+              ]
+            },
+            "content": {
+              "type": "string"
+            },
+            "tool": {
+              "$ref": "#/$defs/ToolCall"
+            },
+            "created_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id",
+            "session_id",
+            "role",
+            "content",
+            "created_at"
+          ]
+        },
+        "ToolCall": {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "id"
+          ]
+        }
+      },
       "properties": {
         "task_id": {
           "type": "string"
@@ -822,6 +1205,9 @@
         },
         "workspace_path": {
           "type": "string"
+        },
+        "user_message": {
+          "$ref": "#/$defs/Message"
         }
       },
       "additionalProperties": false,
@@ -1210,6 +1596,28 @@
         "cached_write_tokens",
         "cache_prompt_tokens",
         "cache_reports"
+      ]
+    },
+    "ToolCall": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "id"
       ]
     },
     "Workspace": {

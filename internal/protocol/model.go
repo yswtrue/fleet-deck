@@ -59,7 +59,21 @@ const (
 	// RoleThinking is the agent's reasoning, replayed from its own session
 	// store for finished sessions (live turns stream it as session.thought).
 	RoleThinking MessageRole = "thinking"
+	// RoleTool is one tool call the agent made during a turn. Tool rows are
+	// first-class transcript entries (they are not assistant text) and are
+	// updated in place by ToolCall updates, keyed by their stable id.
+	RoleTool MessageRole = "tool"
 )
+
+// ToolCall is the structured metadata of a tool invocation. Status is the
+// agent's reported lifecycle state (ACP: pending, in_progress, completed,
+// failed); Title is the human-readable action ("Read file", "Run tests").
+type ToolCall struct {
+	ID     string `json:"id"`
+	Title  string `json:"title,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	Status string `json:"status,omitempty"`
+}
 
 // ---- Entities (DB-backed) ------------------------------------------------
 
@@ -137,9 +151,13 @@ type Session struct {
 type Message struct {
 	ID        string      `json:"id"`
 	SessionID string      `json:"session_id"`
-	Role      MessageRole `json:"role" jsonschema:"enum=user,enum=assistant,enum=system,enum=thinking"`
+	Role      MessageRole `json:"role" jsonschema:"enum=user,enum=assistant,enum=system,enum=thinking,enum=tool"`
 	Content   string      `json:"content"`
-	CreatedAt time.Time   `json:"created_at"`
+	// Tool is set when Role is tool: the live transcript keeps tool calls as
+	// ordered rows so they sit between the assistant's text chunks instead of
+	// being buried in a side channel.
+	Tool      *ToolCall `json:"tool,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ---- Token usage stats (GET /api/stats/tokens) -----------------------------

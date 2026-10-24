@@ -43,15 +43,17 @@ const (
 	MsgSessionTitle = "session.title"
 
 	// Hub -> Node.
-	MsgRegisterResponse = "register_response"
-	MsgTaskStart        = "task.start"
-	MsgSendMessage      = "session.send_message"
-	MsgSessionResume    = "session.resume"
-	MsgCancel           = "session.cancel"
-	MsgSessionHistory   = "session.history_req"
-	MsgFSList           = "fs.list_req"
+	MsgRegisterResponse  = "register_response"
+	MsgTaskStart         = "task.start"
+	MsgSendMessage       = "session.send_message"
+	MsgSessionResume     = "session.resume"
+	MsgCancel            = "session.cancel"
+	MsgSessionHistory    = "session.history_req"
+	MsgSessionTranscript = "session.transcript_req"
+	MsgFSList            = "fs.list_req"
 
 	// Node -> Hub (responses to hub requests).
-	MsgSessionHistoryResp = "session.history_resp"
-	MsgFSListResp         = "fs.list_resp"
+	MsgSessionHistoryResp    = "session.history_resp"
+	MsgSessionTranscriptResp = "session.transcript_resp"
+	MsgFSListResp            = "fs.list_resp"
 )

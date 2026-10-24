@@ -104,6 +104,9 @@ func schemaCmd(args []string) {
 		"CancelCommand":             protocol.CancelCommand{},
 		"SessionHistoryRequest":     protocol.SessionHistoryRequest{},
 		"SessionHistoryResponse":    protocol.SessionHistoryResponse{},
+		"SessionTranscriptRequest":  protocol.SessionTranscriptRequest{},
+		"SessionTranscriptResponse": protocol.SessionTranscriptResponse{},
+		"ToolCall":                  protocol.ToolCall{},
 		"Todo":                      protocol.Todo{},
 		"TodoUpdate":                protocol.TodoUpdate{},
 	}

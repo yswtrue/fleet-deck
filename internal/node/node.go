@@ -187,6 +187,11 @@ type Node struct {
 	// running adapters, keyed by session id.
 	sessMu   sync.Mutex
 	sessions map[string]adapters.Adapter
+
+	// transcripts is the node-local live transcript cache (transcript.go). It
+	// is the authoritative source for a running session's message order; the
+	// hub proxies it for GET /api/sessions/{id}/messages.
+	transcripts *transcriptStore
 }
 
 // New builds a Node. A nil registry uses adapters.Default. When
@@ -200,10 +205,11 @@ func New(cfg Config, registry *adapters.Registry) *Node {
 		cfg.MachineID = detectMachineID()
 	}
 	n := &Node{
-		cfg:      cfg,
-		registry: registry,
-		log:      slog.Default().With("node", cfg.Name),
-		sessions: make(map[string]adapters.Adapter),
+		cfg:         cfg,
+		registry:    registry,
+		log:         slog.Default().With("node", cfg.Name),
+		sessions:    make(map[string]adapters.Adapter),
+		transcripts: newTranscriptStore(),
 	}
 	if dir := os.Getenv("FLEETDECK_EVENT_BUFFER_DIR"); dir != "" {
 		buf, err := openEventBuffer(dir)

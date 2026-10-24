@@ -178,12 +178,20 @@ type TaskStartCommand struct {
 	AgentType     string `json:"agent_type"`
 	Prompt        string `json:"prompt"`
 	WorkspacePath string `json:"workspace_path"`
+	// UserMessage is the prompt as the hub recorded it (id, timestamp). The
+	// node stores it at the head of its live transcript so a browser that
+	// attaches later sees the instruction without waiting for adapter output.
+	// Older hubs omit it; the node then derives one from Prompt.
+	UserMessage *Message `json:"user_message,omitempty"`
 }
 
 // SendMessageCommand resumes an awaiting_user session with the user's reply.
 type SendMessageCommand struct {
 	SessionID string `json:"session_id"`
 	Message   string `json:"message"`
+	// UserMessage is the hub's recorded copy of the reply; the node appends it
+	// to the live transcript under the same id the hub broadcast.
+	UserMessage *Message `json:"user_message,omitempty"`
 }
 
 // SessionStarted reports the agent-side session id an adapter obtained when it
@@ -215,6 +223,9 @@ type SessionResumeCommand struct {
 	WorkspacePath     string `json:"workspace_path"`
 	ExternalSessionID string `json:"external_session_id"`
 	Message           string `json:"message"`
+	// UserMessage is the hub's recorded follow-up; the node appends it to its
+	// live transcript under the id the hub broadcast.
+	UserMessage *Message `json:"user_message,omitempty"`
 }
 
 // CancelCommand terminates a running session.
@@ -244,6 +255,30 @@ type SessionHistoryResponse struct {
 	SessionID string    `json:"session_id"`
 	Messages  []Message `json:"messages"`
 	Error     string    `json:"error,omitempty"`
+}
+
+// SessionTranscriptRequest asks a node for its in-memory live transcript of a
+// session. The node is the authoritative buffer while a session runs: every
+// user message, complete assistant message and tool call is stored there in
+// arrival order, so a browser that (re)opens the session reads an intact
+// transcript even when the hub restarted or dropped WS frames. ReqID
+// correlates the node's MsgSessionTranscriptResp.
+type SessionTranscriptRequest struct {
+	ReqID     string `json:"req_id"`
+	SessionID string `json:"session_id"`
+}
+
+// SessionTranscriptResponse carries a live session's cached transcript
+// (oldest first), the streaming assistant text of the in-progress turn, and
+// the prompt of the unanswered user-input ask. An empty transcript is a valid
+// answer: a session may be live before its first event.
+type SessionTranscriptResponse struct {
+	ReqID         string    `json:"req_id"`
+	SessionID     string    `json:"session_id"`
+	Messages      []Message `json:"messages"`
+	PartialOutput string    `json:"partial_output"`
+	PendingInput  string    `json:"pending_input"`
+	Error         string    `json:"error,omitempty"`
 }
 
 // FSListRequest asks a node to enumerate the directories under Path so the

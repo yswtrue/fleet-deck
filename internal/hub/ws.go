@@ -280,6 +280,13 @@ func (h *Hub) handleNodeMessage(ctx context.Context, nodeID string, env protocol
 			return
 		}
 		h.handleHistoryResponse(resp)
+	case protocol.MsgSessionTranscriptResp:
+		var resp protocol.SessionTranscriptResponse
+		if err := env.Decode(&resp); err != nil {
+			h.log.Warn("bad session.transcript_resp", "node_id", nodeID, "err", err)
+			return
+		}
+		h.handleTranscriptResponse(resp)
 	case protocol.MsgFSListResp:
 		var resp protocol.FSListResponse
 		if err := env.Decode(&resp); err != nil {

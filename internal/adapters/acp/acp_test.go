@@ -41,6 +41,7 @@ type recorder struct {
 	thoughtCh chan string
 	titleCh   chan string
 	userCh    chan string
+	toolCh    chan adapters.ToolCall
 	stateCh   chan protocol.SessionStatus
 }
 
@@ -53,6 +54,7 @@ func newRecorder() *recorder {
 		thoughtCh: make(chan string, 16),
 		titleCh:   make(chan string, 4),
 		userCh:    make(chan string, 4),
+		toolCh:    make(chan adapters.ToolCall, 8),
 		stateCh:   make(chan protocol.SessionStatus, 64),
 	}
 }
@@ -97,6 +99,15 @@ func (r *recorder) UserInputRequested(_ context.Context, _ string, prompt string
 	r.record(recEvent{kind: "user_input", prompt: prompt})
 	select {
 	case r.userCh <- prompt:
+	default:
+	}
+}
+
+// ToolCall records one tool lifecycle frame (ToolCallSink).
+func (r *recorder) ToolCall(_ context.Context, _ string, call adapters.ToolCall) {
+	r.record(recEvent{kind: "tool_call", text: call.Title})
+	select {
+	case r.toolCh <- call:
 	default:
 	}
 }

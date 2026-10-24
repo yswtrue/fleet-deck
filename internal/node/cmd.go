@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"fleetdeck/internal/adapters"
@@ -32,6 +33,19 @@ func (n *Node) handle(ctx context.Context, env protocol.Envelope) {
 			n.log.Warn("send_message for unknown session", "session_id", cmd.SessionID)
 			return
 		}
+		// Record the reply before the adapter can produce its answer, so the
+		// transcript order is prompt then answer even on a late browser attach.
+		if cmd.UserMessage != nil {
+			n.transcripts.addUser(cmd.SessionID, *cmd.UserMessage)
+		} else {
+			n.transcripts.addUser(cmd.SessionID, protocol.Message{
+				SessionID: cmd.SessionID,
+				Role:      protocol.RoleUser,
+				Content:   cmd.Message,
+			})
+		}
+		// The reply answers the outstanding ask.
+		n.transcripts.setPending(cmd.SessionID, "")
 		if err := adapter.SendMessage(ctx, cmd.SessionID, cmd.Message); err != nil {
 			n.log.Warn("send_message failed", "session_id", cmd.SessionID, "err", err)
 		}
@@ -70,6 +84,14 @@ func (n *Node) handle(ctx context.Context, env protocol.Envelope) {
 		// hub-message read loop on it.
 		go n.replayHistory(cmd)
 
+	case protocol.MsgSessionTranscript:
+		var cmd protocol.SessionTranscriptRequest
+		if err := env.Decode(&cmd); err != nil {
+			n.log.Warn("bad session.transcript_req payload", "err", err)
+			return
+		}
+		n.sendTranscript(cmd)
+
 	case protocol.MsgFSList:
 		var cmd protocol.FSListRequest
 		if err := env.Decode(&cmd); err != nil {
@@ -97,6 +119,20 @@ func (n *Node) startSession(ctx context.Context, cmd protocol.TaskStartCommand) 
 	if !ok {
 		sink.Error(ctx, cmd.SessionID, fmt.Errorf("no adapter registered for agent_type %q", agentType))
 		return
+	}
+
+	// The prompt opens the node-local transcript. The hub normally sends its
+	// recorded copy (so the id matches the live broadcast); an older hub only
+	// sends the text, in which case the node mints an id.
+	n.transcripts.beginRun(cmd.SessionID)
+	if cmd.UserMessage != nil {
+		n.transcripts.addUser(cmd.SessionID, *cmd.UserMessage)
+	} else if strings.TrimSpace(cmd.Prompt) != "" {
+		n.transcripts.addUser(cmd.SessionID, protocol.Message{
+			SessionID: cmd.SessionID,
+			Role:      protocol.RoleUser,
+			Content:   cmd.Prompt,
+		})
 	}
 
 	n.sessMu.Lock()
@@ -178,6 +214,19 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 		return
 	}
 
+	// A resume continues the same transcript; open a new adapter generation so
+	// adapter-side tool/message id counters do not collide with the prior run.
+	n.transcripts.beginRun(cmd.SessionID)
+	if cmd.UserMessage != nil {
+		n.transcripts.addUser(cmd.SessionID, *cmd.UserMessage)
+	} else if strings.TrimSpace(cmd.Message) != "" {
+		n.transcripts.addUser(cmd.SessionID, protocol.Message{
+			SessionID: cmd.SessionID,
+			Role:      protocol.RoleUser,
+			Content:   cmd.Message,
+		})
+	}
+
 	prompt := cmd.Message
 	if cmd.ExternalSessionID != "" {
 		if r, ok := adapter.(adapters.Resumable); ok {
@@ -217,6 +266,20 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 		log.Info("session resumed", "external_session_id", result.ExternalSessionID)
 		n.reportExternalSessionID(cmd.SessionID, result.ExternalSessionID)
 	}()
+}
+
+// sendTranscript answers a session.transcript_req from the node-local cache.
+// It is memory-only and cheap, so it runs synchronously; the hub uses it as
+// the authoritative source for a live session's message order.
+func (n *Node) sendTranscript(cmd protocol.SessionTranscriptRequest) {
+	messages, partial, pending := n.transcripts.snapshot(cmd.SessionID)
+	n.enqueue(protocol.NewEnvelope(protocol.MsgSessionTranscriptResp, protocol.SessionTranscriptResponse{
+		ReqID:         cmd.ReqID,
+		SessionID:     cmd.SessionID,
+		Messages:      messages,
+		PartialOutput: partial,
+		PendingInput:  pending,
+	}))
 }
 
 // replayTimeout bounds one history replay: it may spawn a short-lived agent

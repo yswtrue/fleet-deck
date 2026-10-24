@@ -82,9 +82,19 @@ func (h *Hub) updateTextBuffer(_ context.Context, sessionID string, fn func(*ses
 }
 
 // appendBufferedMessage records one complete message in the session's buffer
-// and clears the streaming partial it supersedes.
+// and clears the streaming partial it supersedes. A message carrying an id
+// already in the buffer replaces that row: tool calls are re-sent as their
+// status changes, and appending each update would duplicate the tool in the
+// fallback transcript.
 func (h *Hub) appendBufferedMessage(ctx context.Context, sessionID string, msg protocol.Message) {
 	h.updateTextBuffer(ctx, sessionID, func(st *sessionText) {
+		for i := range st.Messages {
+			if st.Messages[i].ID == msg.ID {
+				st.Messages[i] = msg
+				st.PartialOutput = nil
+				return
+			}
+		}
 		st.Messages = append(st.Messages, msg)
 		st.PartialOutput = nil
 	})
@@ -146,15 +156,17 @@ func (h *Hub) recordUserMessage(ctx context.Context, sessionID, text string) pro
 	return msg
 }
 
-// normalizeMessage fills the hub-owned fields of a message passing through:
-// the session id and a stable unique id. IDs are minted hub-side (wire ids are
-// not trusted: adapter counters restart with the adapter, so they collide
-// across resumed runs) so live echoes and refetched history dedupe cleanly in
-// the web's message merge. Timestamps are taken from the producer and never
-// fabricated when it reports none.
+// normalizeMessage fills the hub-owned fields of a message passing through.
+// An id minted by the node's transcript is preserved: live broadcasts and the
+// transcript read must share it, otherwise the web cannot dedupe an assistant
+// or tool row that arrives twice (live echo and refetch). Only an id-less
+// message gets a hub-minted one. Timestamps are taken from the producer and
+// never fabricated when it reports none.
 func normalizeMessage(sessionID string, msg protocol.Message, ts time.Time) protocol.Message {
 	msg.SessionID = sessionID
-	msg.ID = "msg-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	if msg.ID == "" {
+		msg.ID = "msg-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
 	if msg.CreatedAt.IsZero() {
 		msg.CreatedAt = ts
 	}

@@ -62,6 +62,9 @@ type replayAssembler struct {
 	curID     string
 	curRole   protocol.MessageRole
 	cur       strings.Builder
+	// toolIndex maps an ACP tool call id to its message position so
+	// tool_call_update frames replace the row instead of appending duplicates.
+	toolIndex map[string]int
 }
 
 // chunk appends one replayed text chunk, closing the open message when the
@@ -90,6 +93,45 @@ func (r *replayAssembler) flush() {
 		SessionID: r.sessionID,
 		Role:      r.curRole,
 		Content:   content,
+	})
+}
+
+// tool appends (or updates) one replayed tool call. An open text message is
+// flushed first: the tool call happened after the text that preceded it, so
+// splitting there keeps the replay's ordering truthful.
+func (r *replayAssembler) tool(call adapters.ToolCall) {
+	if call.ID == "" {
+		return
+	}
+	if idx, ok := r.toolIndex[call.ID]; ok {
+		m := &r.msgs[idx]
+		if m.Tool == nil {
+			m.Tool = &protocol.ToolCall{ID: call.ID}
+		}
+		if call.Title != "" {
+			m.Tool.Title = call.Title
+			m.Content = call.Title
+		}
+		if call.Kind != "" {
+			m.Tool.Kind = call.Kind
+		}
+		if call.Status != "" {
+			m.Tool.Status = call.Status
+		}
+		return
+	}
+	r.flush()
+	if r.toolIndex == nil {
+		r.toolIndex = make(map[string]int)
+	}
+	tool := &protocol.ToolCall{ID: call.ID, Title: call.Title, Kind: call.Kind, Status: call.Status}
+	r.toolIndex[call.ID] = len(r.msgs)
+	r.msgs = append(r.msgs, protocol.Message{
+		ID:        "tool-" + call.ID,
+		SessionID: r.sessionID,
+		Role:      protocol.RoleTool,
+		Content:   call.Title,
+		Tool:      tool,
 	})
 }
 

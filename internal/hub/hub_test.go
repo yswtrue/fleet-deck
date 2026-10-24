@@ -406,6 +406,31 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 	}
 }
 
+// A tool call is re-sent as its status changes; the fallback buffer must
+// update that row instead of appending one copy per frame.
+func TestAppendBufferedMessageUpdatesByID(t *testing.T) {
+	h := &Hub{text: make(map[string]textBufferEntry)}
+	ctx := context.Background()
+	first := protocol.Message{
+		ID: "tool-1", SessionID: "s1", Role: protocol.RoleTool, Content: "Read file",
+		Tool: &protocol.ToolCall{ID: "call-1", Title: "Read file", Status: "pending"},
+	}
+	updated := first
+	updated.Content = "Read file"
+	updated.Tool = &protocol.ToolCall{ID: "call-1", Title: "Read file", Status: "completed"}
+
+	h.appendBufferedMessage(ctx, "s1", first)
+	h.appendBufferedMessage(ctx, "s1", updated)
+
+	buf := h.textBuffer(ctx, "s1")
+	if len(buf.Messages) != 1 {
+		t.Fatalf("buffered messages = %d, want one updated row: %+v", len(buf.Messages), buf.Messages)
+	}
+	if buf.Messages[0].Tool == nil || buf.Messages[0].Tool.Status != "completed" {
+		t.Fatalf("buffered tool = %+v, want completed", buf.Messages[0].Tool)
+	}
+}
+
 // TestEvSessionMessageBuffers posts a node session.event and asserts the
 // storage policy: the message is buffered in the hub's ephemeral text state
 // (served by GET /api/sessions/{id}/messages while the session is live) and no

@@ -18,7 +18,16 @@
     "user": "You",
     "assistant": "Assistant",
     "system": "System",
-    "thinking": "Thinking"
+    "thinking": "Thinking",
+    "tool": "Tool"
+  },
+  "tool": {
+    "status": {
+      "pending": "Pending",
+      "in_progress": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    }
   },
   "permission": {
     "tag": "Permission",

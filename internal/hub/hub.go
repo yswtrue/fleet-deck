@@ -59,6 +59,12 @@ type Hub struct {
 	histMu   sync.Mutex
 	histWait map[string]chan protocol.SessionHistoryResponse
 
+	// transcriptWait correlates live-transcript requests with the owning
+	// node's responses. The node is the authoritative buffer while a session
+	// runs (see history.go).
+	transcriptMu   sync.Mutex
+	transcriptWait map[string]chan protocol.SessionTranscriptResponse
+
 	// fsWait correlates proxied directory-listing requests with the node's
 	// fs.list_resp payloads (see fs.go).
 	fsMu   sync.Mutex
@@ -115,17 +121,18 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 		c = cache.Noop{}
 	}
 	h := &Hub{
-		store:         st,
-		registry:      registry,
-		log:           slog.Default().With("component", "hub"),
-		cache:         c,
-		bindings:      newBindingCache(),
-		nodes:         make(map[string]*nodeConn),
-		offlineTimers: make(map[string]*time.Timer),
-		offlineGrace:  nodeOfflineGrace,
-		text:          make(map[string]textBufferEntry),
-		histWait:      make(map[string]chan protocol.SessionHistoryResponse),
-		fsWait:        make(map[string]chan protocol.FSListResponse),
+		store:          st,
+		registry:       registry,
+		log:            slog.Default().With("component", "hub"),
+		cache:          c,
+		bindings:       newBindingCache(),
+		nodes:          make(map[string]*nodeConn),
+		offlineTimers:  make(map[string]*time.Timer),
+		offlineGrace:   nodeOfflineGrace,
+		text:           make(map[string]textBufferEntry),
+		histWait:       make(map[string]chan protocol.SessionHistoryResponse),
+		transcriptWait: make(map[string]chan protocol.SessionTranscriptResponse),
+		fsWait:         make(map[string]chan protocol.FSListResponse),
 		// Deployment-level pairing secret for automated nodes; unset means only
 		// UI-minted single-use tokens can register a new node.
 		joinToken: os.Getenv("FLEETDECK_NODE_JOIN_TOKEN"),
@@ -734,8 +741,12 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 	})
 	// The instruction is the first transcript line. Without it a live session
 	// opens empty and the operator cannot see what the agent was asked to do.
+	// The same message object travels to the node so its local transcript
+	// carries the hub's id.
+	var promptMessage *protocol.Message
 	if prompt := strings.TrimSpace(task.Prompt); prompt != "" {
 		inserted := h.recordUserMessage(ctx, session.ID, prompt)
+		promptMessage = &inserted
 		h.bus.Publish(protocol.Event{
 			Type: protocol.EvSessionMessage,
 			Data: protocol.SessionMessage{SessionID: session.ID, Message: inserted},
@@ -748,6 +759,7 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 		AgentType:     task.AgentType,
 		Prompt:        task.Prompt,
 		WorkspacePath: workspace.Path,
+		UserMessage:   promptMessage,
 	})
 	if !h.sendToNode(workspace.NodeID, env) {
 		h.log.Warn("could not deliver task.start to node", "task_id", task.ID, "node_id", workspace.NodeID)

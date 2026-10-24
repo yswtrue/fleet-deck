@@ -50,6 +50,30 @@ describe('MessageBubble', () => {
     expect(screen.queryByText(/\[elicitation_response\]/)).toBeNull()
   })
 
+  it('renders a tool call as a labelled row with its live status', () => {
+    render(
+      <MessageBubble
+        message={
+          {
+            ...base,
+            role: 'tool',
+            content: 'Read README.md',
+            tool: {
+              id: 'call-1',
+              title: 'Read README.md',
+              kind: 'read',
+              status: 'in_progress',
+            },
+          } as Message
+        }
+      />
+    )
+    expect(screen.getByText('Tool')).toBeTruthy()
+    expect(screen.getByText('Read README.md')).toBeTruthy()
+    expect(screen.getByText('read')).toBeTruthy()
+    expect(screen.getByText('Running')).toBeTruthy()
+  })
+
   it('renders ordinary content verbatim and labels the roles', () => {
     const { unmount } = render(
       <MessageBubble message={{ ...base, role: 'assistant', content: 'Hello, world' } as Message} />
