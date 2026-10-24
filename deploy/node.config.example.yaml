@@ -16,9 +16,7 @@
 name: my-machine # unique per node; shown in the web UI
 host: my-machine.example.com
 # Pick these with `fleetdeck-node config` (it probes installed launchers and
-# writes both keys); any of: fake, opencode, codex, claude, pi, omp. Agent types are
-# advertised as capabilities automatically, so `capabilities` is only for extra
-# labels.
+# writes both keys); any of: fake, opencode, codex, claude, pi, omp.
 agent_types:
   - opencode
 default_adapter: opencode

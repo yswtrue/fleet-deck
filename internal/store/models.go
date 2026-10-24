@@ -94,10 +94,6 @@ func tokenUsagesFromRows(rows []sqlcgen.TokenUsage) []TokenUsage {
 }
 
 func nodeFromRow(r sqlcgen.Node) protocol.Node {
-	caps := r.Capabilities
-	if caps == nil {
-		caps = []string{}
-	}
 	agentTypes := r.AgentTypes
 	if agentTypes == nil {
 		agentTypes = []string{}
@@ -109,7 +105,6 @@ func nodeFromRow(r sqlcgen.Node) protocol.Node {
 		Status:         protocol.NodeStatus(r.Status),
 		AgentTypes:     agentTypes,
 		DefaultAdapter: r.DefaultAdapter,
-		Capabilities:   caps,
 		LastSeenAt:     r.LastSeenAt,
 	}
 }

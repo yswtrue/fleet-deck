@@ -93,7 +93,7 @@ func TestSelectByName(t *testing.T) {
 func TestConfigureNonInteractiveRebindsAgents(t *testing.T) {
 	path := writeConfig(t, `# my node
 name: my-machine
-capabilities:
+tags:
   - custom-label
 agent_types:
   - fake

@@ -57,8 +57,6 @@ rm -f .devenv/state/fleetdeck/node-token
 cat > "$BIN/opencode-node.config.yaml" <<EOF
 name: $NODE_NAME
 host: localhost
-capabilities:
-  - opencode
 agent_types:
   - opencode
 default_adapter: opencode

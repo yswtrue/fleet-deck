@@ -79,7 +79,6 @@ func run() error {
 	if *adapterFlag != "" {
 		cfg.AgentTypes = []string{*adapterFlag}
 		cfg.DefaultAdapter = *adapterFlag
-		cfg.Capabilities = appendUnique(cfg.Capabilities, *adapterFlag)
 	}
 
 	// One daemon per machine: a second process (any config, any hub) fails
@@ -110,13 +109,4 @@ func run() error {
 
 	slog.Info("node starting", "name", cfg.Name, "hub", cfg.HubURL, "agent_types", cfg.AgentTypes)
 	return node.New(cfg, adapters.Default).Run(ctx)
-}
-
-func appendUnique(list []string, v string) []string {
-	for _, item := range list {
-		if item == v {
-			return list
-		}
-	}
-	return append(list, v)
 }

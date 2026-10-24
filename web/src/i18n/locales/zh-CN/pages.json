@@ -28,9 +28,7 @@
     "host": "主机：",
     "noHost": "未设置主机",
     "lastSeen": "最后在线 {{time}}",
-    "capabilities": "能力",
     "agents": "智能体",
-    "none": "无",
     "workspaces": "工作区"
   },
   "nodeCard": {

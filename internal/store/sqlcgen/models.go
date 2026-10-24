@@ -33,7 +33,6 @@ type Node struct {
 	Name           string
 	Host           string
 	Status         string
-	Capabilities   []string
 	TokenHash      string
 	LastSeenAt     time.Time
 	MachineID      pgtype.Text

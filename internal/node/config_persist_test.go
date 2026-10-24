@@ -68,7 +68,7 @@ func TestSetTopLevelScalar(t *testing.T) {
 func TestSetAgentTypesReplacesBlock(t *testing.T) {
 	in := `# my node
 name: n1
-capabilities:
+tags:
   - custom
 agent_types:
   - fake # dev only
@@ -78,7 +78,7 @@ token_file: ./t
 `
 	want := `# my node
 name: n1
-capabilities:
+tags:
   - custom
 agent_types:
   - codex

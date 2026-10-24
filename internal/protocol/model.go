@@ -84,14 +84,12 @@ type Node struct {
 	Host   string     `json:"host,omitempty"`
 	Status NodeStatus `json:"status" jsonschema:"enum=online,enum=offline"`
 	// AgentTypes are the adapter keys this node registered as runnable. The UI
-	// offers exactly these when creating a task; free-form labels stay in
-	// Capabilities.
+	// offers exactly these when creating a task.
 	AgentTypes []string `json:"agent_types,omitempty"`
 	// DefaultAdapter is the node's configured default agent (its config's
 	// default_adapter). The task form preselects it; empty when the node has
 	// none configured or predates the field.
 	DefaultAdapter string    `json:"default_adapter,omitempty"`
-	Capabilities   []string  `json:"capabilities,omitempty"`
 	LastSeenAt     time.Time `json:"last_seen_at,omitempty"`
 }
 

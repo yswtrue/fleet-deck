@@ -429,10 +429,6 @@ func (h *Hub) registerNewNode(ctx context.Context, name string, req protocol.Reg
 	if req.MachineID == "" {
 		return protocol.Node{}, "", errMachineIDRequired
 	}
-	// The column is NOT NULL; a first handshake that omits labels means none.
-	if req.Capabilities == nil {
-		req.Capabilities = []string{}
-	}
 	token, hash, err := newToken()
 	if err != nil {
 		return protocol.Node{}, "", err
@@ -456,7 +452,6 @@ func (h *Hub) registerNewNode(ctx context.Context, name string, req protocol.Reg
 			Status:         protocol.NodeOnline,
 			AgentTypes:     req.AgentTypes,
 			DefaultAdapter: req.DefaultAdapter,
-			Capabilities:   req.Capabilities,
 			TokenHash:      hash,
 			MachineID:      req.MachineID,
 		})
@@ -500,9 +495,6 @@ func (h *Hub) acceptExistingNode(ctx context.Context, existing protocol.Node, re
 	if err := h.syncNodeAgents(ctx, &existing, req); err != nil {
 		return protocol.Node{}, "", err
 	}
-	if err := h.syncNodeCapabilities(ctx, &existing, req); err != nil {
-		return protocol.Node{}, "", err
-	}
 	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {
 		return protocol.Node{}, "", err
 	}
@@ -523,19 +515,6 @@ func (h *Hub) syncNodeAgents(ctx context.Context, node *protocol.Node, req proto
 	}
 	node.AgentTypes = req.AgentTypes
 	node.DefaultAdapter = req.DefaultAdapter
-	return nil
-}
-
-// syncNodeCapabilities refreshes a reconnecting node's free-form labels. A nil
-// slice means the daemon predates the field; keep the stored labels.
-func (h *Hub) syncNodeCapabilities(ctx context.Context, node *protocol.Node, req protocol.RegisterRequest) error {
-	if req.Capabilities == nil {
-		return nil
-	}
-	if err := h.store.Queries().UpdateNodeCapabilities(ctx, node.ID, req.Capabilities); err != nil {
-		return err
-	}
-	node.Capabilities = req.Capabilities
 	return nil
 }
 
@@ -563,9 +542,6 @@ func (h *Hub) claimExistingNode(ctx context.Context, existing protocol.Node, req
 		return protocol.Node{}, "", err
 	}
 	if err := h.syncNodeAgents(ctx, &existing, req); err != nil {
-		return protocol.Node{}, "", err
-	}
-	if err := h.syncNodeCapabilities(ctx, &existing, req); err != nil {
 		return protocol.Node{}, "", err
 	}
 	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {

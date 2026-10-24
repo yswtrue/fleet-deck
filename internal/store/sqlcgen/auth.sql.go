@@ -215,7 +215,7 @@ func (q *Queries) ListNodeMembersByUser(ctx context.Context, userID string) ([]N
 }
 
 const listNodesByUser = `-- name: ListNodesByUser :many
-SELECT n.id, n.name, n.host, n.status, n.capabilities, n.token_hash, n.last_seen_at, n.machine_id, n.agent_types, n.default_adapter FROM node n
+SELECT n.id, n.name, n.host, n.status, n.token_hash, n.last_seen_at, n.machine_id, n.agent_types, n.default_adapter FROM node n
 JOIN node_members m ON m.node_id = n.id
 WHERE m.user_id = $1
 ORDER BY n.name
@@ -235,7 +235,6 @@ func (q *Queries) ListNodesByUser(ctx context.Context, userID string) ([]Node, e
 			&i.Name,
 			&i.Host,
 			&i.Status,
-			&i.Capabilities,
 			&i.TokenHash,
 			&i.LastSeenAt,
 			&i.MachineID,

@@ -20,7 +20,6 @@ type CreateNodeParams struct {
 	AgentTypes []string
 	// DefaultAdapter is the node's configured default agent; empty allowed.
 	DefaultAdapter string
-	Capabilities   []string
 	TokenHash      string
 	// MachineID is the stable machine fingerprint (already hashed by the
 	// caller). Empty stores NULL, which the partial unique index ignores.
@@ -39,7 +38,6 @@ func (q *Queries) CreateNode(ctx context.Context, p CreateNodeParams) (protocol.
 		Status:         string(p.Status),
 		AgentTypes:     agentTypes,
 		DefaultAdapter: p.DefaultAdapter,
-		Capabilities:   p.Capabilities,
 		TokenHash:      p.TokenHash,
 		MachineID:      pgtype.Text{String: p.MachineID, Valid: p.MachineID != ""},
 	})
@@ -120,20 +118,6 @@ func (q *Queries) UpdateNodeAgents(ctx context.Context, id string, agentTypes []
 		DefaultAdapter: defaultAdapter,
 	}); err != nil {
 		return fmt.Errorf("store: update node agents: %w", err)
-	}
-	return nil
-}
-
-// UpdateNodeCapabilities replaces a node's free-form capability labels.
-func (q *Queries) UpdateNodeCapabilities(ctx context.Context, id string, capabilities []string) error {
-	if capabilities == nil {
-		capabilities = []string{}
-	}
-	if err := q.q.UpdateNodeCapabilities(ctx, sqlcgen.UpdateNodeCapabilitiesParams{
-		ID:           id,
-		Capabilities: capabilities,
-	}); err != nil {
-		return fmt.Errorf("store: update node capabilities: %w", err)
 	}
 	return nil
 }

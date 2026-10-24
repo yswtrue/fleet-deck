@@ -138,8 +138,7 @@ type RegisterRequest struct {
 	// DefaultAdapter is the config's default_adapter. It is only read when
 	// AgentTypes is present: an older daemon that omits the list also omits
 	// this and must not clear the stored default.
-	DefaultAdapter string   `json:"default_adapter,omitempty"`
-	Capabilities   []string `json:"capabilities"`
+	DefaultAdapter string `json:"default_adapter,omitempty"`
 	// Token is the node credential issued by a previous registration.
 	Token string `json:"token,omitempty"`
 	// JoinToken is the single-use pairing token required for a node that has

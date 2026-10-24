@@ -27,10 +27,8 @@ type Config struct {
 	// Host is a free-form host label reported to the hub. Defaults to the
 	// machine hostname.
 	Host string `yaml:"host"`
-	// Capabilities are extra labels advertised to the hub.
-	Capabilities []string `yaml:"capabilities"`
-	// AgentTypes are the agent_type keys this node can run. They are also
-	// advertised as capabilities.
+	// AgentTypes are the agent_type keys this node can run. They are
+	// advertised to the hub so the task form offers exactly these.
 	AgentTypes []string `yaml:"agent_types"`
 	// HubURL is the hub's node WebSocket endpoint. When empty it is derived
 	// from $FLEETDECK_HUB_ADDR as ws://ADDR/ws/node (LoadConfig errors when
@@ -151,24 +149,6 @@ func (c *Config) advertisedAgentTypes() []string {
 	return out
 }
 
-// advertisedCapabilities is the deduplicated free-form label list sent to the
-// hub: the handshake carries it separately from AgentTypes, so adapter keys
-// must not be duplicated into it. It is never nil: an explicit empty array
-// tells the hub to clear stale labels, while an absent field (an older daemon)
-// leaves the stored list untouched.
-func (c *Config) advertisedCapabilities() []string {
-	seen := make(map[string]bool, len(c.Capabilities))
-	out := make([]string, 0, len(c.Capabilities))
-	for _, label := range c.Capabilities {
-		if label == "" || seen[label] {
-			continue
-		}
-		seen[label] = true
-		out = append(out, label)
-	}
-	return out
-}
-
 // Node is the daemon. Create one with New and run it with Run.
 type Node struct {
 	cfg      Config
@@ -280,7 +260,6 @@ func (n *Node) runOnce(ctx context.Context) error {
 		Host:           n.cfg.Host,
 		AgentTypes:     n.cfg.advertisedAgentTypes(),
 		DefaultAdapter: n.cfg.DefaultAdapter,
-		Capabilities:   n.cfg.advertisedCapabilities(),
 		Token:          n.readToken(),
 		JoinToken:      n.cfg.JoinToken,
 		MachineID:      n.cfg.MachineID,

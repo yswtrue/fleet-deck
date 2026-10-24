@@ -127,12 +127,6 @@
         "default_adapter": {
           "type": "string"
         },
-        "capabilities": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "last_seen_at": {
           "type": "string",
           "format": "date-time"
@@ -185,12 +179,6 @@
         "default_adapter": {
           "type": "string"
         },
-        "capabilities": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "token": {
           "type": "string"
         },
@@ -212,7 +200,6 @@
       "required": [
         "name",
         "agent_types",
-        "capabilities",
         "sessions"
       ]
     },

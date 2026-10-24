@@ -87,11 +87,10 @@ func newTestHub(t *testing.T) (*Hub, *store.Store, *httptest.Server, testAuth) {
 func seedNode(t *testing.T, st *store.Store, name string) protocol.Node {
 	t.Helper()
 	node, err := st.Queries().CreateNode(context.Background(), store.CreateNodeParams{
-		Name:         name,
-		Host:         "test-host",
-		Status:       protocol.NodeOffline,
-		Capabilities: []string{"fake"},
-		TokenHash:    "",
+		Name:      name,
+		Host:      "test-host",
+		Status:    protocol.NodeOffline,
+		TokenHash: "",
 	})
 	if err != nil {
 		t.Fatalf("seed node: %v", err)
@@ -113,21 +112,13 @@ func dialNode(t *testing.T, ts *httptest.Server, st *store.Store, name string) (
 // the hub issued on that first registration instead.
 func dialNodeAs(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string) (*websocket.Conn, protocol.RegisterResponse) {
 	t.Helper()
-	return dialNodeWithCaps(t, ts, st, name, token, joinToken, []string{"fake"}, true)
-}
-
-// dialNodeWithCaps registers a node with explicit capability labels. With
-// includeCaps false the capabilities field is omitted entirely (what a daemon
-// predating the field sends).
-func dialNodeWithCaps(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string, caps []string, includeCaps bool) (*websocket.Conn, protocol.RegisterResponse) {
-	t.Helper()
-	return dialNodeFull(t, ts, st, name, token, joinToken, caps, includeCaps, nil)
+	return dialNodeFull(t, ts, st, name, token, joinToken, nil)
 }
 
 // dialNodeFull registers a scripted node with an explicit live-session list.
 // A nil liveSessions omits the field entirely (a daemon predating it); a
 // current daemon always sends an array, empty when no adapter survived.
-func dialNodeFull(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string, caps []string, includeCaps bool, liveSessions []string) (*websocket.Conn, protocol.RegisterResponse) {
+func dialNodeFull(t *testing.T, ts *httptest.Server, st *store.Store, name, token, joinToken string, liveSessions []string) (*websocket.Conn, protocol.RegisterResponse) {
 	t.Helper()
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/node"
@@ -142,9 +133,6 @@ func dialNodeFull(t *testing.T, ts *httptest.Server, st *store.Store, name, toke
 		Token:     token,
 		MachineID: "test-machine:" + name,
 		Sessions:  liveSessions,
-	}
-	if includeCaps {
-		req.Capabilities = caps
 	}
 	if token == "" {
 		req.JoinToken = joinToken
@@ -200,7 +188,6 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 		Host:           "test-host",
 		AgentTypes:     agentTypes,
 		DefaultAdapter: "omp",
-		Capabilities:   agentTypes,
 		JoinToken:      testJoinToken,
 		MachineID:      machineID,
 	})
@@ -735,7 +722,7 @@ func TestReconnectWithinGraceKeepsSessionRunning(t *testing.T) {
 	// Drop the connection and reconnect right away, exactly like the daemon:
 	// the adapters survived in-process, so the handshake lists the session.
 	_ = c.Close()
-	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{"fake"}, true, []string{task.SessionID})
+	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{task.SessionID})
 	defer func() { _ = back.Close() }()
 	if backReg.NodeID != reg.NodeID {
 		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
@@ -770,7 +757,7 @@ func TestRestartedNodeFailsOrphanedSessions(t *testing.T) {
 	join := postJSON[struct {
 		Token string `json:"token"`
 	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
-	c, reg := dialNodeFull(t, ts, st, name, "", join.Token, []string{"fake"}, true, []string{})
+	c, reg := dialNodeFull(t, ts, st, name, "", join.Token, []string{})
 	if reg.NodeID == "" {
 		t.Fatalf("register: %s", reg.Error)
 	}
@@ -781,7 +768,7 @@ func TestRestartedNodeFailsOrphanedSessions(t *testing.T) {
 
 	// Restart: a fresh process, so no adapter survived the old session.
 	_ = c.Close()
-	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{"fake"}, true, []string{})
+	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{})
 	defer func() { _ = back.Close() }()
 	if backReg.NodeID != reg.NodeID {
 		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
@@ -928,57 +915,6 @@ func TestDispatchRecordsPromptInTranscript(t *testing.T) {
 	}
 	if len(msgs) != 1 || msgs[0].Role != protocol.RoleUser || msgs[0].Content != "do the thing" {
 		t.Fatalf("transcript = %+v, want the task prompt as the first user message", msgs)
-	}
-}
-
-// Capability labels are free-form metadata (adapter keys live in agent_types);
-// a reconnecting node refreshes them, while a daemon that omits the field keeps
-// whatever is stored.
-func TestReconnectSyncsCapabilityLabels(t *testing.T) {
-	if testing.Short() {
-		t.Skip("hub integration test needs a live Postgres; skipped under -short")
-	}
-
-	_, st, ts, auth := newTestHub(t)
-	name := uniqueName("hub-it-caps")
-	join := postJSON[struct {
-		Token string `json:"token"`
-	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
-
-	first, reg := dialNodeWithCaps(t, ts, st, name, "", join.Token, []string{"gpu"}, true)
-	defer func() { _ = first.Close() }()
-	ctx := context.Background()
-	row, err := st.Queries().GetNode(ctx, reg.NodeID)
-	if err != nil {
-		t.Fatalf("get node: %v", err)
-	}
-	if len(row.Capabilities) != 1 || row.Capabilities[0] != "gpu" {
-		t.Fatalf("capabilities = %v, want [gpu]", row.Capabilities)
-	}
-
-	// Reconnect with edited labels: the stored row follows.
-	second, reg2 := dialNodeWithCaps(t, ts, st, name, reg.Token, "", []string{"gpu", "nixos"}, true)
-	defer func() { _ = second.Close() }()
-	if reg2.NodeID != reg.NodeID {
-		t.Fatalf("reconnect node id = %q, want %q", reg2.NodeID, reg.NodeID)
-	}
-	row, err = st.Queries().GetNode(ctx, reg.NodeID)
-	if err != nil {
-		t.Fatalf("get node: %v", err)
-	}
-	if len(row.Capabilities) != 2 || row.Capabilities[1] != "nixos" {
-		t.Fatalf("capabilities after reconnect = %v, want [gpu nixos]", row.Capabilities)
-	}
-
-	// An older daemon omits the field: the stored labels survive.
-	third, _ := dialNodeWithCaps(t, ts, st, name, reg.Token, "", nil, false)
-	defer func() { _ = third.Close() }()
-	row, err = st.Queries().GetNode(ctx, reg.NodeID)
-	if err != nil {
-		t.Fatalf("get node: %v", err)
-	}
-	if len(row.Capabilities) != 2 {
-		t.Fatalf("capabilities after omitting field = %v, want the stored list", row.Capabilities)
 	}
 }
 

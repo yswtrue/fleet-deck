@@ -6,8 +6,6 @@
 # done) so the hub and UI can be exercised without a real agent.
 name: fake-node-1
 host: localhost
-capabilities:
-  - fake
 agent_types:
   - fake
 # hub_url is omitted: it is derived from $FLEETDECK_HUB_ADDR as

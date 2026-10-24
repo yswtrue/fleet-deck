@@ -42,8 +42,6 @@ rm -f .devenv/state/fleetdeck/node-token
 cat > "$BIN/codex-node.config.yaml" <<EOF
 name: $NODE_NAME
 host: localhost
-capabilities:
-  - codex
 agent_types:
   - codex
 default_adapter: codex

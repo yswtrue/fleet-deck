@@ -45,11 +45,10 @@ func TestSmokeCRUDRoundTrip(t *testing.T) {
 
 	// node -------------------------------------------------------------------
 	node, err := q.CreateNode(ctx, CreateNodeParams{
-		Name:         "smoke-" + suffix,
-		Host:         "test-host",
-		Status:       protocol.NodeOnline,
-		Capabilities: []string{"fake"},
-		TokenHash:    "hash-" + suffix,
+		Name:      "smoke-" + suffix,
+		Host:      "test-host",
+		Status:    protocol.NodeOnline,
+		TokenHash: "hash-" + suffix,
 	})
 	if err != nil {
 		t.Fatalf("CreateNode: %v", err)

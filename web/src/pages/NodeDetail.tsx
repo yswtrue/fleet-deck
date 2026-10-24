@@ -34,7 +34,6 @@ export function NodeDetail() {
 
   const node = nodeQuery.data
   const agentTypes = node?.agent_types ?? []
-  const capabilities = node?.capabilities ?? []
 
   return (
     <div className="fd-stack fd-stack-lg">
@@ -56,14 +55,6 @@ export function NodeDetail() {
               <span title={new Date(node.last_seen_at).toLocaleString()}>
                 {t('node.lastSeen', { time: formatRelative(node.last_seen_at) })}
               </span>
-            )}
-          </div>
-          <div className="fd-chips">
-            <span className="fd-chip-label">{t('node.capabilities')}</span>
-            {capabilities.length > 0 ? (
-              capabilities.map((capability) => <Tag key={capability}>{capability}</Tag>)
-            ) : (
-              <span>{t('node.none')}</span>
             )}
           </div>
           <div className="fd-chips">

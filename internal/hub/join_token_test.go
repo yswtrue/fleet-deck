@@ -87,7 +87,7 @@ func TestJoinTokenRegistration(t *testing.T) {
 	name := uniqueName("jt-node")
 	machineID := uniqueName("jt-machine")
 	c, resp = dialRegister(t, ts, protocol.RegisterRequest{
-		Name: name, Host: "jt-host", Capabilities: []string{"fake"}, JoinToken: token,
+		Name: name, Host: "jt-host", JoinToken: token,
 		MachineID: machineID,
 	})
 	if resp.Error != "" || resp.NodeID == "" || resp.Token == "" {

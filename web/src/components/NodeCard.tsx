@@ -31,7 +31,6 @@ export function NodeCard({ node }: { node: Node }) {
   const workspaceCount = workspacesQuery.data?.length ?? 0
   const activeTaskCount = tasks.filter((task) => task.status !== 'done').length
   const agentTypes = node.agent_types ?? []
-  const capabilities = node.capabilities ?? []
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Enter') {
@@ -58,14 +57,6 @@ export function NodeCard({ node }: { node: Node }) {
       </div>
       <div className={styles.host} title={node.host}>
         {node.host || t('node.noHost')}
-      </div>
-      <div className="fd-chips">
-        <span className="fd-chip-label">{t('node.capabilities')}</span>
-        {capabilities.length > 0 ? (
-          capabilities.map((capability) => <Tag key={capability}>{capability}</Tag>)
-        ) : (
-          <span className={styles.muted}>{t('node.none')}</span>
-        )}
       </div>
       <div className="fd-chips">
         <span className="fd-chip-label">{t('node.agents')}</span>
