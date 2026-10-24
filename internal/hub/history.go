@@ -46,7 +46,10 @@ var transcriptReqSeq atomic.Int64
 // endpoint answers 503 rather than inventing a transcript.
 func (h *Hub) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
-	limit := intQuery(r, "limit", 100)
+	// A limited read is a tail window (the newest messages). No limit means
+	// the whole transcript: the session view renders every row, so silently
+	// capping it at a page hid the final turns of a long task.
+	limit := intQuery(r, "limit", 0)
 
 	session, err := h.sessionVisibleTo(r.Context(), userOf(r), sessionID)
 	if err != nil {
@@ -216,21 +219,21 @@ func messageKey(m protocol.Message) string {
 	return string(m.Role) + "\x00" + m.Content
 }
 
-// limitMessages applies the endpoint's limit semantics: up to limit messages,
-// oldest first; a limit <= 0 yields none.
+// limitMessages applies the endpoint's limit semantics: a positive limit is a
+// window over the newest messages (still oldest first), because a caller
+// reading a session wants its latest turns — `fleetdeck_message_tail` says so
+// explicitly, and the web reloads a transcript to continue where it left off.
+// A non-positive limit yields the whole transcript.
 func limitMessages(msgs []protocol.Message, limit int) []protocol.Message {
 	// A live session's buffer starts empty; marshal it as [] rather than null so
 	// clients can treat the response as an array unconditionally.
 	if msgs == nil {
 		msgs = []protocol.Message{}
 	}
-	if limit <= 0 {
-		return []protocol.Message{}
+	if limit <= 0 || len(msgs) <= limit {
+		return msgs
 	}
-	if len(msgs) > limit {
-		msgs = msgs[:limit]
-	}
-	return msgs
+	return msgs[len(msgs)-limit:]
 }
 
 // replaySessionHistory fetches a session's conversation from the owning node,

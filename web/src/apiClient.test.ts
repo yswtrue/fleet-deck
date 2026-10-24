@@ -231,3 +231,25 @@ describe('task lifecycle', () => {
     expect(fetchMock.mock.calls[2][0]).toBe('/api/tasks?node_id=n-1')
   })
 })
+
+describe('session messages', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/login')
+  })
+  afterEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/')
+    vi.unstubAllGlobals()
+  })
+
+  it('reads the whole transcript by default; a limit windows the newest rows', async () => {
+    const fetchMock = mockFetch(() => jsonResponse([]))
+
+    await apiClient.getMessages('s-1')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/sessions/s-1/messages')
+
+    await apiClient.getMessages('s-1', 5)
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/sessions/s-1/messages?limit=5')
+  })
+})

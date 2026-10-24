@@ -2050,6 +2050,92 @@ func TestListMessagesUsesNodeLiveTranscript(t *testing.T) {
 	}
 }
 
+// TestListMessagesLimitedReadIsTail pins the endpoint's default/limit window:
+// a browser reload (or any limited read) must get the newest part of the
+// conversation, not its first N rows. A long task easily exceeds a hundred
+// message rows once tool calls are counted, and serving the head made a
+// finished task look truncated.
+func TestListMessagesLimitedReadIsTail(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("hist-tail-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	prompt := h.textBuffer(context.Background(), task.SessionID).Messages[0]
+
+	// 150 assistant rows after the dispatched prompt: more than the old
+	// default page, so a head window is impossible to miss.
+	transcript := make([]protocol.Message, 0, 151)
+	transcript = append(transcript, prompt)
+	for i := range 150 {
+		transcript = append(transcript, protocol.Message{
+			ID:        fmt.Sprintf("tail-msg-%03d", i),
+			SessionID: task.SessionID,
+			Role:      protocol.RoleAssistant,
+			Content:   fmt.Sprintf("answer %d", i),
+			CreatedAt: prompt.CreatedAt.Add(time.Duration(i+1) * time.Millisecond),
+		})
+	}
+	go func() {
+		for {
+			var env protocol.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != protocol.MsgSessionTranscript {
+				continue
+			}
+			var req protocol.SessionTranscriptRequest
+			if err := env.Decode(&req); err != nil {
+				continue
+			}
+			_ = c.WriteJSON(protocol.NewEnvelope(protocol.MsgSessionTranscriptResp, protocol.SessionTranscriptResponse{
+				ReqID:     req.ReqID,
+				SessionID: req.SessionID,
+				Messages:  transcript,
+			}))
+		}
+	}()
+
+	get := func(query string) []protocol.Message {
+		t.Helper()
+		resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/messages"+query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("messages%s status = %d, want 200; body=%s", query, resp.StatusCode, raw)
+		}
+		var msgs []protocol.Message
+		if err := json.Unmarshal(raw, &msgs); err != nil {
+			t.Fatalf("decode messages: %v (%s)", err, raw)
+		}
+		return msgs
+	}
+
+	all := get("")
+	if len(all) != len(transcript) {
+		t.Fatalf("unlimited read = %d rows, want the whole %d-row transcript", len(all), len(transcript))
+	}
+	if all[len(all)-1].Content != "answer 149" {
+		t.Fatalf("unlimited read ends with %q, want the final answer", all[len(all)-1].Content)
+	}
+
+	tail := get("?limit=5")
+	if len(tail) != 5 {
+		t.Fatalf("limited read = %d rows, want 5", len(tail))
+	}
+	for i, want := range []string{"answer 145", "answer 146", "answer 147", "answer 148", "answer 149"} {
+		if tail[i].Content != want {
+			t.Fatalf("limited read[%d] = %q, want %q (rows %+v)", i, tail[i].Content, want, tail)
+		}
+	}
+}
+
 // TestListMessagesFinishedUnavailable asserts the privacy trade-off: a
 // finished session whose node cannot replay yields 503 — history lives only
 // with the agent, and the hub reports that instead of inventing a transcript.

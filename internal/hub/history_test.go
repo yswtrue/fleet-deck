@@ -91,6 +91,33 @@ func TestMergeLiveTranscriptsKeepsFallbackInOrder(t *testing.T) {
 	}
 }
 
+// A limited read is the tail of the conversation: the web reloads a session to
+// see its latest turns, and fleetdeck_message_tail asks for the most recent
+// messages. Returning the head silently hides everything after the first page.
+func TestLimitMessagesKeepsTheNewest(t *testing.T) {
+	msgs := []protocol.Message{
+		{ID: "m1", Role: protocol.RoleUser, Content: "one"},
+		{ID: "m2", Role: protocol.RoleAssistant, Content: "two"},
+		{ID: "m3", Role: protocol.RoleUser, Content: "three"},
+		{ID: "m4", Role: protocol.RoleAssistant, Content: "four"},
+	}
+	got := limitMessages(msgs, 2)
+	if len(got) != 2 || got[0].ID != "m3" || got[1].ID != "m4" {
+		t.Fatalf("limit 2 = %+v, want the newest two in order", got)
+	}
+	if got := limitMessages(msgs, 10); len(got) != 4 {
+		t.Fatalf("limit above the length = %d rows, want all 4", len(got))
+	}
+	// No limit means the whole transcript, and an empty source still marshals
+	// as [] rather than null.
+	if got := limitMessages(msgs, 0); len(got) != 4 {
+		t.Fatalf("unlimited = %d rows, want all 4", len(got))
+	}
+	if got := limitMessages(nil, 0); got == nil || len(got) != 0 {
+		t.Fatalf("empty transcript = %#v, want non-nil empty", got)
+	}
+}
+
 // Repeated identical messages must not be deduped away and keep their order.
 func TestMergeHistoryKeepsRepeatedMessages(t *testing.T) {
 	replay := []protocol.Message{

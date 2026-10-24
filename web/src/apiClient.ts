@@ -492,8 +492,15 @@ export const apiClient = {
 
   getSession: (id: string) => fetchJson<SessionSnapshot>(`/api/sessions/${id}`),
 
-  getMessages: (sessionId: string, limit = 100) =>
-    fetchJson<Message[]>(`/api/sessions/${sessionId}/messages?limit=${limit}`),
+  /**
+   * GET /api/sessions/{id}/messages returns the whole transcript unless a
+   * limit is given; a limit windows the newest N rows. The session view wants
+   * everything (tool calls are rows, so a real task exceeds a single page).
+   */
+  getMessages: (sessionId: string, limit?: number) =>
+    fetchJson<Message[]>(
+      `/api/sessions/${sessionId}/messages${limit && limit > 0 ? `?limit=${limit}` : ''}`
+    ),
 
   getEvents: (sessionId: string, afterSeq?: number, limit = 100) =>
     fetchJson<StoredEvent[]>(
