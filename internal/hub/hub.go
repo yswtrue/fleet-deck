@@ -730,12 +730,13 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 	}
 
 	env := protocol.NewEnvelope(protocol.MsgTaskStart, protocol.TaskStartCommand{
-		TaskID:        task.ID,
-		SessionID:     session.ID,
-		AgentType:     task.AgentType,
-		Prompt:        task.Prompt,
-		WorkspacePath: workspace.Path,
-		UserMessage:   promptMessage,
+		TaskID:         task.ID,
+		SessionID:      session.ID,
+		AgentType:      task.AgentType,
+		Prompt:         task.Prompt,
+		WorkspacePath:  workspace.Path,
+		AutoAllowScope: workspace.AutoAllowScope,
+		UserMessage:    promptMessage,
 	})
 	if !h.sendToNode(workspace.NodeID, env) {
 		h.log.Warn("could not deliver task.start to node", "task_id", task.ID, "node_id", workspace.NodeID)

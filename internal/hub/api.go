@@ -52,6 +52,7 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workspaces", h.requireAuth(h.handleListWorkspaces))
 	mux.HandleFunc("GET /api/workspaces/{id}", h.requireWorkspaceAccess(h.handleGetWorkspace))
 	mux.HandleFunc("POST /api/workspaces", h.requireAuth(h.handleCreateWorkspace))
+	mux.HandleFunc("PATCH /api/workspaces/{id}", h.requireWorkspaceAccess(h.handlePatchWorkspace))
 
 	mux.HandleFunc("GET /api/tasks", h.requireAuth(h.handleListTasks))
 	mux.HandleFunc("POST /api/tasks", h.requireAuth(h.handleCreateTask))
@@ -237,6 +238,36 @@ func (h *Hub) handleGetWorkspace(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	writeJSON(w, http.StatusOK, workspace)
+}
+
+// handlePatchWorkspace updates the workspace-level permission policy. The
+// binding model grants read and write together, so requireWorkspaceAccess is
+// also the write check: an invisible workspace answers 404.
+func (h *Hub) handlePatchWorkspace(w http.ResponseWriter, r *http.Request, id string) {
+	var req struct {
+		AutoAllowScope *protocol.AutoAllowScope `json:"auto_allow_scope"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if req.AutoAllowScope == nil {
+		writeError(w, http.StatusBadRequest, "auto_allow_scope is required")
+		return
+	}
+	scope := *req.AutoAllowScope
+	switch scope {
+	case protocol.AutoAllowScopeNone, protocol.AutoAllowScopeWorkspace, protocol.AutoAllowScopeAll:
+	default:
+		writeError(w, http.StatusBadRequest, "invalid auto_allow_scope")
+		return
+	}
+	updated, err := h.store.Queries().UpdateWorkspaceAutoAllowScope(r.Context(), id, scope)
+	if err != nil {
+		h.serverError(w, "update workspace auto_allow_scope", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 // ---- tasks -----------------------------------------------------------------
@@ -798,11 +829,13 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 	})
 
 	workspacePath := ""
+	var autoAllowScope protocol.AutoAllowScope
 	taskID := session.TaskID
 	if task, err := h.store.Queries().GetTask(ctx, session.TaskID); err == nil {
 		taskID = task.ID
 		if ws, err := h.store.Queries().GetWorkspace(ctx, task.WorkspaceID); err == nil {
 			workspacePath = ws.Path
+			autoAllowScope = ws.AutoAllowScope
 		}
 	}
 	env := protocol.NewEnvelope(protocol.MsgSessionResume, protocol.SessionResumeCommand{
@@ -810,6 +843,7 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 		TaskID:            taskID,
 		AgentType:         session.AgentType,
 		WorkspacePath:     workspacePath,
+		AutoAllowScope:    autoAllowScope,
 		ExternalSessionID: session.ExternalSessionID,
 		Message:           msgText,
 		UserMessage:       &inserted,

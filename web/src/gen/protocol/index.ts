@@ -134,6 +134,7 @@ export interface SessionResumeCommand {
   task_id: string;
   agent_type: string;
   workspace_path: string;
+  auto_allow_scope?: "none" | "workspace" | "all";
   external_session_id: string;
   message: string;
   user_message?: Message;
@@ -209,6 +210,7 @@ export interface TaskStartCommand {
   agent_type: string;
   prompt: string;
   workspace_path: string;
+  auto_allow_scope?: "none" | "workspace" | "all";
   user_message?: Message;
 }
 export interface TaskStats {
@@ -267,5 +269,6 @@ export interface Workspace {
   node_id: string;
   name: string;
   path: string;
+  auto_allow_scope: "none" | "workspace" | "all";
   created_at: string;
 }

@@ -640,6 +640,14 @@
         "workspace_path": {
           "type": "string"
         },
+        "auto_allow_scope": {
+          "type": "string",
+          "enum": [
+            "none",
+            "workspace",
+            "all"
+          ]
+        },
         "external_session_id": {
           "type": "string"
         },
@@ -1197,6 +1205,14 @@
         "workspace_path": {
           "type": "string"
         },
+        "auto_allow_scope": {
+          "type": "string",
+          "enum": [
+            "none",
+            "workspace",
+            "all"
+          ]
+        },
         "user_message": {
           "$ref": "#/$defs/Message"
         }
@@ -1626,6 +1642,14 @@
         "path": {
           "type": "string"
         },
+        "auto_allow_scope": {
+          "type": "string",
+          "enum": [
+            "none",
+            "workspace",
+            "all"
+          ]
+        },
         "created_at": {
           "type": "string",
           "format": "date-time"
@@ -1638,6 +1662,7 @@
         "node_id",
         "name",
         "path",
+        "auto_allow_scope",
         "created_at"
       ]
     }

@@ -119,11 +119,12 @@ func nodesFromRows(rows []sqlcgen.Node) []protocol.Node {
 
 func workspaceFromRow(r sqlcgen.Workspace) protocol.Workspace {
 	return protocol.Workspace{
-		ID:        r.ID,
-		NodeID:    r.NodeID,
-		Name:      r.Name,
-		Path:      r.Path,
-		CreatedAt: r.CreatedAt,
+		ID:             r.ID,
+		NodeID:         r.NodeID,
+		Name:           r.Name,
+		Path:           r.Path,
+		AutoAllowScope: protocol.AutoAllowScope(r.AutoAllowScope),
+		CreatedAt:      r.CreatedAt,
 	}
 }
 

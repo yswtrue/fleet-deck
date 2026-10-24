@@ -458,6 +458,14 @@ export const apiClient = {
   createWorkspace: (workspace: CreateWorkspaceInput) =>
     fetchJson<Workspace>('/api/workspaces', { method: 'POST', body: JSON.stringify(workspace) }),
 
+  /** PATCH /api/workspaces/{id} sets the workspace's permission auto-allow
+   * range (applies to sessions started or resumed afterwards). */
+  setWorkspaceAutoAllowScope: (id: string, scope: Workspace['auto_allow_scope']) =>
+    fetchJson<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ auto_allow_scope: scope }),
+    }),
+
   listTasks: (workspaceId: string, q?: string, options?: ListTasksOptions) =>
     fetchJson<Task[]>(
       `/api/tasks?workspace_id=${encodeURIComponent(workspaceId)}${(options?.q ?? q) ? `&q=${encodeURIComponent(options?.q ?? (q as string))}` : ''}${options?.archived ? '&archived=1' : ''}`

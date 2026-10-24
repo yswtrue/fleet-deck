@@ -134,9 +134,10 @@ type User struct {
 }
 
 type Workspace struct {
-	ID        string
-	NodeID    string
-	Name      string
-	Path      string
-	CreatedAt time.Time
+	ID             string
+	NodeID         string
+	Name           string
+	Path           string
+	CreatedAt      time.Time
+	AutoAllowScope string
 }

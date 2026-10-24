@@ -1043,6 +1043,12 @@ func TestSendMessageResumesDoneSession(t *testing.T) {
 	if task.SessionID == "" {
 		t.Fatalf("task has no session: %+v", task)
 	}
+	// A resume re-reads the workspace policy: set it before the follow-up so
+	// the command below carries it.
+	if resp, raw := patchRaw(t, auth.token, ts.URL+"/api/workspaces/"+task.WorkspaceID,
+		map[string]string{"auto_allow_scope": "all"}); resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch workspace scope = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
 	ctx := context.Background()
 
 	// Finish the session the way the node would: failed and done both route
@@ -1147,6 +1153,9 @@ func TestSendMessageResumesDoneSession(t *testing.T) {
 	}
 	if cmd.AgentType != "fake" || cmd.WorkspacePath == "" {
 		t.Fatalf("resume command missing agent/workspace: %+v", cmd)
+	}
+	if cmd.AutoAllowScope != protocol.AutoAllowScopeAll {
+		t.Fatalf("resume auto_allow_scope = %q, want all", cmd.AutoAllowScope)
 	}
 }
 
@@ -2177,5 +2186,69 @@ func TestTaskTitleFromPrompt(t *testing.T) {
 		if got := taskTitleFromPrompt(c.prompt); got != c.want {
 			t.Fatalf("taskTitleFromPrompt(%q) = %q, want %q", c.prompt, got, c.want)
 		}
+	}
+}
+
+// TestWorkspaceAutoAllowScope asserts the workspace-level permission policy is
+// validated, stored, surfaced by GET, and carried to the node when a task is
+// dispatched.
+func TestWorkspaceAutoAllowScope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("scope-node"))
+	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
+
+	workspace := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID,
+		"name":    uniqueName("scope-ws"),
+		"path":    "/tmp/scope-ws",
+	})
+	if workspace.AutoAllowScope != protocol.AutoAllowScopeNone {
+		t.Fatalf("new workspace auto_allow_scope = %q, want none", workspace.AutoAllowScope)
+	}
+
+	// The enum is validated: unknown values and a missing field are 400.
+	resp, raw := patchRaw(t, auth.token, ts.URL+"/api/workspaces/"+workspace.ID,
+		map[string]string{"auto_allow_scope": "everything"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid scope status = %d, want 400; body=%s", resp.StatusCode, raw)
+	}
+	resp, raw = patchRaw(t, auth.token, ts.URL+"/api/workspaces/"+workspace.ID, map[string]string{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing scope status = %d, want 400; body=%s", resp.StatusCode, raw)
+	}
+
+	resp, raw = patchRaw(t, auth.token, ts.URL+"/api/workspaces/"+workspace.ID,
+		map[string]string{"auto_allow_scope": "workspace"})
+	updated := decodeOK[protocol.Workspace](t, "patch workspace", resp, raw)
+	if updated.ID != workspace.ID || updated.AutoAllowScope != protocol.AutoAllowScopeWorkspace {
+		t.Fatalf("patched workspace = %+v, want scope workspace", updated)
+	}
+
+	// GET reflects the stored value.
+	resp, raw = getRaw(t, auth.token, ts.URL+"/api/workspaces/"+workspace.ID)
+	got := decodeOK[protocol.Workspace](t, "get workspace", resp, raw)
+	if got.AutoAllowScope != protocol.AutoAllowScopeWorkspace {
+		t.Fatalf("GET auto_allow_scope = %q, want workspace", got.AutoAllowScope)
+	}
+
+	// Dispatch carries the policy to the node.
+	task := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": workspace.ID,
+		"title":        uniqueName("scope-task"),
+		"prompt":       "do it",
+		"agent_type":   "fake",
+	})
+	env := waitEnvelope(t, envelopes, protocol.MsgTaskStart)
+	var cmd protocol.TaskStartCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode task.start: %v", err)
+	}
+	if cmd.TaskID != task.ID || cmd.AutoAllowScope != protocol.AutoAllowScopeWorkspace {
+		t.Fatalf("task.start = %+v, want scope workspace for %q", cmd, task.ID)
 	}
 }

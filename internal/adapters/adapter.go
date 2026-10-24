@@ -16,6 +16,10 @@ type StartRequest struct {
 	AgentType     string
 	Prompt        string
 	WorkspacePath string
+	// AutoAllowScope is the owning workspace's permission auto-allow range.
+	// Adapters that can answer permission asks automatically (the ACP adapter)
+	// consult it; others ignore it. The zero value means "none" (always ask).
+	AutoAllowScope protocol.AutoAllowScope
 	// ResumeSessionID, when non-empty, asks the adapter to reattach to the
 	// given agent-side session instead of starting a fresh one. Adapters
 	// that can reattach (see Resumable) run Prompt as the first turn on the

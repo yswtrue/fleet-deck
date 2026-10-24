@@ -20,6 +20,14 @@ type permissionParams struct {
 
 type toolCallRef struct {
 	Title string `json:"title"`
+	// Locations are the paths the tool call touches (ACP toolCall.locations).
+	// The auto-allow policy checks every one of them against the workspace's
+	// configured range; a request without locations is never auto-approved.
+	Locations []toolCallLocation `json:"locations"`
+}
+
+type toolCallLocation struct {
+	Path string `json:"path"`
 }
 
 type permissionOptionRaw struct {
@@ -41,6 +49,16 @@ func (a *Adapter) handlePermissionRequest(ctx context.Context, sessionID string,
 	var p permissionParams
 	if err := json.Unmarshal(msg.Params, &p); err != nil {
 		a.respond(msg.ID, cancelledPermissionOutcome(), nil)
+		return
+	}
+
+	// A workspace auto-allow range answers the request without pausing the
+	// turn, but only for the least-privilege allow option and only when every
+	// path the agent named is inside the range.
+	if optionID := a.autoAllowPermission(p); optionID != "" {
+		a.log.Info("acp: permission auto-allowed by workspace scope",
+			"option_id", optionID, "locations", len(p.ToolCall.Locations))
+		a.respond(msg.ID, selectedPermissionOutcome(optionID), nil)
 		return
 	}
 
@@ -154,8 +172,9 @@ func knownOptionID(options []permissionOptionRaw, id string) bool {
 // denyOptionID picks the safest option to fall back to: an explicit reject
 // kind if present, else a deny-labelled option. It returns "" when neither
 // exists — the caller then cancels — because an arbitrary last option could be
-// an allow one, and permission requests are never auto-approved. Options with
-// an empty id can never be selected: the agent would not recognize them.
+// an allow one, and an unanswered request is never assumed to be approved.
+// Options with an empty id can never be selected: the agent would not
+// recognize them.
 func denyOptionID(options []permissionOptionRaw) string {
 	for _, o := range options {
 		if o.OptionID == "" {
@@ -170,6 +189,59 @@ func denyOptionID(options []permissionOptionRaw) string {
 			continue
 		}
 		if strings.Contains(strings.ToLower(o.Name), "deny") {
+			return o.OptionID
+		}
+	}
+	return ""
+}
+
+// autoAllowPermission returns the option id to answer with when the
+// workspace's auto-allow range covers the request, or "" when the operator
+// must choose. The policy approves only the least-privilege allow option:
+// answering "allow always" would outlive the location check that justified
+// it, so requests offering no allow_once option stay manual.
+func (a *Adapter) autoAllowPermission(p permissionParams) string {
+	scope, workspace := a.autoAllow()
+	if scope != protocol.AutoAllowScopeWorkspace && scope != protocol.AutoAllowScopeAll {
+		return ""
+	}
+	// A request with no locations (an opaque shell command) has nothing to
+	// check the range against; asking is the only safe answer.
+	if len(p.ToolCall.Locations) == 0 {
+		return ""
+	}
+	for _, loc := range p.ToolCall.Locations {
+		if !locationInScope(workspace, loc.Path, scope) {
+			return ""
+		}
+	}
+	return allowOnceOptionID(p.Options)
+}
+
+// locationInScope reports whether path lies inside the auto-allow range.
+// Relative paths are workspace-relative (ACP agents report either form).
+// Symlinks are resolved before the containment check, so a link pointing
+// outside the workspace cannot widen the "workspace" range. Anything the
+// adapter cannot resolve counts as out of scope — the operator is then asked.
+func locationInScope(workspace, path string, scope protocol.AutoAllowScope) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	if scope == protocol.AutoAllowScopeAll {
+		return true
+	}
+	if workspace == "" {
+		return false
+	}
+	_, err := resolveInWorkspace(workspace, path)
+	return err == nil
+}
+
+// allowOnceOptionID picks the single-use allow option. Empty ids never match:
+// the agent would not recognize them.
+func allowOnceOptionID(options []permissionOptionRaw) string {
+	for _, o := range options {
+		if o.OptionID != "" && o.Kind == "allow_once" {
 			return o.OptionID
 		}
 	}

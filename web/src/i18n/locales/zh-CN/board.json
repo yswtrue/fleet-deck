@@ -78,6 +78,14 @@
   "workspace": {
     "invalid": "无效的工作区",
     "notFound": "未找到工作区",
-    "notFoundBody": "该工作区可能已被删除，或你的账户无权访问。"
+    "notFoundBody": "该工作区可能已被删除，或你的账户无权访问。",
+    "autoAllow": "自动允许范围",
+    "autoAllowHint": "权限请求涉及的路径全部落在该范围内时自动批准，不再询问；未报告路径的请求仍会询问。对之后新建或恢复的会话生效。",
+    "autoAllowFailed": "无法更新自动允许范围：{{message}}",
+    "autoAllowScope": {
+      "none": "不自动允许",
+      "workspace": "工作目录下的目录",
+      "all": "所有目录"
+    }
   }
 }

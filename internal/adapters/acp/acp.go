@@ -36,7 +36,13 @@
 //
 // The adapter unwraps the option id and answers ACP with that `optionId`. If
 // the reply cannot be unwrapped, the adapter defaults to a deny option and
-// logs. Permission requests are never auto-approved.
+// logs. An unanswered request is never assumed to be approved.
+//
+// Auto-allow: when the owning workspace carries an auto-allow range
+// (AutoAllowScope) and every path the tool call names (toolCall.locations)
+// falls inside it, the adapter answers the request itself with the
+// least-privilege `allow_once` option instead of pausing. Requests that name
+// no locations always reach the operator.
 //
 // Todo mirror (locked Decision 5)
 //
@@ -190,6 +196,7 @@ type Adapter struct {
 	sessionID      string
 	externalID     string
 	workspace      string
+	autoAllowScope protocol.AutoAllowScope
 	model          string // agent-reported model (session metadata); see modelOrAgentType
 	status         protocol.SessionStatus
 	proc           *process
@@ -279,6 +286,7 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 	a.started = true
 	a.sessionID = req.SessionID
 	a.workspace = req.WorkspacePath
+	a.autoAllowScope = req.AutoAllowScope
 	a.status = protocol.SessionWaiting
 	a.sink = sink
 	a.cancelCh = make(chan struct{})
@@ -1178,6 +1186,14 @@ func (a *Adapter) currentWorkspace() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.workspace
+}
+
+// autoAllow returns the workspace's permission auto-allow range and the
+// workspace path it is relative to.
+func (a *Adapter) autoAllow() (protocol.AutoAllowScope, string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.autoAllowScope, a.workspace
 }
 
 func (a *Adapter) setStatus(status protocol.SessionStatus) {

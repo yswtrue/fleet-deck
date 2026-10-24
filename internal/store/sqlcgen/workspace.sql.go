@@ -12,7 +12,7 @@ import (
 const createWorkspace = `-- name: CreateWorkspace :one
 INSERT INTO workspace (node_id, name, path)
 VALUES ($1, $2, $3)
-RETURNING id, node_id, name, path, created_at
+RETURNING id, node_id, name, path, created_at, auto_allow_scope
 `
 
 type CreateWorkspaceParams struct {
@@ -30,12 +30,13 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		&i.Name,
 		&i.Path,
 		&i.CreatedAt,
+		&i.AutoAllowScope,
 	)
 	return i, err
 }
 
 const getWorkspace = `-- name: GetWorkspace :one
-SELECT id, node_id, name, path, created_at FROM workspace WHERE id = $1
+SELECT id, node_id, name, path, created_at, auto_allow_scope FROM workspace WHERE id = $1
 `
 
 func (q *Queries) GetWorkspace(ctx context.Context, id string) (Workspace, error) {
@@ -47,12 +48,13 @@ func (q *Queries) GetWorkspace(ctx context.Context, id string) (Workspace, error
 		&i.Name,
 		&i.Path,
 		&i.CreatedAt,
+		&i.AutoAllowScope,
 	)
 	return i, err
 }
 
 const listWorkspacesByNode = `-- name: ListWorkspacesByNode :many
-SELECT id, node_id, name, path, created_at FROM workspace WHERE node_id = $1 ORDER BY created_at
+SELECT id, node_id, name, path, created_at, auto_allow_scope FROM workspace WHERE node_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListWorkspacesByNode(ctx context.Context, nodeID string) ([]Workspace, error) {
@@ -70,6 +72,7 @@ func (q *Queries) ListWorkspacesByNode(ctx context.Context, nodeID string) ([]Wo
 			&i.Name,
 			&i.Path,
 			&i.CreatedAt,
+			&i.AutoAllowScope,
 		); err != nil {
 			return nil, err
 		}
@@ -79,4 +82,27 @@ func (q *Queries) ListWorkspacesByNode(ctx context.Context, nodeID string) ([]Wo
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateWorkspaceAutoAllowScope = `-- name: UpdateWorkspaceAutoAllowScope :one
+UPDATE workspace SET auto_allow_scope = $2 WHERE id = $1 RETURNING id, node_id, name, path, created_at, auto_allow_scope
+`
+
+type UpdateWorkspaceAutoAllowScopeParams struct {
+	ID             string
+	AutoAllowScope string
+}
+
+func (q *Queries) UpdateWorkspaceAutoAllowScope(ctx context.Context, arg UpdateWorkspaceAutoAllowScopeParams) (Workspace, error) {
+	row := q.db.QueryRow(ctx, updateWorkspaceAutoAllowScope, arg.ID, arg.AutoAllowScope)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.NodeID,
+		&i.Name,
+		&i.Path,
+		&i.CreatedAt,
+		&i.AutoAllowScope,
+	)
+	return i, err
 }

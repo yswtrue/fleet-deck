@@ -144,11 +144,12 @@ func (n *Node) startSession(ctx context.Context, cmd protocol.TaskStartCommand) 
 
 	go func() {
 		result, err := adapter.Start(ctx, adapters.StartRequest{
-			SessionID:     cmd.SessionID,
-			TaskID:        cmd.TaskID,
-			AgentType:     agentType,
-			Prompt:        cmd.Prompt,
-			WorkspacePath: cmd.WorkspacePath,
+			SessionID:      cmd.SessionID,
+			TaskID:         cmd.TaskID,
+			AgentType:      agentType,
+			Prompt:         cmd.Prompt,
+			WorkspacePath:  cmd.WorkspacePath,
+			AutoAllowScope: cmd.AutoAllowScope,
 		}, sink)
 		if err != nil {
 			log.Error("adapter start failed", "err", err)
@@ -255,6 +256,7 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 			AgentType:       agentType,
 			Prompt:          prompt,
 			WorkspacePath:   cmd.WorkspacePath,
+			AutoAllowScope:  cmd.AutoAllowScope,
 			ResumeSessionID: cmd.ExternalSessionID,
 		}, sink)
 		if err != nil {

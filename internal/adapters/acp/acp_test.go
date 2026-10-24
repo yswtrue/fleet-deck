@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -158,6 +159,18 @@ func (r *recorder) waitError(t *testing.T) string {
 	}
 }
 
+// hasEvent reports whether any recorded event has the given kind.
+func (r *recorder) hasEvent(kind string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, e := range r.events {
+		if e.kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *recorder) waitUserInput(t *testing.T) string {
 	t.Helper()
 	select {
@@ -275,6 +288,8 @@ type adapterOpts struct {
 	resume    string
 	grace     time.Duration
 	workspace string // defaults to a fresh temp dir
+	autoAllow protocol.AutoAllowScope
+	location  string // tool call location for the permission-file scenario
 }
 
 // testBinary returns the absolute path to this test binary, which the fake
@@ -302,6 +317,9 @@ func startTestAdapter(t *testing.T, opts adapterOpts) (*Adapter, *recorder) {
 	}
 	a.ResumeSessionID = opts.resume
 	a.CancelGrace = opts.grace
+	if opts.location != "" {
+		a.cfg.env = append(a.cfg.env, "FLEETDECK_FAKE_ACP_LOCATION="+opts.location)
+	}
 
 	rec := newRecorder()
 	workspace := opts.workspace
@@ -309,11 +327,12 @@ func startTestAdapter(t *testing.T, opts adapterOpts) (*Adapter, *recorder) {
 		workspace = t.TempDir()
 	}
 	if _, err := a.Start(context.Background(), adapters.StartRequest{
-		SessionID:     "sess-1",
-		TaskID:        "task-1",
-		AgentType:     "test",
-		Prompt:        "do the thing",
-		WorkspacePath: workspace,
+		SessionID:      "sess-1",
+		TaskID:         "task-1",
+		AgentType:      "test",
+		Prompt:         "do the thing",
+		WorkspacePath:  workspace,
+		AutoAllowScope: opts.autoAllow,
 	}, rec); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -524,6 +543,142 @@ func TestPermissionReplyEmptyOptionIDDefaultsToDeny(t *testing.T) {
 	}
 	rec.waitTextContaining(t, "perm:deny")
 	rec.waitDone(t)
+}
+
+// TestPermissionAutoAllowedInsideWorkspace drives the workspace scope: a
+// request naming a file inside the workspace is answered with the allow_once
+// option without ever reaching the operator.
+func TestPermissionAutoAllowedInsideWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "demo.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	_, rec := startTestAdapter(t, adapterOpts{
+		scenario:  "permission-file",
+		workspace: workspace,
+		autoAllow: protocol.AutoAllowScopeWorkspace,
+		location:  filepath.Join(workspace, "demo.txt"),
+	})
+
+	rec.waitTextContaining(t, "perm:allow")
+	rec.waitDone(t)
+	if rec.hasEvent("user_input") {
+		t.Error("auto-allowed request still asked the operator")
+	}
+}
+
+// TestPermissionAutoAllowedOutsideWorkspaceWithAllScope covers the "all"
+// range: a location outside the workspace still passes.
+func TestPermissionAutoAllowedOutsideWorkspaceWithAllScope(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "other.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	_, rec := startTestAdapter(t, adapterOpts{
+		scenario:  "permission-file",
+		autoAllow: protocol.AutoAllowScopeAll,
+		location:  filepath.Join(outside, "other.txt"),
+	})
+
+	rec.waitTextContaining(t, "perm:allow")
+	rec.waitDone(t)
+	if rec.hasEvent("user_input") {
+		t.Error("auto-allowed request still asked the operator")
+	}
+}
+
+// TestPermissionOutsideWorkspaceScopeAsks keeps the workspace range
+// conservative: a location outside it falls back to the operator.
+func TestPermissionOutsideWorkspaceScopeAsks(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "other.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	_, rec := startTestAdapter(t, adapterOpts{
+		scenario:  "permission-file",
+		autoAllow: protocol.AutoAllowScopeWorkspace,
+		location:  filepath.Join(outside, "other.txt"),
+	})
+
+	rec.waitUserInput(t)
+}
+
+// TestPermissionWithoutLocationsAlwaysAsks: an opaque tool call has no path to
+// check the range against, so even the "all" scope must ask.
+func TestPermissionWithoutLocationsAlwaysAsks(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{
+		scenario:  "permission",
+		autoAllow: protocol.AutoAllowScopeAll,
+	})
+
+	rec.waitUserInput(t)
+}
+
+// TestPermissionNoneScopeAsks keeps the default behavior.
+func TestPermissionNoneScopeAsks(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "demo.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	_, rec := startTestAdapter(t, adapterOpts{
+		scenario:  "permission-file",
+		workspace: workspace,
+		autoAllow: protocol.AutoAllowScopeNone,
+		location:  filepath.Join(workspace, "demo.txt"),
+	})
+
+	rec.waitUserInput(t)
+}
+
+func TestAllowOnceOptionID(t *testing.T) {
+	options := []permissionOptionRaw{
+		{OptionID: "", Name: "Empty", Kind: "allow_once"},
+		{OptionID: "always", Name: "Allow always", Kind: "allow_always"},
+	}
+	if got := allowOnceOptionID(options); got != "" {
+		t.Fatalf("allowOnceOptionID without a usable allow_once = %q, want empty", got)
+	}
+	options = append(options, permissionOptionRaw{OptionID: "once", Name: "Allow", Kind: "allow_once"})
+	if got := allowOnceOptionID(options); got != "once" {
+		t.Fatalf("allowOnceOptionID = %q, want %q", got, "once")
+	}
+}
+
+func TestLocationInScope(t *testing.T) {
+	workspace := t.TempDir()
+	inside := filepath.Join(workspace, "sub", "file.txt")
+	if err := os.MkdirAll(filepath.Dir(inside), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(inside, []byte("x"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	outside := t.TempDir()
+	escape := filepath.Join(workspace, "leak")
+	if err := os.Symlink(outside, escape); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	cases := []struct {
+		name      string
+		path      string
+		scope     protocol.AutoAllowScope
+		workspace string
+		want      bool
+	}{
+		{"workspace absolute", inside, protocol.AutoAllowScopeWorkspace, workspace, true},
+		{"workspace relative", "sub/file.txt", protocol.AutoAllowScopeWorkspace, workspace, true},
+		{"workspace outside", filepath.Join(outside, "file.txt"), protocol.AutoAllowScopeWorkspace, workspace, false},
+		{"workspace symlink escape", filepath.Join(escape, "file.txt"), protocol.AutoAllowScopeWorkspace, workspace, false},
+		{"workspace unbound", "sub/file.txt", protocol.AutoAllowScopeWorkspace, "", false},
+		{"all outside", filepath.Join(outside, "file.txt"), protocol.AutoAllowScopeAll, workspace, true},
+		{"all empty path", "", protocol.AutoAllowScopeAll, workspace, false},
+	}
+	for _, tc := range cases {
+		if got := locationInScope(tc.workspace, tc.path, tc.scope); got != tc.want {
+			t.Errorf("%s: locationInScope(%q, %q) = %v, want %v", tc.name, tc.workspace, tc.path, got, tc.want)
+		}
+	}
 }
 
 func TestInitializeAdvertisesClientCapabilities(t *testing.T) {
@@ -1057,9 +1212,16 @@ func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenar
 	case "exit-midturn":
 		// Exit cleanly without answering session/prompt: the turn never ran.
 		os.Exit(0)
-	case "permission":
+	case "permission", "permission-file":
 		fakeNotify(enc, "session/update", fakeChunk("m1", "starting"))
-		fakeRequest(enc, "perm-1", "session/request_permission", fakePermissionParams())
+		params := fakePermissionParams()
+		if scenario == "permission-file" {
+			params["toolCall"] = map[string]any{
+				"title":     "Edit file",
+				"locations": []map[string]any{{"path": os.Getenv("FLEETDECK_FAKE_ACP_LOCATION")}},
+			}
+		}
+		fakeRequest(enc, "perm-1", "session/request_permission", params)
 		for {
 			var msg fakeRPC
 			if err := dec.Decode(&msg); err != nil {

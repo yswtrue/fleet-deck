@@ -78,6 +78,14 @@
   "workspace": {
     "invalid": "Invalid workspace",
     "notFound": "Workspace not found",
-    "notFoundBody": "It may have been deleted, or your account may not have access to it."
+    "notFoundBody": "It may have been deleted, or your account may not have access to it.",
+    "autoAllow": "Auto-allow range",
+    "autoAllowHint": "Permission requests naming only paths inside this range are approved without asking; requests without a path still ask. Applies to sessions started or resumed afterwards.",
+    "autoAllowFailed": "Could not update the auto-allow range: {{message}}",
+    "autoAllowScope": {
+      "none": "Do not auto-allow",
+      "workspace": "Directories under the working directory",
+      "all": "All directories"
+    }
   }
 }

@@ -1,20 +1,27 @@
 import { useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { message } from 'antd'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { useTranslation } from '../i18n/index.ts'
+import { AutoAllowScopeSelect } from '../components/AutoAllowScopeSelect.tsx'
 import { Board } from '../components/Board.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
+import type { Workspace as WorkspaceData } from '../gen/protocol/index.ts'
 
 /**
  * Workspace board page. The header resolves the workspace itself
  * (GET /api/workspaces/{id}) for its name + path; the board below owns the
- * task columns.
+ * task columns. The header also carries the permission auto-allow range: it
+ * decides which ACP permission requests the node answers without asking.
  */
 export function Workspace() {
   const { t } = useTranslation('board')
   const { workspaceId } = useParams<{ workspaceId: string }>()
   const api = useHubApi()
+  const queryClient = useQueryClient()
+  // `message.useMessage()`: antd v5's static API renders nothing under React 19.
+  const [messageApi, messageHolder] = message.useMessage()
   const {
     data: workspace,
     isLoading,
@@ -24,6 +31,17 @@ export function Workspace() {
     queryKey: ['workspace', workspaceId],
     queryFn: () => api.getWorkspace(workspaceId ?? ''),
     enabled: !!workspaceId,
+  })
+
+  const setAutoAllowScope = useMutation({
+    mutationFn: (scope: WorkspaceData['auto_allow_scope']) =>
+      api.setWorkspaceAutoAllowScope(workspaceId ?? '', scope),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['workspace', workspaceId], updated)
+    },
+    onError: (error) => {
+      messageApi.error(t('workspace.autoAllowFailed', { message: error.message }))
+    },
   })
 
   if (!workspaceId) return <ErrorState title={t('workspace.invalid')} />
@@ -37,11 +55,21 @@ export function Workspace() {
 
   return (
     <div>
+      {messageHolder}
       <header className="fd-page-header">
         <h1 className="fd-page-title">{workspace.name}</h1>
         <p className="fd-page-subtitle">
           <code title={workspace.path}>{workspace.path}</code>
         </p>
+        <div className="fd-meta">
+          <span className="fd-chip-label">{t('workspace.autoAllow')}</span>
+          <AutoAllowScopeSelect
+            value={workspace.auto_allow_scope}
+            onChange={(scope) => setAutoAllowScope.mutate(scope)}
+            busy={setAutoAllowScope.isPending}
+          />
+          <span>{t('workspace.autoAllowHint')}</span>
+        </div>
       </header>
       <Board workspaceId={workspaceId} nodeId={workspace.node_id} />
     </div>

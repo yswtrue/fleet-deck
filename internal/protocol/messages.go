@@ -177,6 +177,9 @@ type TaskStartCommand struct {
 	AgentType     string `json:"agent_type"`
 	Prompt        string `json:"prompt"`
 	WorkspacePath string `json:"workspace_path"`
+	// AutoAllowScope is the owning workspace's permission auto-allow range.
+	// Older hubs omit it; the node then asks for every permission request.
+	AutoAllowScope AutoAllowScope `json:"auto_allow_scope,omitempty" jsonschema:"enum=none,enum=workspace,enum=all"`
 	// UserMessage is the prompt as the hub recorded it (id, timestamp). The
 	// node stores it at the head of its live transcript so a browser that
 	// attaches later sees the instruction without waiting for adapter output.
@@ -216,12 +219,15 @@ type SessionTitle struct {
 // session/load and then prompts with Message. ExternalSessionID is the
 // agent-side session id recorded when the session first ran.
 type SessionResumeCommand struct {
-	SessionID         string `json:"session_id"`
-	TaskID            string `json:"task_id"`
-	AgentType         string `json:"agent_type"`
-	WorkspacePath     string `json:"workspace_path"`
-	ExternalSessionID string `json:"external_session_id"`
-	Message           string `json:"message"`
+	SessionID     string `json:"session_id"`
+	TaskID        string `json:"task_id"`
+	AgentType     string `json:"agent_type"`
+	WorkspacePath string `json:"workspace_path"`
+	// AutoAllowScope is the owning workspace's permission auto-allow range,
+	// re-read on resume so a changed setting applies to the revived session.
+	AutoAllowScope    AutoAllowScope `json:"auto_allow_scope,omitempty" jsonschema:"enum=none,enum=workspace,enum=all"`
+	ExternalSessionID string         `json:"external_session_id"`
+	Message           string         `json:"message"`
 	// UserMessage is the hub's recorded follow-up; the node appends it to its
 	// live transcript under the id the hub broadcast.
 	UserMessage *Message `json:"user_message,omitempty"`

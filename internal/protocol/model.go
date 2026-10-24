@@ -49,6 +49,22 @@ const (
 	SubtaskDone       SubtaskStatus = "done"
 )
 
+// AutoAllowScope is the workspace-level range in which ACP permission
+// requests (session/request_permission) naming file locations are approved
+// without asking the operator. "none" keeps the always-ask behavior.
+type AutoAllowScope string
+
+const (
+	// AutoAllowScopeNone asks the operator for every permission request.
+	AutoAllowScopeNone AutoAllowScope = "none"
+	// AutoAllowScopeWorkspace auto-approves a request only when every location
+	// it names resolves inside the workspace's path.
+	AutoAllowScopeWorkspace AutoAllowScope = "workspace"
+	// AutoAllowScopeAll auto-approves a request when the locations it names
+	// are any directories (they still have to be reported).
+	AutoAllowScopeAll AutoAllowScope = "all"
+)
+
 // MessageRole is the author of a session message.
 type MessageRole string
 
@@ -95,11 +111,16 @@ type Node struct {
 
 // Workspace is a working directory on a node, rendered as a kanban board (1:1).
 type Workspace struct {
-	ID        string    `json:"id"`
-	NodeID    string    `json:"node_id"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
-	CreatedAt time.Time `json:"created_at"`
+	ID     string `json:"id"`
+	NodeID string `json:"node_id"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	// AutoAllowScope is the workspace's permission auto-allow range: ACP
+	// permission requests whose reported file locations all fall inside it are
+	// answered without pausing the operator. It applies to sessions started
+	// (or resumed) after the change.
+	AutoAllowScope AutoAllowScope `json:"auto_allow_scope" jsonschema:"enum=none,enum=workspace,enum=all"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
 // Task is a single agent session on a board.

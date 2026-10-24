@@ -37,6 +37,19 @@ func (q *Queries) GetWorkspace(ctx context.Context, id string) (protocol.Workspa
 	return workspaceFromRow(row), nil
 }
 
+// UpdateWorkspaceAutoAllowScope stores a workspace's permission auto-allow
+// range and returns the updated row. The caller validates the enum.
+func (q *Queries) UpdateWorkspaceAutoAllowScope(ctx context.Context, id string, scope protocol.AutoAllowScope) (protocol.Workspace, error) {
+	row, err := q.q.UpdateWorkspaceAutoAllowScope(ctx, sqlcgen.UpdateWorkspaceAutoAllowScopeParams{
+		ID:             id,
+		AutoAllowScope: string(scope),
+	})
+	if err != nil {
+		return protocol.Workspace{}, fmt.Errorf("store: update workspace auto_allow_scope: %w", err)
+	}
+	return workspaceFromRow(row), nil
+}
+
 // ListWorkspacesByNode returns a node's workspaces ordered by creation time.
 func (q *Queries) ListWorkspacesByNode(ctx context.Context, nodeID string) ([]protocol.Workspace, error) {
 	rows, err := q.q.ListWorkspacesByNode(ctx, nodeID)
