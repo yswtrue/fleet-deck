@@ -25,7 +25,20 @@
   transform: translateY(-2px);
 }
 
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.actions {
+  margin-left: auto;
+  flex: none;
+}
+
 .name {
+  flex: 1;
   margin: 0 !important;
   min-width: 0;
   font-size: 1rem !important;

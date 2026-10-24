@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { message } from 'antd'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { useTranslation } from '../i18n/index.ts'
 import { WorkspaceCard } from './WorkspaceCard.tsx'
@@ -10,6 +11,9 @@ import type { TaskStatus } from '../types.ts'
 export function WorkspaceList({ nodeId }: { nodeId: string }) {
   const api = useHubApi()
   const { t } = useTranslation('pages')
+  // Card-owned holders unmount with a deleted card and would drop its toast;
+  // the list owns the holder for the whole workspace grid.
+  const [messageApi, messageHolder] = message.useMessage()
   const workspacesQuery = useQuery({
     queryKey: ['workspaces', nodeId],
     queryFn: () => api.listWorkspaces(nodeId),
@@ -31,25 +35,36 @@ export function WorkspaceList({ nodeId }: { nodeId: string }) {
     counts[task.status] = (counts[task.status] ?? 0) + 1
   }
 
-  if (workspacesQuery.isLoading) return <LoadingSkeleton count={4} />
-  if (workspacesQuery.error)
-    return (
+  let content: React.ReactNode
+  if (workspacesQuery.isLoading) {
+    content = <LoadingSkeleton count={4} />
+  } else if (workspacesQuery.error) {
+    content = (
       <ErrorState title={t('workspace.loadError')} onRetry={() => void workspacesQuery.refetch()}>
         {workspacesQuery.error.message}
       </ErrorState>
     )
-  if (workspaces.length === 0)
-    return <EmptyState title={t('workspace.emptyTitle')}>{t('workspace.emptyBody')}</EmptyState>
+  } else if (workspaces.length === 0) {
+    content = <EmptyState title={t('workspace.emptyTitle')}>{t('workspace.emptyBody')}</EmptyState>
+  } else {
+    content = (
+      <div className="fd-grid">
+        {workspaces.map((workspace) => (
+          <WorkspaceCard
+            key={workspace.id}
+            workspace={workspace}
+            statusCounts={statusCounts[workspace.id] ?? {}}
+            messageApi={messageApi}
+          />
+        ))}
+      </div>
+    )
+  }
 
   return (
-    <div className="fd-grid">
-      {workspaces.map((workspace) => (
-        <WorkspaceCard
-          key={workspace.id}
-          workspace={workspace}
-          statusCounts={statusCounts[workspace.id] ?? {}}
-        />
-      ))}
-    </div>
+    <>
+      {messageHolder}
+      {content}
+    </>
   )
 }

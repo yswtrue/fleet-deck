@@ -54,6 +54,7 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workspaces/{id}", h.requireWorkspaceAccess(h.handleGetWorkspace))
 	mux.HandleFunc("POST /api/workspaces", h.requireAuth(h.handleCreateWorkspace))
 	mux.HandleFunc("PATCH /api/workspaces/{id}", h.requireWorkspaceAccess(h.handlePatchWorkspace))
+	mux.HandleFunc("DELETE /api/workspaces/{id}", h.requireWorkspaceAccess(h.handleDeleteWorkspace))
 
 	mux.HandleFunc("GET /api/tasks", h.requireAuth(h.handleListTasks))
 	mux.HandleFunc("POST /api/tasks", h.requireAuth(h.handleCreateTask))
@@ -243,34 +244,87 @@ func (h *Hub) handleGetWorkspace(w http.ResponseWriter, r *http.Request, id stri
 	writeJSON(w, http.StatusOK, workspace)
 }
 
-// handlePatchWorkspace updates the workspace-level permission policy. The
-// binding model grants read and write together, so requireWorkspaceAccess is
-// also the write check: an invisible workspace answers 404.
+// handlePatchWorkspace updates the workspace name and/or its permission
+// policy. The binding model grants read and write together, so
+// requireWorkspaceAccess is also the write check: an invisible workspace
+// answers 404.
 func (h *Hub) handlePatchWorkspace(w http.ResponseWriter, r *http.Request, id string) {
 	var req struct {
+		Name           *string                  `json:"name"`
 		AutoAllowScope *protocol.AutoAllowScope `json:"auto_allow_scope"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if req.AutoAllowScope == nil {
-		writeError(w, http.StatusBadRequest, "auto_allow_scope is required")
+	if req.Name == nil && req.AutoAllowScope == nil {
+		writeError(w, http.StatusBadRequest, "name or auto_allow_scope is required")
 		return
 	}
-	scope := *req.AutoAllowScope
-	switch scope {
-	case protocol.AutoAllowScopeNone, protocol.AutoAllowScopeWorkspace, protocol.AutoAllowScopeAll:
-	default:
-		writeError(w, http.StatusBadRequest, "invalid auto_allow_scope")
-		return
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		req.Name = &name
 	}
-	updated, err := h.store.Queries().UpdateWorkspaceAutoAllowScope(r.Context(), id, scope)
+	if req.AutoAllowScope != nil {
+		switch *req.AutoAllowScope {
+		case protocol.AutoAllowScopeNone, protocol.AutoAllowScopeWorkspace, protocol.AutoAllowScopeAll:
+		default:
+			writeError(w, http.StatusBadRequest, "invalid auto_allow_scope")
+			return
+		}
+	}
+
+	ctx := r.Context()
+	q := h.store.Queries()
+	workspace, err := q.GetWorkspace(ctx, id)
 	if err != nil {
-		h.serverError(w, "update workspace auto_allow_scope", err)
+		writeError(w, http.StatusNotFound, "workspace not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, updated)
+	if req.Name != nil {
+		workspace, err = q.UpdateWorkspaceName(ctx, id, *req.Name)
+		if err != nil {
+			h.serverError(w, "update workspace name", err)
+			return
+		}
+	}
+	if req.AutoAllowScope != nil {
+		workspace, err = q.UpdateWorkspaceAutoAllowScope(ctx, id, *req.AutoAllowScope)
+		if err != nil {
+			h.serverError(w, "update workspace auto_allow_scope", err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, workspace)
+}
+
+// handleDeleteWorkspace removes a workspace registration and (by cascade) its
+// tasks, sessions, subtasks, events and usage. Files on the node are never
+// touched. A workspace with a live session is refused: deleting its rows would
+// orphan the adapter process on the node, so the caller resolves it first.
+func (h *Hub) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	q := h.store.Queries()
+	active, err := q.CountActiveSessionsByWorkspace(ctx, id)
+	if err != nil {
+		h.serverError(w, "count active workspace sessions", err)
+		return
+	}
+	if active > 0 {
+		writeError(w, http.StatusConflict,
+			"workspace has active sessions; finish or cancel them first")
+		return
+	}
+	if err := q.DeleteWorkspace(ctx, id); err != nil {
+		h.serverError(w, "delete workspace", err)
+		return
+	}
+	h.invalidateTasks(ctx, id)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---- tasks -----------------------------------------------------------------

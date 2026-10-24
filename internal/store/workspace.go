@@ -37,6 +37,39 @@ func (q *Queries) GetWorkspace(ctx context.Context, id string) (protocol.Workspa
 	return workspaceFromRow(row), nil
 }
 
+// UpdateWorkspaceName renames a workspace and returns the updated row. The
+// caller validates and trims the name.
+func (q *Queries) UpdateWorkspaceName(ctx context.Context, id, name string) (protocol.Workspace, error) {
+	row, err := q.q.UpdateWorkspaceName(ctx, sqlcgen.UpdateWorkspaceNameParams{
+		ID:   id,
+		Name: name,
+	})
+	if err != nil {
+		return protocol.Workspace{}, fmt.Errorf("store: update workspace name: %w", err)
+	}
+	return workspaceFromRow(row), nil
+}
+
+// DeleteWorkspace removes a workspace and, by foreign-key cascade, its tasks,
+// sessions, subtasks, events and token usage. Files on the node are untouched.
+func (q *Queries) DeleteWorkspace(ctx context.Context, id string) error {
+	if err := q.q.DeleteWorkspace(ctx, id); err != nil {
+		return fmt.Errorf("store: delete workspace: %w", err)
+	}
+	return nil
+}
+
+// CountActiveSessionsByWorkspace counts non-terminal sessions under the
+// workspace. Deleting a workspace with live adapters would orphan them on the
+// node, so the hub refuses until they finish.
+func (q *Queries) CountActiveSessionsByWorkspace(ctx context.Context, workspaceID string) (int64, error) {
+	n, err := q.q.CountActiveSessionsByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("store: count active sessions by workspace: %w", err)
+	}
+	return n, nil
+}
+
 // UpdateWorkspaceAutoAllowScope stores a workspace's permission auto-allow
 // range and returns the updated row. The caller validates the enum.
 func (q *Queries) UpdateWorkspaceAutoAllowScope(ctx context.Context, id string, scope protocol.AutoAllowScope) (protocol.Workspace, error) {

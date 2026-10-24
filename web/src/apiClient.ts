@@ -458,6 +458,18 @@ export const apiClient = {
   createWorkspace: (workspace: CreateWorkspaceInput) =>
     fetchJson<Workspace>('/api/workspaces', { method: 'POST', body: JSON.stringify(workspace) }),
 
+  /** PATCH /api/workspaces/{id} with a new display name. */
+  renameWorkspace: (id: string, name: string) =>
+    fetchJson<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
+  /** DELETE /api/workspaces/{id} removes the workspace and its tasks/sessions;
+   * files on the node are untouched. */
+  deleteWorkspace: (id: string) =>
+    fetchJson<void>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
   /** PATCH /api/workspaces/{id} sets the workspace's permission auto-allow
    * range (applies to sessions started or resumed afterwards). */
   setWorkspaceAutoAllowScope: (id: string, scope: Workspace['auto_allow_scope']) =>

@@ -202,6 +202,8 @@ func TestAuthRequired(t *testing.T) {
 		{"POST", "/api/nodes/join-tokens"},
 		{"GET", "/api/users"},
 		{"GET", "/api/workspaces?node_id=x"},
+		{"PATCH", "/api/workspaces/x"},
+		{"DELETE", "/api/workspaces/x"},
 		{"GET", "/api/tasks?node_id=x"},
 		{"POST", "/api/tasks"},
 		{"GET", "/api/auth/me"},

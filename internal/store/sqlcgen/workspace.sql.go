@@ -9,6 +9,19 @@ import (
 	"context"
 )
 
+const countActiveSessionsByWorkspace = `-- name: CountActiveSessionsByWorkspace :one
+SELECT count(*) FROM session s
+JOIN task t ON t.id = s.task_id
+WHERE t.workspace_id = $1 AND s.status NOT IN ('done', 'failed')
+`
+
+func (q *Queries) CountActiveSessionsByWorkspace(ctx context.Context, workspaceID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveSessionsByWorkspace, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createWorkspace = `-- name: CreateWorkspace :one
 INSERT INTO workspace (node_id, name, path)
 VALUES ($1, $2, $3)
@@ -33,6 +46,15 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 		&i.AutoAllowScope,
 	)
 	return i, err
+}
+
+const deleteWorkspace = `-- name: DeleteWorkspace :exec
+DELETE FROM workspace WHERE id = $1
+`
+
+func (q *Queries) DeleteWorkspace(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteWorkspace, id)
+	return err
 }
 
 const getWorkspace = `-- name: GetWorkspace :one
@@ -95,6 +117,29 @@ type UpdateWorkspaceAutoAllowScopeParams struct {
 
 func (q *Queries) UpdateWorkspaceAutoAllowScope(ctx context.Context, arg UpdateWorkspaceAutoAllowScopeParams) (Workspace, error) {
 	row := q.db.QueryRow(ctx, updateWorkspaceAutoAllowScope, arg.ID, arg.AutoAllowScope)
+	var i Workspace
+	err := row.Scan(
+		&i.ID,
+		&i.NodeID,
+		&i.Name,
+		&i.Path,
+		&i.CreatedAt,
+		&i.AutoAllowScope,
+	)
+	return i, err
+}
+
+const updateWorkspaceName = `-- name: UpdateWorkspaceName :one
+UPDATE workspace SET name = $2 WHERE id = $1 RETURNING id, node_id, name, path, created_at, auto_allow_scope
+`
+
+type UpdateWorkspaceNameParams struct {
+	ID   string
+	Name string
+}
+
+func (q *Queries) UpdateWorkspaceName(ctx context.Context, arg UpdateWorkspaceNameParams) (Workspace, error) {
+	row := q.db.QueryRow(ctx, updateWorkspaceName, arg.ID, arg.Name)
 	var i Workspace
 	err := row.Scan(
 		&i.ID,

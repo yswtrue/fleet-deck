@@ -157,6 +157,39 @@ describe('user ↔ node bindings', () => {
   })
 })
 
+describe('workspace lifecycle', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/login')
+  })
+  afterEach(() => {
+    localStorage.clear()
+    window.history.replaceState({}, '', '/')
+    vi.unstubAllGlobals()
+  })
+
+  it('renames via PATCH {name} and deletes via DELETE', async () => {
+    const fetchMock = mockFetch((_url, init) =>
+      init?.method === 'DELETE'
+        ? new Response(null, { status: 204 })
+        : jsonResponse({ id: 'w-1', name: 'Renamed' })
+    )
+
+    await expect(apiClient.renameWorkspace('w-1', 'Renamed')).resolves.toMatchObject({
+      name: 'Renamed',
+    })
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/workspaces/w-1')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ name: 'Renamed' }),
+    })
+
+    await expect(apiClient.deleteWorkspace('w-1')).resolves.toBeUndefined()
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/workspaces/w-1')
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' })
+  })
+})
+
 describe('task lifecycle', () => {
   beforeEach(() => {
     localStorage.clear()

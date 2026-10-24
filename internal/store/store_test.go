@@ -89,6 +89,12 @@ func TestSmokeCRUDRoundTrip(t *testing.T) {
 	if got, err := q.GetWorkspace(ctx, ws.ID); err != nil || got.NodeID != node.ID {
 		t.Fatalf("GetWorkspace: %v (node %q)", err, got.NodeID)
 	}
+	if renamed, err := q.UpdateWorkspaceName(ctx, ws.ID, "renamed-"+suffix); err != nil || renamed.Name != "renamed-"+suffix {
+		t.Fatalf("UpdateWorkspaceName: %v (name %q)", err, renamed.Name)
+	}
+	if scoped, err := q.UpdateWorkspaceAutoAllowScope(ctx, ws.ID, protocol.AutoAllowScopeWorkspace); err != nil || scoped.AutoAllowScope != protocol.AutoAllowScopeWorkspace {
+		t.Fatalf("UpdateWorkspaceAutoAllowScope: %v (scope %q)", err, scoped.AutoAllowScope)
+	}
 	if list, err := q.ListWorkspacesByNode(ctx, node.ID); err != nil || len(list) == 0 {
 		t.Fatalf("ListWorkspacesByNode: %v (%d rows)", err, len(list))
 	}
@@ -177,9 +183,15 @@ func TestSmokeCRUDRoundTrip(t *testing.T) {
 	if got, err := q.GetSession(ctx, sess.ID); err != nil || got.ExternalSessionID != "ext-"+suffix {
 		t.Fatalf("GetSession: %v (ext %q)", err, got.ExternalSessionID)
 	}
+	if n, err := q.CountActiveSessionsByWorkspace(ctx, ws.ID); err != nil || n != 1 {
+		t.Fatalf("CountActiveSessionsByWorkspace (running): %v (got %d, want 1)", err, n)
+	}
 	ended := time.Now()
 	if err := q.UpdateSessionStatus(ctx, sess.ID, protocol.SessionDone, &ended); err != nil {
 		t.Fatalf("UpdateSessionStatus: %v", err)
+	}
+	if n, err := q.CountActiveSessionsByWorkspace(ctx, ws.ID); err != nil || n != 0 {
+		t.Fatalf("CountActiveSessionsByWorkspace (done): %v (got %d, want 0)", err, n)
 	}
 	if list, err := q.ListSessionsByNode(ctx, node.ID); err != nil || len(list) == 0 {
 		t.Fatalf("ListSessionsByNode: %v (%d rows)", err, len(list))
@@ -228,5 +240,16 @@ func TestSmokeCRUDRoundTrip(t *testing.T) {
 		return fmt.Errorf("intentional rollback")
 	}); err == nil {
 		t.Fatal("WithTx: expected error to propagate")
+	}
+
+	// workspace delete -------------------------------------------------------
+	if err := q.DeleteWorkspace(ctx, ws.ID); err != nil {
+		t.Fatalf("DeleteWorkspace: %v", err)
+	}
+	if _, err := q.GetWorkspace(ctx, ws.ID); err == nil {
+		t.Fatal("GetWorkspace after delete: expected no rows")
+	}
+	if _, err := q.GetTask(ctx, task.ID); err == nil {
+		t.Fatal("GetTask after workspace delete: expected cascade")
 	}
 }

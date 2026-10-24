@@ -1,4 +1,4 @@
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { message } from 'antd'
 import { useHubApi } from '../hooks/useHubApi.ts'
@@ -7,6 +7,7 @@ import { AutoAllowScopeSelect } from '../components/AutoAllowScopeSelect.tsx'
 import { Board } from '../components/Board.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
+import { WorkspaceActions } from '../components/WorkspaceActions.tsx'
 import type { Workspace as WorkspaceData } from '../gen/protocol/index.ts'
 
 /**
@@ -18,6 +19,7 @@ import type { Workspace as WorkspaceData } from '../gen/protocol/index.ts'
 export function Workspace() {
   const { t } = useTranslation('board')
   const { workspaceId } = useParams<{ workspaceId: string }>()
+  const navigate = useNavigate()
   const api = useHubApi()
   const queryClient = useQueryClient()
   // `message.useMessage()`: antd v5's static API renders nothing under React 19.
@@ -57,7 +59,15 @@ export function Workspace() {
     <div>
       {messageHolder}
       <header className="fd-page-header">
-        <h1 className="fd-page-title">{workspace.name}</h1>
+        <div className="fd-section-header">
+          <h1 className="fd-page-title">{workspace.name}</h1>
+          <WorkspaceActions
+            workspace={workspace}
+            variant="buttons"
+            messageApi={messageApi}
+            onDeleted={() => navigate(`/nodes/${workspace.node_id}`)}
+          />
+        </div>
         <p className="fd-page-subtitle">
           <code title={workspace.path}>{workspace.path}</code>
         </p>
