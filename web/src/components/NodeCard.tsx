@@ -79,6 +79,11 @@ export function NodeCard({ node }: { node: Node }) {
           <strong>{activeTaskCount}</strong>{' '}
           {t('nodeCard.activeTaskLabel', { count: activeTaskCount })}
         </span>
+        {node.version && (
+          <span className={styles.metric}>
+            {t('node.version')} <strong>{node.version}</strong>
+          </span>
+        )}
         {node.last_seen_at && (
           <span className={styles.lastSeen} title={new Date(node.last_seen_at).toLocaleString()}>
             {t('node.lastSeen', { time: formatRelative(node.last_seen_at) })}

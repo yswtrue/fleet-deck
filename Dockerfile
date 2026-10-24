@@ -26,6 +26,9 @@ RUN cd web && VITE_HUB_URL=$VITE_HUB_URL pnpm build
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build-go
 ARG TARGETOS
 ARG TARGETARCH
+# Release tag stamped into the binaries; the web UI shows the hub version and
+# nodes report theirs on registration. Local builds stay "dev".
+ARG VERSION=dev
 # Pinned migration runner (same version as the dev toolchain). Cross-compiled
 # for the runtime platform so the copied binary matches the final stage.
 # Installed before the source copy so source changes never invalidate this layer.
@@ -43,8 +46,8 @@ RUN go mod download
 COPY . .
 # Embed the web UI into the hub binary (internal/hub/static is the embed root).
 COPY --from=build-web /src/web/dist/ internal/hub/static/
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /out/hub ./cmd/hub \
- && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /out/node ./cmd/node \
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-X fleetdeck/internal/version.Version=$VERSION" -o /out/hub ./cmd/hub \
+ && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-X fleetdeck/internal/version.Version=$VERSION" -o /out/node ./cmd/node \
  && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /out/fleetctl ./cmd/fleetctl
 
 FROM alpine:3.20 AS runtime

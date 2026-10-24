@@ -105,6 +105,7 @@ func nodeFromRow(r sqlcgen.Node) protocol.Node {
 		Status:         protocol.NodeStatus(r.Status),
 		AgentTypes:     agentTypes,
 		DefaultAdapter: r.DefaultAdapter,
+		Version:        r.Version,
 		LastSeenAt:     r.LastSeenAt,
 	}
 }

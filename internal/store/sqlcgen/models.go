@@ -38,6 +38,7 @@ type Node struct {
 	MachineID      pgtype.Text
 	AgentTypes     []string
 	DefaultAdapter string
+	Version        string
 }
 
 type NodeJoinToken struct {

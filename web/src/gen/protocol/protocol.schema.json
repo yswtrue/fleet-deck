@@ -127,6 +127,9 @@
         "default_adapter": {
           "type": "string"
         },
+        "version": {
+          "type": "string"
+        },
         "last_seen_at": {
           "type": "string",
           "format": "date-time"
@@ -177,6 +180,9 @@
           "type": "array"
         },
         "default_adapter": {
+          "type": "string"
+        },
+        "version": {
           "type": "string"
         },
         "token": {

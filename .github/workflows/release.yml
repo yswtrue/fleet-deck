@@ -49,7 +49,7 @@ jobs:
           if [ "$GOOS" = windows ]; then bin=fleetdeck-node.exe; fi
           mkdir -p stage
           # Pure Go (no cgo): cross-compiling from the Linux runner is enough.
-          go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o "stage/$bin" ./cmd/node
+          go build -trimpath -ldflags="-s -w -X fleetdeck/internal/version.Version=${GITHUB_REF_NAME}" -o "stage/$bin" ./cmd/node
           cp deploy/node.config.example.yaml stage/
           chmod +x "stage/$bin"
 
@@ -112,6 +112,8 @@ jobs:
           target: runtime
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

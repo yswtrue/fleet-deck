@@ -452,6 +452,7 @@ func (h *Hub) registerNewNode(ctx context.Context, name string, req protocol.Reg
 			Status:         protocol.NodeOnline,
 			AgentTypes:     req.AgentTypes,
 			DefaultAdapter: req.DefaultAdapter,
+			Version:        req.Version,
 			TokenHash:      hash,
 			MachineID:      req.MachineID,
 		})
@@ -492,7 +493,7 @@ func (h *Hub) acceptExistingNode(ctx context.Context, existing protocol.Node, re
 	if err := h.claimMachineID(ctx, h.store.Queries(), existing.ID, req.MachineID); err != nil {
 		return protocol.Node{}, "", err
 	}
-	if err := h.syncNodeAgents(ctx, &existing, req); err != nil {
+	if err := h.syncNodeRuntime(ctx, &existing, req); err != nil {
 		return protocol.Node{}, "", err
 	}
 	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {
@@ -502,19 +503,21 @@ func (h *Hub) acceptExistingNode(ctx context.Context, existing protocol.Node, re
 	return existing, "", nil
 }
 
-// syncNodeAgents refreshes a reconnecting node's runnable adapter list and
-// default. A nil AgentTypes means the daemon predates the field; keep the
-// stored binding rather than wiping it (such a daemon omits default_adapter
-// too). Current daemons always send an array (possibly empty).
-func (h *Hub) syncNodeAgents(ctx context.Context, node *protocol.Node, req protocol.RegisterRequest) error {
+// syncNodeRuntime refreshes a reconnecting node's runnable adapter list,
+// default and daemon version. A nil AgentTypes means the daemon predates those
+// fields; keep the stored binding rather than wiping it (such a daemon omits
+// default_adapter and version too). Current daemons always send an agent array
+// (possibly empty) and a non-empty version.
+func (h *Hub) syncNodeRuntime(ctx context.Context, node *protocol.Node, req protocol.RegisterRequest) error {
 	if req.AgentTypes == nil {
 		return nil
 	}
-	if err := h.store.Queries().UpdateNodeAgents(ctx, node.ID, req.AgentTypes, req.DefaultAdapter); err != nil {
+	if err := h.store.Queries().UpdateNodeRuntime(ctx, node.ID, req.AgentTypes, req.DefaultAdapter, req.Version); err != nil {
 		return err
 	}
 	node.AgentTypes = req.AgentTypes
 	node.DefaultAdapter = req.DefaultAdapter
+	node.Version = req.Version
 	return nil
 }
 
@@ -541,7 +544,7 @@ func (h *Hub) claimExistingNode(ctx context.Context, existing protocol.Node, req
 	if err != nil {
 		return protocol.Node{}, "", err
 	}
-	if err := h.syncNodeAgents(ctx, &existing, req); err != nil {
+	if err := h.syncNodeRuntime(ctx, &existing, req); err != nil {
 		return protocol.Node{}, "", err
 	}
 	if err := h.store.Queries().UpdateNodeStatus(ctx, existing.ID, protocol.NodeOnline, time.Now().UTC()); err != nil {

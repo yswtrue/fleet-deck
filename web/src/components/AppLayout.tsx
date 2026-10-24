@@ -2,8 +2,10 @@ import { useState, useSyncExternalStore } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { Drawer, Layout, Menu } from 'antd'
 import type { MenuProps } from 'antd'
+import { useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.ts'
+import { useHubApi } from '../hooks/useHubApi.ts'
 import { Header } from './Header.tsx'
 import { useTranslation } from '../i18n/index.ts'
 import styles from './AppLayout.module.css'
@@ -111,6 +113,29 @@ function selectedKey(pathname: string): string {
 }
 
 /**
+ * Release version pinned to the bottom of the sidebar (and the mobile drawer).
+ * Hidden when talking to a hub that predates the health `version` field.
+ */
+function VersionFooter({
+  version,
+  label,
+  compact,
+}: {
+  version: string
+  label: string
+  compact: boolean
+}) {
+  if (!version) return null
+  const text = `${label}: ${version}`
+  return (
+    <div className={styles.version} data-collapsed={compact} aria-label={text} title={text}>
+      <span className={styles.versionLabel}>{label}</span>
+      <span className={styles.versionValue}>{version}</span>
+    </div>
+  )
+}
+
+/**
  * The traditional admin shell: a collapsible left sidebar (a drawer below
  * 768px) plus the existing top header and the routed page content. The menu is
  * the primary navigation; deep links keep working without JS menu state.
@@ -118,11 +143,21 @@ function selectedKey(pathname: string): string {
 export function AppLayout({ children }: { children: ReactNode }) {
   const { t } = useTranslation('nav')
   const { isAdmin } = useAuth()
+  const api = useHubApi()
   const location = useLocation()
   const navigate = useNavigate()
   const isSmall = useIsSmallScreen()
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+
+  // Same cache entry as the header's hub indicator; the version comes from
+  // the open health probe (older hubs omit it, so render nothing then).
+  const { data: health } = useQuery({
+    queryKey: ['health'],
+    queryFn: () => api.getHealth(),
+    retry: false,
+  })
+  const hubVersion = health?.version ?? ''
 
   const items: MenuProps['items'] = [
     { key: '/', icon: <DashboardIcon />, label: t('dashboard') },
@@ -171,6 +206,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </button>
           </div>
           <nav className={styles.nav}>{menu}</nav>
+          <VersionFooter version={hubVersion} label={t('version')} compact={collapsed} />
         </Sider>
       )}
       <Layout className={styles.main}>
@@ -191,6 +227,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </NavLink>
         </div>
         {menu}
+        <VersionFooter version={hubVersion} label={t('version')} compact={false} />
       </Drawer>
     </Layout>
   )

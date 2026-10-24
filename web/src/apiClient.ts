@@ -413,7 +413,7 @@ export const apiClient = {
       body: JSON.stringify({ node_ids: nodeIds }),
     }),
 
-  getHealth: () => fetchJson<{ status: string }>('/api/health'),
+  getHealth: () => fetchJson<{ status: string; version?: string }>('/api/health'),
 
   // ── Web Push ──────────────────────────────────────────────────────────────
 

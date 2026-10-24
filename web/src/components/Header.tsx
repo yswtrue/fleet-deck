@@ -94,7 +94,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
 
   const { data: health } = useQuery({
     queryKey: ['health'],
-    queryFn: () => api.getHealth().then(() => true),
+    queryFn: () => api.getHealth(),
     refetchInterval: 5000,
     retry: false,
   })
@@ -196,8 +196,10 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
           onClick={refresh}
           aria-label={t('refreshStatus')}
         >
-          <span className={styles.dot} data-state={health === true ? 'ok' : 'down'} />
-          <span className={styles.label}>{health === true ? t('hubOnline') : t('hubOffline')}</span>
+          <span className={styles.dot} data-state={health?.status === 'ok' ? 'ok' : 'down'} />
+          <span className={styles.label}>
+            {health?.status === 'ok' ? t('hubOnline') : t('hubOffline')}
+          </span>
           {ws != null && (
             <>
               <span className={styles.divider} />

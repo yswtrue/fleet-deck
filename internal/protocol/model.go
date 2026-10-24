@@ -105,8 +105,12 @@ type Node struct {
 	// DefaultAdapter is the node's configured default agent (its config's
 	// default_adapter). The task form preselects it; empty when the node has
 	// none configured or predates the field.
-	DefaultAdapter string    `json:"default_adapter,omitempty"`
-	LastSeenAt     time.Time `json:"last_seen_at,omitempty"`
+	DefaultAdapter string `json:"default_adapter,omitempty"`
+	// Version is the daemon's release version as reported at its last
+	// registration ("v1.2.3", or "dev" for source builds). Empty for daemons
+	// that predate the field.
+	Version    string    `json:"version,omitempty"`
+	LastSeenAt time.Time `json:"last_seen_at,omitempty"`
 }
 
 // Workspace is a working directory on a node, rendered as a kanban board (1:1).

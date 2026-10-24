@@ -29,6 +29,7 @@
     "noHost": "No host set",
     "lastSeen": "Last seen {{time}}",
     "agents": "Agents",
+    "version": "Version",
     "workspaces": "Workspaces"
   },
   "nodeCard": {

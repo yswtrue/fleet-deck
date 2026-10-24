@@ -13,12 +13,17 @@ const adminUser = {
   created_at: '2026-01-01T00:00:00Z',
 }
 
-/** Routes hub requests: `me` returns the admin user, everything else empty. */
+/** Routes hub requests: `me` returns the admin user, health reports the hub. */
 function mockHub() {
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
-      const payload = String(input).startsWith('/api/auth/me') ? adminUser : {}
+      const url = String(input)
+      const payload = url.startsWith('/api/auth/me')
+        ? adminUser
+        : url.startsWith('/api/health')
+          ? { status: 'ok', version: 'v9.9.9' }
+          : {}
       return Promise.resolve(
         new Response(JSON.stringify(payload), {
           status: 200,
@@ -91,6 +96,15 @@ describe('AppLayout', () => {
     renderLayout('/nodes')
 
     expect(await screen.findByText('Users')).toBeTruthy()
+  })
+
+  it('shows the hub version at the bottom of the sidebar', async () => {
+    mockHub()
+    stubMatchMedia(false)
+    renderLayout('/')
+
+    expect(await screen.findByText('v9.9.9')).toBeTruthy()
+    expect(screen.getByLabelText('Version: v9.9.9')).toBeTruthy()
   })
 
   it('opens the nav drawer from the header hamburger on small screens', async () => {

@@ -19,6 +19,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"fleetdeck/internal/version"
 )
 
 // releaseRepo is the GitHub repository that publishes node binaries. Each
@@ -94,9 +96,9 @@ func runUpdate(args []string) error {
 	}
 
 	if *check {
-		fmt.Printf("current: %s\n", version)
+		fmt.Printf("current: %s\n", version.Version)
 		fmt.Printf("latest:  %s\n", rel.TagName)
-		if version == rel.TagName {
+		if version.Version == rel.TagName {
 			fmt.Println("up to date")
 		}
 		return nil
@@ -162,7 +164,7 @@ func runUpdate(args []string) error {
 		}
 		return fmt.Errorf("update: replace %s: %w%s", target, err, hint)
 	}
-	fmt.Printf("Updated %s: %s -> %s\n", target, version, rel.TagName)
+	fmt.Printf("Updated %s: %s -> %s\n", target, version.Version, rel.TagName)
 
 	if *noRestart {
 		return nil
@@ -285,7 +287,7 @@ func newGitHubRequest(ctx context.Context, endpoint, token string) (*http.Reques
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("User-Agent", programName+"/"+version)
+	req.Header.Set("User-Agent", programName+"/"+version.Version)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

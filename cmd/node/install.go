@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"fleetdeck/internal/node"
+	"fleetdeck/internal/version"
 )
 
 const (
@@ -57,7 +58,7 @@ func runInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Installed %s %s to %s\n", programName, version, binPath)
+	fmt.Printf("Installed %s %s to %s\n", programName, version.Version, binPath)
 
 	// Starting without a hub endpoint or without the node credential would
 	// make the service exit and restart on a loop; enable it, but say what is

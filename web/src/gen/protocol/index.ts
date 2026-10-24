@@ -72,6 +72,7 @@ export interface Node {
   status: "online" | "offline";
   agent_types?: string[];
   default_adapter?: string;
+  version?: string;
   last_seen_at?: string;
 }
 export interface NodeStatusChanged {
@@ -83,6 +84,7 @@ export interface RegisterRequest {
   host?: string;
   agent_types: string[];
   default_adapter?: string;
+  version?: string;
   token?: string;
   join_token?: string;
   machine_id?: string;

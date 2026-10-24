@@ -188,6 +188,7 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 		Host:           "test-host",
 		AgentTypes:     agentTypes,
 		DefaultAdapter: "omp",
+		Version:        "v1.2.3",
 		JoinToken:      testJoinToken,
 		MachineID:      machineID,
 	})
@@ -207,6 +208,9 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 	if node.DefaultAdapter != "omp" {
 		t.Fatalf("registered default_adapter = %q, want omp", node.DefaultAdapter)
 	}
+	if node.Version != "v1.2.3" {
+		t.Fatalf("registered version = %q, want v1.2.3", node.Version)
+	}
 
 	// A reconnect with a changed list replaces the stored one (a newly
 	// installed or removed agent must show up without re-pairing), and the
@@ -216,6 +220,7 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 		Token:          token,
 		AgentTypes:     []string{"codex"},
 		DefaultAdapter: "codex",
+		Version:        "v1.3.0",
 		MachineID:      machineID,
 	})
 	if err != nil {
@@ -230,6 +235,9 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 	}
 	if stored.DefaultAdapter != "codex" {
 		t.Fatalf("reconnected default_adapter = %q, want codex", stored.DefaultAdapter)
+	}
+	if stored.Version != "v1.3.0" {
+		t.Fatalf("reconnected version = %q, want v1.3.0", stored.Version)
 	}
 
 	// A daemon that predates the field sends nil; that must not wipe the list
@@ -251,6 +259,9 @@ func TestRegisterNodeTracksAgentTypes(t *testing.T) {
 	}
 	if !slices.Equal(stored.AgentTypes, []string{"codex"}) {
 		t.Fatalf("legacy reconnect wiped agent_types: %v", stored.AgentTypes)
+	}
+	if stored.Version != "v1.3.0" {
+		t.Fatalf("legacy reconnect wiped version: %q", stored.Version)
 	}
 }
 

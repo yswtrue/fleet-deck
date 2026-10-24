@@ -16,6 +16,7 @@ import (
 
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/protocol"
+	"fleetdeck/internal/version"
 )
 
 // Config is the node daemon's YAML configuration (examples/fake-node.config.yaml).
@@ -260,6 +261,7 @@ func (n *Node) runOnce(ctx context.Context) error {
 		Host:           n.cfg.Host,
 		AgentTypes:     n.cfg.advertisedAgentTypes(),
 		DefaultAdapter: n.cfg.DefaultAdapter,
+		Version:        version.Version,
 		Token:          n.readToken(),
 		JoinToken:      n.cfg.JoinToken,
 		MachineID:      n.cfg.MachineID,

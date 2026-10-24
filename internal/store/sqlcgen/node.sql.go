@@ -13,9 +13,9 @@ import (
 )
 
 const createNode = `-- name: CreateNode :one
-INSERT INTO node (name, host, status, agent_types, default_adapter, token_hash, machine_id, last_seen_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-RETURNING id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter
+INSERT INTO node (name, host, status, agent_types, default_adapter, version, token_hash, machine_id, last_seen_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+RETURNING id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter, version
 `
 
 type CreateNodeParams struct {
@@ -24,6 +24,7 @@ type CreateNodeParams struct {
 	Status         string
 	AgentTypes     []string
 	DefaultAdapter string
+	Version        string
 	TokenHash      string
 	MachineID      pgtype.Text
 }
@@ -35,6 +36,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		arg.Status,
 		arg.AgentTypes,
 		arg.DefaultAdapter,
+		arg.Version,
 		arg.TokenHash,
 		arg.MachineID,
 	)
@@ -49,6 +51,7 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 		&i.MachineID,
 		&i.AgentTypes,
 		&i.DefaultAdapter,
+		&i.Version,
 	)
 	return i, err
 }
@@ -85,7 +88,7 @@ func (q *Queries) CreateNodeJoinToken(ctx context.Context, arg CreateNodeJoinTok
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter FROM node WHERE id = $1
+SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter, version FROM node WHERE id = $1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -101,12 +104,13 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.MachineID,
 		&i.AgentTypes,
 		&i.DefaultAdapter,
+		&i.Version,
 	)
 	return i, err
 }
 
 const getNodeByMachineID = `-- name: GetNodeByMachineID :one
-SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter FROM node WHERE machine_id = $1
+SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter, version FROM node WHERE machine_id = $1
 `
 
 func (q *Queries) GetNodeByMachineID(ctx context.Context, machineID pgtype.Text) (Node, error) {
@@ -122,12 +126,13 @@ func (q *Queries) GetNodeByMachineID(ctx context.Context, machineID pgtype.Text)
 		&i.MachineID,
 		&i.AgentTypes,
 		&i.DefaultAdapter,
+		&i.Version,
 	)
 	return i, err
 }
 
 const getNodeByName = `-- name: GetNodeByName :one
-SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter FROM node WHERE name = $1
+SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter, version FROM node WHERE name = $1
 `
 
 func (q *Queries) GetNodeByName(ctx context.Context, name string) (Node, error) {
@@ -143,12 +148,13 @@ func (q *Queries) GetNodeByName(ctx context.Context, name string) (Node, error) 
 		&i.MachineID,
 		&i.AgentTypes,
 		&i.DefaultAdapter,
+		&i.Version,
 	)
 	return i, err
 }
 
 const getNodeByTokenHash = `-- name: GetNodeByTokenHash :one
-SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter FROM node WHERE token_hash = $1
+SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter, version FROM node WHERE token_hash = $1
 `
 
 // NOTE: This query is not the auth path; bcrypt salting prevents hash equality
@@ -166,6 +172,7 @@ func (q *Queries) GetNodeByTokenHash(ctx context.Context, tokenHash string) (Nod
 		&i.MachineID,
 		&i.AgentTypes,
 		&i.DefaultAdapter,
+		&i.Version,
 	)
 	return i, err
 }
@@ -205,7 +212,7 @@ func (q *Queries) GetOpenNodeJoinToken(ctx context.Context, tokenHash string) (N
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter FROM node ORDER BY name
+SELECT id, name, host, status, token_hash, last_seen_at, machine_id, agent_types, default_adapter, version FROM node ORDER BY name
 `
 
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
@@ -227,6 +234,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.MachineID,
 			&i.AgentTypes,
 			&i.DefaultAdapter,
+			&i.Version,
 		); err != nil {
 			return nil, err
 		}
@@ -265,23 +273,6 @@ func (q *Queries) MarkNodesOffline(ctx context.Context) error {
 	return err
 }
 
-const updateNodeAgents = `-- name: UpdateNodeAgents :exec
-UPDATE node
-SET agent_types = $2, default_adapter = $3
-WHERE id = $1
-`
-
-type UpdateNodeAgentsParams struct {
-	ID             string
-	AgentTypes     []string
-	DefaultAdapter string
-}
-
-func (q *Queries) UpdateNodeAgents(ctx context.Context, arg UpdateNodeAgentsParams) error {
-	_, err := q.db.Exec(ctx, updateNodeAgents, arg.ID, arg.AgentTypes, arg.DefaultAdapter)
-	return err
-}
-
 const updateNodeMachineID = `-- name: UpdateNodeMachineID :exec
 UPDATE node
 SET machine_id = $2
@@ -295,6 +286,29 @@ type UpdateNodeMachineIDParams struct {
 
 func (q *Queries) UpdateNodeMachineID(ctx context.Context, arg UpdateNodeMachineIDParams) error {
 	_, err := q.db.Exec(ctx, updateNodeMachineID, arg.ID, arg.MachineID)
+	return err
+}
+
+const updateNodeRuntime = `-- name: UpdateNodeRuntime :exec
+UPDATE node
+SET agent_types = $2, default_adapter = $3, version = $4
+WHERE id = $1
+`
+
+type UpdateNodeRuntimeParams struct {
+	ID             string
+	AgentTypes     []string
+	DefaultAdapter string
+	Version        string
+}
+
+func (q *Queries) UpdateNodeRuntime(ctx context.Context, arg UpdateNodeRuntimeParams) error {
+	_, err := q.db.Exec(ctx, updateNodeRuntime,
+		arg.ID,
+		arg.AgentTypes,
+		arg.DefaultAdapter,
+		arg.Version,
+	)
 	return err
 }
 

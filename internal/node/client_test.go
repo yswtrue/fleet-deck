@@ -141,6 +141,9 @@ func TestNodeReportsAdapterEventsToHub(t *testing.T) {
 		if len(registered.Sessions) != 0 {
 			t.Fatalf("first registration sessions = %v, want none", registered.Sessions)
 		}
+		if registered.Version == "" {
+			t.Fatal("register_request omitted version; the node list shows it")
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for register_request")
 	}

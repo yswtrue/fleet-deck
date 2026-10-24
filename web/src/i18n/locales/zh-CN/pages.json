@@ -29,6 +29,7 @@
     "noHost": "未设置主机",
     "lastSeen": "最后在线 {{time}}",
     "agents": "智能体",
+    "version": "版本",
     "workspaces": "工作区"
   },
   "nodeCard": {

@@ -15,6 +15,7 @@ import (
 
 	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store"
+	"fleetdeck/internal/version"
 )
 
 // routes registers every HTTP and WebSocket endpoint on mux. Auth gating is
@@ -115,8 +116,10 @@ func decodeBody(r *http.Request, v any) error {
 
 // ---- health ----------------------------------------------------------------
 
+// handleHealth is the open liveness probe. version lets the web shell show
+// which hub build it is talking to; older hubs omit it.
 func (h *Hub) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": version.Version})
 }
 
 // ---- nodes -----------------------------------------------------------------

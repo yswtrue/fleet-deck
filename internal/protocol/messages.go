@@ -139,6 +139,10 @@ type RegisterRequest struct {
 	// AgentTypes is present: an older daemon that omits the list also omits
 	// this and must not clear the stored default.
 	DefaultAdapter string `json:"default_adapter,omitempty"`
+	// Version is the daemon's release version ("v1.2.3", or "dev" for source
+	// builds). Empty means a daemon that predates the field; the hub then
+	// keeps the version stored by an earlier handshake.
+	Version string `json:"version,omitempty"`
 	// Token is the node credential issued by a previous registration.
 	Token string `json:"token,omitempty"`
 	// JoinToken is the single-use pairing token required for a node that has

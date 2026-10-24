@@ -15,6 +15,7 @@ import (
 
 	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store"
+	"fleetdeck/internal/version"
 )
 
 // ---- helpers ---------------------------------------------------------------
@@ -686,6 +687,34 @@ func TestListSubtasksByTaskInvalidID(t *testing.T) {
 }
 
 // ---- CORS (web UI runs on another localhost port) --------------------------
+
+// TestHealthReportsVersion pins the open health probe's version field: the web
+// shell renders it in the sidebar, so dropping it silently breaks that display.
+func TestHealthReportsVersion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, _, ts, _ := newTestHub(t)
+
+	resp, raw := getRaw(t, "", ts.URL+"/api/health")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get health status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	var body struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode body: %v (%s)", err, raw)
+	}
+	if body.Status != "ok" {
+		t.Fatalf("health status = %q, want ok", body.Status)
+	}
+	if body.Version != version.Version {
+		t.Fatalf("health version = %q, want %q", body.Version, version.Version)
+	}
+}
 
 // TestCORSHeaders pins the Access-Control-Allow-Origin header: without it the
 // browser blocks every API call from the vite dev server origin.

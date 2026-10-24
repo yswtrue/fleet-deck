@@ -20,7 +20,9 @@ type CreateNodeParams struct {
 	AgentTypes []string
 	// DefaultAdapter is the node's configured default agent; empty allowed.
 	DefaultAdapter string
-	TokenHash      string
+	// Version is the daemon's reported release version ("v1.2.3"/"dev").
+	Version   string
+	TokenHash string
 	// MachineID is the stable machine fingerprint (already hashed by the
 	// caller). Empty stores NULL, which the partial unique index ignores.
 	MachineID string
@@ -38,6 +40,7 @@ func (q *Queries) CreateNode(ctx context.Context, p CreateNodeParams) (protocol.
 		Status:         string(p.Status),
 		AgentTypes:     agentTypes,
 		DefaultAdapter: p.DefaultAdapter,
+		Version:        p.Version,
 		TokenHash:      p.TokenHash,
 		MachineID:      pgtype.Text{String: p.MachineID, Valid: p.MachineID != ""},
 	})
@@ -107,17 +110,19 @@ func (q *Queries) ListNodes(ctx context.Context) ([]protocol.Node, error) {
 	return nodesFromRows(rows), nil
 }
 
-// UpdateNodeAgents replaces a node's registered adapter list and default.
-func (q *Queries) UpdateNodeAgents(ctx context.Context, id string, agentTypes []string, defaultAdapter string) error {
+// UpdateNodeRuntime replaces a node's registered adapter list, default and
+// reported daemon version.
+func (q *Queries) UpdateNodeRuntime(ctx context.Context, id string, agentTypes []string, defaultAdapter, version string) error {
 	if agentTypes == nil {
 		agentTypes = []string{}
 	}
-	if err := q.q.UpdateNodeAgents(ctx, sqlcgen.UpdateNodeAgentsParams{
+	if err := q.q.UpdateNodeRuntime(ctx, sqlcgen.UpdateNodeRuntimeParams{
 		ID:             id,
 		AgentTypes:     agentTypes,
 		DefaultAdapter: defaultAdapter,
+		Version:        version,
 	}); err != nil {
-		return fmt.Errorf("store: update node agents: %w", err)
+		return fmt.Errorf("store: update node runtime: %w", err)
 	}
 	return nil
 }
