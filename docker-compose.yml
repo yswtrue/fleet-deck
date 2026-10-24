@@ -65,6 +65,9 @@ services:
       FLEETDECK_HUB_ADDR: ':${FLEETDECK_HUB_PORT:?set in .env}'
       FLEETDECK_DATABASE_URL: *hub-dsn
       FLEETDECK_REDIS_URL: redis://redis:6379/0
+      # Automatic re-dispatch of a task whose node process restarted
+      # (default 1, 0 disables).
+      FLEETDECK_TASK_RETRY_LIMIT: ${FLEETDECK_TASK_RETRY_LIMIT:-}
       # Optional automation secret; the UI's single-use join tokens need no env.
       FLEETDECK_NODE_JOIN_TOKEN: ${FLEETDECK_NODE_JOIN_TOKEN:-}
     ports:

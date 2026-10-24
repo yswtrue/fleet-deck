@@ -77,6 +77,34 @@ UPDATE task
 SET session_id = sqlc.narg('session_id'), updated_at = now()
 WHERE id = $1;
 
+-- name: ScheduleTaskRetry :one
+UPDATE task
+SET retry_pending = true,
+    retry_count = retry_count + 1,
+    updated_at = now()
+WHERE id = sqlc.arg('id') AND retry_count < sqlc.arg('max_retries')
+RETURNING *;
+
+-- name: ListRetryPendingTasksByNode :many
+SELECT t.* FROM task t
+JOIN workspace w ON w.id = t.workspace_id
+WHERE w.node_id = $1 AND t.retry_pending
+ORDER BY t.updated_at, t.id;
+
+-- name: ClaimTaskRetry :one
+UPDATE task
+SET retry_pending = false, updated_at = now()
+WHERE id = $1 AND retry_pending
+RETURNING *;
+
+-- name: CancelTaskRetry :one
+UPDATE task
+SET retry_pending = false,
+    retry_count = GREATEST(retry_count - 1, 0),
+    updated_at = now()
+WHERE id = $1 AND retry_pending
+RETURNING *;
+
 -- name: GetTaskBySessionID :one
 SELECT * FROM task WHERE session_id = $1;
 

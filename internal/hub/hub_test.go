@@ -812,10 +812,10 @@ func TestReconnectWithinGraceKeepsSessionRunning(t *testing.T) {
 }
 
 // An upgraded or crashed node restarts and comes back inside the offline grace
-// window with no live adapters. The handshake's empty session list must fail
-// the sessions the previous process left behind, otherwise the cancel-on-
-// reconnect keeps their tasks "running" forever.
-func TestRestartedNodeFailsOrphanedSessions(t *testing.T) {
+// window with no live adapters. The orphaned running session is failed, and the
+// task is re-dispatched once with its original prompt (the documented default
+// retry budget); a session parked on a user question is not replayed.
+func TestRestartedNodeRetriesOrphanedSession(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
@@ -837,6 +837,7 @@ func TestRestartedNodeFailsOrphanedSessions(t *testing.T) {
 	if task.SessionID == "" {
 		t.Fatal("dispatch created no session")
 	}
+	prompt := task.Prompt
 
 	// Restart: a fresh process, so no adapter survived the old session.
 	_ = c.Close()
@@ -846,24 +847,252 @@ func TestRestartedNodeFailsOrphanedSessions(t *testing.T) {
 		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
 	}
 
+	// The retry is a new session carrying the original prompt.
+	env := waitEnvelopeFrom(t, back, protocol.MsgTaskStart)
+	var cmd protocol.TaskStartCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode task.start: %v", err)
+	}
+	if cmd.Prompt != prompt {
+		t.Fatalf("retry prompt = %q, want %q", cmd.Prompt, prompt)
+	}
+	if cmd.SessionID == task.SessionID {
+		t.Fatalf("retry reused session %q; want a fresh session", cmd.SessionID)
+	}
+
 	ctx := context.Background()
+	oldSession, err := st.Queries().GetSession(ctx, task.SessionID)
+	if err != nil || oldSession.Status != protocol.SessionFailed {
+		t.Fatalf("old session status = %q (err %v), want failed", oldSession.Status, err)
+	}
+	got, err := st.Queries().GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if got.Status != protocol.TaskRunning || got.SessionID != cmd.SessionID {
+		t.Fatalf("task after retry = %q session %q, want running/%q",
+			got.Status, got.SessionID, cmd.SessionID)
+	}
+	var retries int
+	if err := st.Pool().QueryRow(ctx, "SELECT retry_count FROM task WHERE id = $1", task.ID).Scan(&retries); err != nil {
+		t.Fatalf("read retry_count: %v", err)
+	}
+	if retries != 1 {
+		t.Fatalf("retry_count = %d, want 1", retries)
+	}
+
+	// The default budget is one retry: a second restart of the retried session
+	// fails the task instead of replaying it again.
+	retriedSession := got.SessionID
+	_ = back.Close()
+	back2, back2Reg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{})
+	defer func() { _ = back2.Close() }()
+	if back2Reg.NodeID != reg.NodeID {
+		t.Fatalf("second reconnect node id = %q, want %q", back2Reg.NodeID, reg.NodeID)
+	}
+	_ = back2.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	var extra protocol.Envelope
+	if err := back2.ReadJSON(&extra); err == nil && extra.Type == protocol.MsgTaskStart {
+		t.Fatal("retry budget exhausted, but the task was dispatched again")
+	}
+	_ = back2.SetReadDeadline(time.Time{})
+
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		session, err := st.Queries().GetSession(ctx, task.SessionID)
-		if err != nil {
-			t.Fatalf("get session: %v", err)
-		}
-		got, err := st.Queries().GetTask(ctx, task.ID)
-		if err != nil {
-			t.Fatalf("get task: %v", err)
-		}
-		if session.Status == protocol.SessionFailed && got.Status == protocol.TaskFailed {
+		session, serr := st.Queries().GetSession(ctx, retriedSession)
+		current, terr := st.Queries().GetTask(ctx, task.ID)
+		if serr == nil && terr == nil &&
+			session.Status == protocol.SessionFailed && current.Status == protocol.TaskFailed {
+			if current.SessionID != retriedSession {
+				t.Fatalf("failed task points at session %q, want %q", current.SessionID, retriedSession)
+			}
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("orphaned session/task = %q/%q, want failed/failed", session.Status, got.Status)
+			t.Fatalf("second restart = session %q task %q (errs %v/%v), want failed/failed",
+				session.Status, current.Status, serr, terr)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A session waiting for a user answer is not replayed from scratch on restart:
+// the operator's pending question would be lost. It fails like before and the
+// operator continues it with a reply.
+func TestRestartedNodeDoesNotRetryAwaitingUserSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	h.offlineGrace = 30 * time.Second
+	name := uniqueName("hub-it-awaiting")
+
+	join := postJSON[struct {
+		Token string `json:"token"`
+	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
+	c, reg := dialNodeFull(t, ts, st, name, "", join.Token, []string{})
+	if reg.NodeID == "" {
+		t.Fatalf("register: %s", reg.Error)
+	}
+	task := createWorkspaceAndTask(t, auth.token, ts, reg.NodeID)
+	if task.SessionID == "" {
+		t.Fatal("dispatch created no session")
+	}
+
+	// The agent parks on a question (the hub derives awaiting_user for the task).
+	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+		Type: protocol.EvSessionStateChanged,
+		Data: protocol.SessionStateChanged{SessionID: task.SessionID, Status: protocol.SessionAwaitingUser},
+		Ts:   time.Now().UTC(),
+	})); err != nil {
+		t.Fatalf("write awaiting_user event: %v", err)
+	}
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := st.Queries().GetTask(ctx, task.ID)
+		if err == nil && got.Status == protocol.TaskAwaitingUser {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task did not reach awaiting_user (err %v)", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	_ = c.Close()
+	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{})
+	defer func() { _ = back.Close() }()
+	if backReg.NodeID != reg.NodeID {
+		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
+	}
+	// Nothing is re-dispatched.
+	_ = back.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	var env protocol.Envelope
+	if err := back.ReadJSON(&env); err == nil && env.Type == protocol.MsgTaskStart {
+		t.Fatal("awaiting_user session was retried on node restart")
+	}
+	_ = back.SetReadDeadline(time.Time{})
+
+	// The reconcile runs after the handshake response; poll for its effect.
+	ctx = context.Background()
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		session, serr := st.Queries().GetSession(ctx, task.SessionID)
+		got, terr := st.Queries().GetTask(ctx, task.ID)
+		if serr == nil && terr == nil &&
+			session.Status == protocol.SessionFailed && got.Status == protocol.TaskFailed {
+			if got.SessionID != task.SessionID {
+				t.Fatalf("failed task points at session %q, want the original %q",
+					got.SessionID, task.SessionID)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("awaiting_user restart = session %q task %q (errs %v/%v), want failed/failed",
+				session.Status, got.Status, serr, terr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The offline cascade fails a session after the grace period, but a node that
+// only lost its link keeps its adapter alive. A reconnect that lists that
+// session must drop the scheduled retry instead of starting a second run.
+func TestReconnectWithLiveAdapterCancelsScheduledRetry(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	name := uniqueName("hub-it-live-retry")
+	join := postJSON[struct {
+		Token string `json:"token"`
+	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
+	c, reg := dialNodeFull(t, ts, st, name, "", join.Token, []string{})
+	if reg.NodeID == "" {
+		t.Fatalf("register: %s", reg.Error)
+	}
+	task := createWorkspaceAndTask(t, auth.token, ts, reg.NodeID)
+	if task.SessionID == "" {
+		t.Fatal("dispatch created no session")
+	}
+
+	// The link drops; the 50ms test grace expires and the cascade marks the
+	// task failed with a retry pending.
+	_ = c.Close()
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var pending bool
+		got, err := st.Queries().GetTask(ctx, task.ID)
+		if err == nil && got.Status == protocol.TaskFailed {
+			if err := st.Pool().QueryRow(ctx,
+				"SELECT retry_pending FROM task WHERE id = $1", task.ID).Scan(&pending); err != nil {
+				t.Fatalf("read retry_pending: %v", err)
+			}
+			if pending {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task did not schedule a retry (err %v)", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// The same daemon process reconnects: its adapter survived the outage.
+	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{task.SessionID})
+	defer func() { _ = back.Close() }()
+	if backReg.NodeID != reg.NodeID {
+		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
+	}
+	_ = back.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	var env protocol.Envelope
+	if err := back.ReadJSON(&env); err == nil && env.Type == protocol.MsgTaskStart {
+		t.Fatal("retry dispatched although the original adapter reconnected")
+	}
+	_ = back.SetReadDeadline(time.Time{})
+
+	var pending bool
+	if err := st.Pool().QueryRow(ctx,
+		"SELECT retry_pending FROM task WHERE id = $1", task.ID).Scan(&pending); err != nil {
+		t.Fatalf("read retry_pending: %v", err)
+	}
+	if pending {
+		t.Fatal("retry_pending survived a reconnect with the live adapter")
+	}
+	var retries int
+	if err := st.Pool().QueryRow(ctx,
+		"SELECT retry_count FROM task WHERE id = $1", task.ID).Scan(&retries); err != nil {
+		t.Fatalf("read retry_count: %v", err)
+	}
+	if retries != 0 {
+		t.Fatalf("retry_count = %d after a cancelled retry, want 0", retries)
+	}
+	got, err := st.Queries().GetTask(ctx, task.ID)
+	if err != nil || got.SessionID != task.SessionID {
+		t.Fatalf("task = %q session %q (err %v), want the original session %q",
+			got.Status, got.SessionID, err, task.SessionID)
+	}
+}
+
+// waitEnvelopeFrom reads from a scripted node until the wanted command type
+// arrives, failing on timeout. Unlike waitEnvelope it owns the socket read, so
+// it cannot be combined with another reader.
+func waitEnvelopeFrom(t *testing.T, c *websocket.Conn, typ string) protocol.Envelope {
+	t.Helper()
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = c.SetReadDeadline(time.Time{}) }()
+	for {
+		var env protocol.Envelope
+		if err := c.ReadJSON(&env); err != nil {
+			t.Fatalf("read node command: %v", err)
+		}
+		if env.Type == typ {
+			return env
+		}
 	}
 }
 

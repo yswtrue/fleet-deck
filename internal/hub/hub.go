@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -83,6 +84,13 @@ type Hub struct {
 	offlineTimers map[string]*time.Timer
 	offlineGrace  time.Duration
 
+	// taskRetryLimit bounds the automatic re-dispatches of a task whose
+	// running session was lost with its node (0 disables). The setting is
+	// read from FLEETDECK_TASK_RETRY_LIMIT; the default is one retry, so a
+	// transient node restart is absorbed without a crash loop re-running the
+	// task forever.
+	taskRetryLimit int
+
 	// Web Push: the VAPID sender is nil when the key could not be loaded
 	// (push is then disabled, never a startup failure), the queue buffers
 	// task-status events for the delivery worker, and pushSem bounds
@@ -98,6 +106,28 @@ type Hub struct {
 // sessions are failed. The node keeps its adapter processes alive across a
 // reconnect, so a short outage must not destroy a task.
 const nodeOfflineGrace = 30 * time.Second
+
+// defaultTaskRetryLimit is one automatic re-dispatch of an interrupted run.
+// It absorbs a node restart/upgrade without letting a crash loop replay the
+// same prompt indefinitely.
+const defaultTaskRetryLimit = 1
+
+// taskRetryLimitFromEnv reads FLEETDECK_TASK_RETRY_LIMIT. Invalid or negative
+// values fall back to the default, and an explicit 0 disables automatic
+// retries (a lost session then fails its task exactly as before).
+func taskRetryLimitFromEnv() int {
+	raw := strings.TrimSpace(os.Getenv("FLEETDECK_TASK_RETRY_LIMIT"))
+	if raw == "" {
+		return defaultTaskRetryLimit
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		slog.Warn("invalid FLEETDECK_TASK_RETRY_LIMIT; using default",
+			"value", raw, "default", defaultTaskRetryLimit)
+		return defaultTaskRetryLimit
+	}
+	return n
+}
 
 // nodeConn is the hub's side of a registered node connection: a buffered
 // outbound queue drained by a single writer goroutine.
@@ -129,6 +159,7 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 		nodes:          make(map[string]*nodeConn),
 		offlineTimers:  make(map[string]*time.Timer),
 		offlineGrace:   nodeOfflineGrace,
+		taskRetryLimit: taskRetryLimitFromEnv(),
 		text:           make(map[string]textBufferEntry),
 		histWait:       make(map[string]chan protocol.SessionHistoryResponse),
 		transcriptWait: make(map[string]chan protocol.SessionTranscriptResponse),
@@ -635,6 +666,14 @@ func (h *Hub) failSession(ctx context.Context, s protocol.Session, reason string
 	if s.Status == protocol.SessionDone || s.Status == protocol.SessionFailed {
 		return
 	}
+	// A running session lost with its node is made retryable before the task
+	// is failed: the node's next registration re-dispatches the prompt. A
+	// session parked on user input (awaiting_user) is deliberately not
+	// retried — replaying the prompt would discard the question the operator
+	// was answering; they can continue it with a reply instead.
+	if s.Status == protocol.SessionRunning {
+		h.scheduleNodeRetry(ctx, s, reason)
+	}
 	q := h.store.Queries()
 	ended := time.Now().UTC()
 	if err := q.UpdateSessionStatus(ctx, s.ID, protocol.SessionFailed, &ended); err != nil {
@@ -665,6 +704,102 @@ func (h *Hub) failSession(ctx context.Context, s protocol.Session, reason string
 		Type: protocol.EvTaskStatusChanged,
 		Data: protocol.TaskStatusChanged{TaskID: updated.ID, From: task.Status, To: updated.Status},
 	})
+}
+
+// scheduleNodeRetry marks the task behind a lost running session for automatic
+// re-dispatch when its node registers again. The budget is counted here (not
+// at dispatch) so a node that never returns cannot accumulate retries.
+func (h *Hub) scheduleNodeRetry(ctx context.Context, s protocol.Session, reason string) {
+	if h.taskRetryLimit <= 0 {
+		return
+	}
+	q := h.store.Queries()
+	task, err := q.GetTaskBySessionID(ctx, s.ID)
+	if err != nil {
+		return
+	}
+	if task.ArchivedAt != nil || strings.TrimSpace(task.Prompt) == "" {
+		return
+	}
+	scheduled, err := q.ScheduleTaskRetry(ctx, task.ID, h.taskRetryLimit)
+	if err != nil {
+		h.log.Warn("schedule task retry", "task_id", task.ID, "err", err)
+		return
+	}
+	if !scheduled {
+		h.log.Info("task retry budget exhausted", "task_id", task.ID, "reason", reason)
+		return
+	}
+	h.log.Info("task retry scheduled", "task_id", task.ID, "session_id", s.ID, "reason", reason)
+}
+
+// retryPendingTasks re-dispatches the tasks whose running session was lost
+// with the node's previous process. It runs only after the returning node has
+// joined the registry and its writer is draining: dispatchTask's online check
+// must pass, and the new session must not race the reconcile that treats ids
+// missing from the handshake as dead adapters. ClaimTaskRetry clears each flag
+// atomically, so two concurrent registrations cannot double-dispatch.
+//
+// live is the handshake's list of adapters that survived the outage. A task
+// whose (cascade-failed) session is still in that list is *not* retried: the
+// node never restarted, its agent is still working, and dispatching a second
+// run would execute the prompt twice. A nil list means a pre-field daemon; its
+// liveness is unknowable, so the safe move is to leave the retry to the
+// operator.
+func (h *Hub) retryPendingTasks(ctx context.Context, nodeID string, live []string) {
+	if h.taskRetryLimit <= 0 {
+		return
+	}
+	if live == nil {
+		return
+	}
+	liveSet := make(map[string]struct{}, len(live))
+	for _, id := range live {
+		if id != "" {
+			liveSet[id] = struct{}{}
+		}
+	}
+	tasks, err := h.store.Queries().ListRetryPendingTasksByNode(ctx, nodeID)
+	if err != nil {
+		h.log.Warn("list retry-pending tasks", "node_id", nodeID, "err", err)
+		return
+	}
+	for _, t := range tasks {
+		if _, alive := liveSet[t.SessionID]; alive {
+			if _, err := h.store.Queries().CancelTaskRetry(ctx, t.ID); err != nil {
+				h.log.Warn("cancel task retry", "task_id", t.ID, "err", err)
+				continue
+			}
+			h.log.Info("retry cancelled: original adapter reconnected with the node",
+				"task_id", t.ID, "session_id", t.SessionID)
+			continue
+		}
+		task, ok, err := h.store.Queries().ClaimTaskRetry(ctx, t.ID)
+		if err != nil {
+			h.log.Warn("claim task retry", "task_id", t.ID, "err", err)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		// The operator may have resolved, archived, or edited the task while
+		// the node was away; only a still-failed, runnable task is retried.
+		if task.Status != protocol.TaskFailed || task.ArchivedAt != nil ||
+			strings.TrimSpace(task.Prompt) == "" {
+			continue
+		}
+		dispatched, err := h.dispatchTask(ctx, task)
+		if err != nil {
+			h.log.Warn("retry task dispatch", "task_id", task.ID, "err", err)
+			continue
+		}
+		if dispatched.Status != protocol.TaskRunning {
+			h.log.Warn("task retry left waiting (node offline)", "task_id", task.ID)
+			continue
+		}
+		h.log.Info("task retried after node reconnect", "task_id", task.ID,
+			"session_id", dispatched.SessionID)
+	}
 }
 
 // dispatchTask opens a session for a freshly created task and tells the owning

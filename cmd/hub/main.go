@@ -8,6 +8,8 @@
 //	FLEETDECK_DATABASE_URL  Postgres DSN (required)
 //	FLEETDECK_REDIS_URL     redis:// URL for the read-through cache
 //	                        (unset = no cache; a down Redis degrades to DB reads)
+//	FLEETDECK_TASK_RETRY_LIMIT  automatic re-dispatches of a task whose node
+//	                            restarted (default 1, 0 disables)
 //
 // Nodes connect to /ws/node and web clients to /ws/web.
 package main

@@ -177,6 +177,12 @@ func (h *Hub) handleNodeWS(w http.ResponseWriter, r *http.Request) {
 		h.nodeWriteLoop(c, nc)
 	}()
 
+	// The connection is registered and its writer is draining, so a retry can
+	// safely dispatch. This must run after reconcileNodeSessions (which marks
+	// lost sessions failed and schedules the retries) and after addNode
+	// (dispatchTask refuses to send to a node the registry does not hold).
+	h.retryPendingTasks(ctx, registered.ID, req.Sessions)
+
 	for {
 		var env protocol.Envelope
 		if err := c.ReadJSON(&env); err != nil {

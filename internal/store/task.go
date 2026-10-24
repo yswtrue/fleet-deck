@@ -196,6 +196,66 @@ func (q *Queries) UpdateTaskSessionID(ctx context.Context, id, sessionID string)
 	return nil
 }
 
+// ScheduleTaskRetry marks a task for re-dispatch on its node's next
+// registration, provided it has attempts left. It reports false when the
+// budget is exhausted. The attempt is counted at scheduling time so a node
+// that never comes back cannot be retried indefinitely.
+func (q *Queries) ScheduleTaskRetry(ctx context.Context, id string, maxRetries int) (bool, error) {
+	_, err := q.q.ScheduleTaskRetry(ctx, sqlcgen.ScheduleTaskRetryParams{
+		ID:         id,
+		MaxRetries: int32(maxRetries),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: schedule task retry: %w", err)
+	}
+	return true, nil
+}
+
+// ListRetryPendingTasksByNode returns every task on a node that is waiting for
+// a reconnect-driven retry (regardless of its current status: the caller
+// claims and re-checks it, so a task resolved by hand in the meantime is
+// simply skipped and drained).
+func (q *Queries) ListRetryPendingTasksByNode(ctx context.Context, nodeID string) ([]protocol.Task, error) {
+	rows, err := q.q.ListRetryPendingTasksByNode(ctx, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("store: list retry-pending tasks by node: %w", err)
+	}
+	return tasksFromRows(rows), nil
+}
+
+// ClaimTaskRetry atomically clears a pending retry and returns the task. It
+// reports false when another reconnect handler already claimed it (or the flag
+// was cleared), which is what keeps two concurrent registrations from
+// dispatching the same retry twice.
+func (q *Queries) ClaimTaskRetry(ctx context.Context, id string) (protocol.Task, bool, error) {
+	row, err := q.q.ClaimTaskRetry(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return protocol.Task{}, false, nil
+	}
+	if err != nil {
+		return protocol.Task{}, false, fmt.Errorf("store: claim task retry: %w", err)
+	}
+	return taskFromRow(row), true, nil
+}
+
+// CancelTaskRetry clears a scheduled retry that will not run and refunds its
+// reserved attempt, so a node reconnect that kept the original adapter alive
+// does not consume the budget. It reports false when the flag was already
+// claimed or cleared.
+func (q *Queries) CancelTaskRetry(ctx context.Context, id string) (bool, error) {
+	_, err := q.q.CancelTaskRetry(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: cancel task retry: %w", err)
+	}
+	return true, nil
+}
+
 // GetTaskBySessionID resolves the task owning a session. Hot path: backed by the
 // partial unique index task_session_id_idx.
 func (q *Queries) GetTaskBySessionID(ctx context.Context, sessionID string) (protocol.Task, error) {

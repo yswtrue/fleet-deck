@@ -96,20 +96,22 @@ type Subtask struct {
 }
 
 type Task struct {
-	ID          string
-	WorkspaceID string
-	Title       string
-	Prompt      string
-	Status      string
-	AgentType   string
-	SessionID   *string
-	SortOrder   int32
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	ArchivedAt  *time.Time
-	AutoStart   bool
-	CancelledAt *time.Time
-	TitleAuto   bool
+	ID           string
+	WorkspaceID  string
+	Title        string
+	Prompt       string
+	Status       string
+	AgentType    string
+	SessionID    *string
+	SortOrder    int32
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	ArchivedAt   *time.Time
+	AutoStart    bool
+	CancelledAt  *time.Time
+	TitleAuto    bool
+	RetryCount   int32
+	RetryPending bool
 }
 
 type TokenUsage struct {

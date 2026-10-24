@@ -357,8 +357,11 @@ restart) keeps the task alive. A reconnect is not a restart: every handshake
 lists the adapters still live in the daemon process (`register_request.sessions`),
 and the hub fails the sessions the daemon no longer holds before the node is
 online again. Restarting a node (including `fleetdeck-node update`) therefore
-fails its in-flight tasks promptly, and the operator can continue them with a
-reply (`POST /api/sessions/{id}/send`) — the agent-side session is reattached
+fails its in-flight task promptly, but the hub re-dispatches the original
+prompt automatically when the node registers again — one retry by default
+(`FLEETDECK_TASK_RETRY_LIMIT`, `0` disables). A session that was waiting for a
+user answer is not replayed; the operator continues it with a reply
+(`POST /api/sessions/{id}/send`), which reattaches the agent-side session
 through `session/load`.
 
 ## Smoke checks
