@@ -135,7 +135,7 @@ type Adapter interface {
 
 **permission 暂停 + 结构化选择**:ACP 的 `session/request_permission` 暂停回合,`UserInputRequested` 的 prompt 携带 `[permission_request] options=[{"id":…,"label":…}]`;web 端解析后渲染选择器(`web/src/permission.ts` + `PermissionPicker`),用户点选后经 `POST /api/sessions/{id}/send` 回传 `[permission_response] option_id="…"`(格式由 adapter 正则解包,不可漂移;解包失败或 option_id 不在已知集合按拒绝处理)。
 
-**workspace 自动允许范围**(`workspace.auto_allow_scope`,`PATCH /api/workspaces/{id}`):每个工作区可选 `none`(默认,总是询问)/ `workspace`(仅工作目录内)/ `all`(任意目录)。hub 在 `task.start` / `session.resume` 里把该值带给 node,ACP adapter 在暂停前检查请求的 `toolCall.locations`:只有请求报告了路径、且全部路径都落在范围内时才自动应答,并且只选 `allow_once`(不会替用户选择 `allow_always`,避免绕过逐次范围校验);未报告路径的请求(如纯 shell 命令)始终询问。symlink 解析后做包含检查,无法解析的路径按范围外处理。修改只对之后新建或恢复的会话生效,工作区页头可编辑。
+**workspace 自动允许范围**(`workspace.auto_allow_scope`,`PATCH /api/workspaces/{id}`):每个工作区可选 `none`(默认,总是询问)/ `workspace`(仅工作目录内)/ `all`(任意目录)。hub 在 `task.start` / `session.resume` 里把该值带给 node,ACP adapter 在暂停前检查请求的 `toolCall.locations`:`all` 无条件应答;`workspace` 只在请求报告的路径全部落在工作目录内时应答,未报告路径的请求(如纯 shell 命令,进程 cwd 即工作区)按范围内处理——否则最常见的权限询问永远不会被自动批准。只选 `allow_once`(不会替用户选择 `allow_always`,避免绕过逐次范围校验)。symlink 解析后做包含检查,无法解析的路径按范围外处理;报告了工作目录外路径的请求仍然询问。修改只对之后新建或恢复的会话生效,工作区页头可编辑。
 
 **elicitation 表单**:ACP 的 `elicitation/create`(form mode)暂停回合,`UserInputRequested` 的 prompt 携带 `[elicitation_request] schema={…}`(平铺的原始 JSON Schema);web 端解析后渲染表单(`web/src/elicitation.ts` + `ElicitationForm`),提交时回传 `[elicitation_response] action="accept" content={…}`(拒绝/取消无 content)。adapter 在把 accept 转发给 agent 前按 schema 校验必填、类型、枚举和范围,不合法一律回 `cancel`;未广告的 URL mode 直接以 `-32602` 拒绝,让 agent 走降级路径。
 

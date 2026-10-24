@@ -603,28 +603,36 @@ func TestPermissionOutsideWorkspaceScopeAsks(t *testing.T) {
 	rec.waitUserInput(t)
 }
 
-// TestPermissionWithoutLocationsAlwaysAsks: an opaque tool call has no path to
-// check the range against, so even the "all" scope must ask.
-func TestPermissionWithoutLocationsAlwaysAsks(t *testing.T) {
-	_, rec := startTestAdapter(t, adapterOpts{
-		scenario:  "permission",
-		autoAllow: protocol.AutoAllowScopeAll,
-	})
+// TestPermissionWithoutLocationsAutoAllowed: an opaque tool call (a shell
+// command reports no locations) runs with the workspace as its working
+// directory, so both ranges approve it. Requiring locations here would leave
+// the setting with no effect for the most common ask.
+func TestPermissionWithoutLocationsAutoAllowed(t *testing.T) {
+	for _, scope := range []protocol.AutoAllowScope{
+		protocol.AutoAllowScopeWorkspace,
+		protocol.AutoAllowScopeAll,
+	} {
+		t.Run(string(scope), func(t *testing.T) {
+			_, rec := startTestAdapter(t, adapterOpts{
+				scenario:  "permission",
+				autoAllow: scope,
+			})
 
-	rec.waitUserInput(t)
+			rec.waitTextContaining(t, "perm:allow")
+			rec.waitDone(t)
+			if rec.hasEvent("user_input") {
+				t.Error("auto-allowed request still asked the operator")
+			}
+		})
+	}
 }
 
-// TestPermissionNoneScopeAsks keeps the default behavior.
+// TestPermissionNoneScopeAsks keeps the default behavior: an opaque request is
+// never approved without a workspace range.
 func TestPermissionNoneScopeAsks(t *testing.T) {
-	workspace := t.TempDir()
-	if err := os.WriteFile(filepath.Join(workspace, "demo.txt"), []byte("x"), 0o644); err != nil {
-		t.Fatalf("seed file: %v", err)
-	}
 	_, rec := startTestAdapter(t, adapterOpts{
-		scenario:  "permission-file",
-		workspace: workspace,
+		scenario:  "permission",
 		autoAllow: protocol.AutoAllowScopeNone,
-		location:  filepath.Join(workspace, "demo.txt"),
 	})
 
 	rec.waitUserInput(t)

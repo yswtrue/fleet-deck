@@ -198,24 +198,31 @@ func denyOptionID(options []permissionOptionRaw) string {
 // autoAllowPermission returns the option id to answer with when the
 // workspace's auto-allow range covers the request, or "" when the operator
 // must choose. The policy approves only the least-privilege allow option:
-// answering "allow always" would outlive the location check that justified
+// answering "allow always" would outlive the per-request check that justified
 // it, so requests offering no allow_once option stay manual.
+//
+//   - "all" approves every request, including ones that report no locations.
+//   - "workspace" approves a request whose reported locations all resolve
+//     inside the workspace. A request that reports no locations (an opaque
+//     shell command) is treated as inside: agents normally run their tools
+//     with the session workspace as the working directory, and refusing to
+//     approve those would leave the range with no effect for the most common
+//     ask. The range can only narrow requests that name their paths.
 func (a *Adapter) autoAllowPermission(p permissionParams) string {
 	scope, workspace := a.autoAllow()
-	if scope != protocol.AutoAllowScopeWorkspace && scope != protocol.AutoAllowScopeAll {
-		return ""
-	}
-	// A request with no locations (an opaque shell command) has nothing to
-	// check the range against; asking is the only safe answer.
-	if len(p.ToolCall.Locations) == 0 {
-		return ""
-	}
-	for _, loc := range p.ToolCall.Locations {
-		if !locationInScope(workspace, loc.Path, scope) {
-			return ""
+	switch scope {
+	case protocol.AutoAllowScopeAll:
+		return allowOnceOptionID(p.Options)
+	case protocol.AutoAllowScopeWorkspace:
+		for _, loc := range p.ToolCall.Locations {
+			if !locationInScope(workspace, loc.Path, scope) {
+				return ""
+			}
 		}
+		return allowOnceOptionID(p.Options)
+	default:
+		return ""
 	}
-	return allowOnceOptionID(p.Options)
 }
 
 // locationInScope reports whether path lies inside the auto-allow range.

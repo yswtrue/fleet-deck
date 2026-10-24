@@ -39,10 +39,11 @@
 // logs. An unanswered request is never assumed to be approved.
 //
 // Auto-allow: when the owning workspace carries an auto-allow range
-// (AutoAllowScope) and every path the tool call names (toolCall.locations)
-// falls inside it, the adapter answers the request itself with the
-// least-privilege `allow_once` option instead of pausing. Requests that name
-// no locations always reach the operator.
+// (AutoAllowScope), the adapter may answer the request itself with the
+// least-privilege `allow_once` option instead of pausing. "workspace" approves
+// requests whose reported locations (toolCall.locations) all resolve inside
+// the workspace, and treats a request that reports no locations (an opaque
+// shell command) as inside; "all" approves every request. "none" always asks.
 //
 // Todo mirror (locked Decision 5)
 //

@@ -57,11 +57,13 @@ type AutoAllowScope string
 const (
 	// AutoAllowScopeNone asks the operator for every permission request.
 	AutoAllowScopeNone AutoAllowScope = "none"
-	// AutoAllowScopeWorkspace auto-approves a request only when every location
-	// it names resolves inside the workspace's path.
+	// AutoAllowScopeWorkspace auto-approves a request whose reported locations
+	// all resolve inside the workspace's path. Requests that report no
+	// locations (opaque shell commands) count as inside: the agent runs with
+	// the workspace as its working directory.
 	AutoAllowScopeWorkspace AutoAllowScope = "workspace"
-	// AutoAllowScopeAll auto-approves a request when the locations it names
-	// are any directories (they still have to be reported).
+	// AutoAllowScopeAll auto-approves every request, including one whose
+	// reported locations lie outside the workspace.
 	AutoAllowScopeAll AutoAllowScope = "all"
 )
 
