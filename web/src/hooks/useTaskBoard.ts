@@ -45,6 +45,12 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
     queryKey: taskKey,
     queryFn: () => api.listTasks(workspaceId, q || undefined, { archived }),
     enabled: !!workspaceId,
+    // Board state is not gap-filled from the event stream (task deltas are not
+    // persisted) and this hook only listens while the board is mounted, so any
+    // transition that lands while the operator is on a session page (or in
+    // another tab) would leave the cached list stale for up to the global
+    // staleTime. Remounting must therefore always re-read the REST truth.
+    refetchOnMount: 'always',
   })
 
   const handleEvent = useCallback(
@@ -65,7 +71,10 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
         }
         case 'task.status_changed': {
           const { task_id, to } = evt.data
-          queryClient.setQueryData<Task[]>(['tasks', workspaceId], (prev = []) =>
+          // Patch every board cache under this workspace (canonical and
+          // search-filtered): a filtered board renders its own query key, so
+          // writing only the canonical entry would leave visible cards stale.
+          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev = []) =>
             prev.map((t) =>
               t.id === task_id ? { ...t, status: to, updated_at: new Date().toISOString() } : t
             )
@@ -100,7 +109,7 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
         }
         case 'session.state_changed': {
           const { session_id, status: sessionStatus } = evt.data
-          queryClient.setQueryData<Task[]>(['tasks', workspaceId], (prev = []) => {
+          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev = []) => {
             const task = prev.find((t) => t.session_id === session_id)
             if (!task) return prev
             const nextStatus = mapSessionStatus(sessionStatus)
@@ -114,7 +123,7 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
         }
         case 'session.user_input_requested': {
           const { session_id } = evt.data
-          queryClient.setQueryData<Task[]>(['tasks', workspaceId], (prev = []) => {
+          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev = []) => {
             const task = prev.find((t) => t.session_id === session_id)
             if (!task) return prev
             return prev.map((t) =>

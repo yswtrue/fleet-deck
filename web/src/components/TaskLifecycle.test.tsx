@@ -70,13 +70,17 @@ const createdTask = (overrides: Record<string, unknown> = {}) => ({
 
 function renderWithProviders(
   ui: React.ReactNode,
-  subscribe: (listener: (event: ProtocolEvent) => void) => () => void = () => () => {}
+  subscribe: (listener: (event: ProtocolEvent) => void) => () => void = () => () => {},
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 ) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <Refine dataProvider={dataProvider} routerProvider={routerProvider}>
+        <Refine
+          dataProvider={dataProvider}
+          routerProvider={routerProvider}
+          options={{ reactQuery: { clientConfig: client } }}
+        >
           <WebSocketContext.Provider
             value={{
               connected: false,
@@ -271,6 +275,79 @@ describe('Board live title', () => {
     })
     expect(await screen.findByText('Parser recovery')).toBeTruthy()
     expect(screen.queryByText('Fix the parser')).toBeNull()
+  })
+})
+
+describe('Board live status while searching', () => {
+  it('moves a card rendered from the search cache when its status changes', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.startsWith('/api/tasks')) {
+        return Promise.resolve(json([createdTask({ status: 'running', title: 'Fix the parser' })]))
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    let emit: ((event: ProtocolEvent) => void) | undefined
+    renderWithProviders(<Board workspaceId="w-1" nodeId="n-1" />, (listener) => {
+      emit = listener
+      return () => {}
+    })
+
+    expect(await screen.findByText('Fix the parser')).toBeTruthy()
+    // An active search renders a query key other than ['tasks', workspaceId];
+    // the status event must patch that cache too.
+    fireEvent.change(screen.getByLabelText('Search task titles'), { target: { value: 'Fix' } })
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('q=Fix'))).toBe(true)
+    )
+    expect(await screen.findByText('Fix the parser')).toBeTruthy()
+
+    act(() => {
+      emit?.({
+        type: 'task.status_changed',
+        data: { task_id: 't-1', from: 'running', to: 'done' },
+      } as ProtocolEvent)
+    })
+    const done = screen.getByRole('region', { name: 'Done tasks' })
+    await waitFor(() => expect(within(done).getByText('Fix the parser')).toBeTruthy())
+  })
+})
+
+describe('Board remount freshness', () => {
+  it('re-reads the task list on remount instead of trusting the stale cache', async () => {
+    // The board only listens to WS events while mounted and task deltas are not
+    // gap-filled, so a status change that lands while the operator is on a
+    // session page must be recovered by the remount fetch. The shared client
+    // pins the app's 5-minute staleTime, under which a plain remount would
+    // render the cached (pre-transition) list.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 5 * 60_000 } },
+    })
+    const tasks = [createdTask({ status: 'running', title: 'Long running task' })]
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.startsWith('/api/tasks')) return Promise.resolve(json(tasks))
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    const first = renderWithProviders(<Board workspaceId="w-1" nodeId="n-1" />, undefined, client)
+    const running = await screen.findByRole('region', { name: 'Running tasks' })
+    expect(within(running).getByText('Long running task')).toBeTruthy()
+    first.unmount()
+
+    // The task finishes while the board is unmounted; no WS listener exists.
+    tasks[0] = createdTask({ status: 'done', title: 'Long running task' })
+
+    renderWithProviders(<Board workspaceId="w-1" nodeId="n-1" />, undefined, client)
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('region', { name: 'Done tasks' })).getByText('Long running task')
+      ).toBeTruthy()
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(
+      within(screen.getByRole('region', { name: 'Running tasks' })).queryByText('Long running task')
+    ).toBeNull()
   })
 })
 
