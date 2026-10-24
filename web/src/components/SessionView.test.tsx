@@ -39,7 +39,11 @@ const doneTask = {
   updated_at: '2026-09-28T00:00:00Z',
 }
 
-function snapshotWith(status: SessionSnapshot['session']['status'], partial = ''): SessionSnapshot {
+function snapshotWith(
+  status: SessionSnapshot['session']['status'],
+  partial = '',
+  thought = ''
+): SessionSnapshot {
   return {
     session: {
       id: 's-1',
@@ -55,6 +59,7 @@ function snapshotWith(status: SessionSnapshot['session']['status'], partial = ''
     task: { ...doneTask, status: 'done' },
     pending_input: '',
     partial_output: partial,
+    partial_thought: thought,
   } as unknown as SessionSnapshot
 }
 
@@ -66,10 +71,12 @@ function renderView(
     connected?: boolean
     messages?: unknown
     partial?: string
+    thought?: string
+    subtasks?: unknown[]
     subscribe?: (handler: (event: never) => void) => () => void
   } = {}
 ) {
-  const snapshot = snapshotWith(sessionStatus, opts.partial)
+  const snapshot = snapshotWith(sessionStatus, opts.partial, opts.thought)
   if (opts.pending) snapshot.pending_input = opts.pending
   fetchMock.mockImplementation((input: unknown) => {
     const url = String(input)
@@ -78,7 +85,8 @@ function renderView(
       return Promise.resolve(json(opts.messages ?? []))
     if (url.startsWith('/api/sessions/s-1/events')) return Promise.resolve(json([]))
     if (url === '/api/nodes') return Promise.resolve(json([]))
-    if (url.startsWith('/api/tasks/t-1/subtasks')) return Promise.resolve(json({ subtasks: [] }))
+    if (url.startsWith('/api/tasks/t-1/subtasks'))
+      return Promise.resolve(json({ subtasks: opts.subtasks ?? [] }))
     if (url === '/api/sessions/s-1/send') return (opts.send ?? (() => Promise.resolve(json({}))))()
     throw new Error(`unexpected fetch: ${url}`)
   })
@@ -228,5 +236,49 @@ describe('SessionView running session', () => {
     // The live delta is not in the durable event stream; only the snapshot's
     // partial_output can bring it back on a mid-turn refresh.
     expect(await screen.findByText('Half an answer, still streaming')).toBeTruthy()
+  })
+
+  it('restores the reasoning trace from the snapshot after a reload', async () => {
+    renderView('running', { connected: true, thought: 'weighing the options' })
+    expect(await screen.findByText('weighing the options')).toBeTruthy()
+  })
+})
+
+describe('SessionView subtasks', () => {
+  it('applies a subtask.updated frame without waiting for a refetch', async () => {
+    const subscribers: Array<(event: unknown) => void> = []
+    renderView('running', {
+      connected: true,
+      subtasks: [
+        { id: 'st-1', task_id: 't-1', title: 'Research', status: 'pending', sort_order: 0 },
+      ],
+      subscribe: (handler) => {
+        subscribers.push(handler as (event: unknown) => void)
+        return () => {
+          const i = subscribers.indexOf(handler as (event: unknown) => void)
+          if (i >= 0) subscribers.splice(i, 1)
+        }
+      },
+    })
+    expect(await screen.findByText('Pending')).toBeTruthy()
+    const before = fetchMock.mock.calls.filter(([url]) =>
+      String(url).startsWith('/api/tasks/t-1/subtasks')
+    ).length
+
+    subscribers.forEach((h) =>
+      h({
+        type: 'subtask.updated',
+        data: {
+          task_id: 't-1',
+          subtask: { id: 'st-1', task_id: 't-1', title: 'Research', status: 'done', sort_order: 0 },
+        },
+      })
+    )
+
+    expect(await screen.findByText('Done')).toBeTruthy()
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/tasks/t-1/subtasks'))
+        .length
+    ).toBe(before)
   })
 })

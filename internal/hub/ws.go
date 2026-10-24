@@ -337,6 +337,11 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 			if json.Unmarshal(we.Data, &d) == nil {
 				h.appendPartialText(sessionID, d.Text)
 			}
+		case protocol.EvSessionThought:
+			var th protocol.SessionThought
+			if json.Unmarshal(we.Data, &th) == nil {
+				h.appendThoughtText(sessionID, th.Text)
+			}
 		case protocol.EvSessionStateChanged:
 			var s protocol.SessionStateChanged
 			if json.Unmarshal(we.Data, &s) == nil {

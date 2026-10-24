@@ -32,9 +32,11 @@ func (s *connSink) Title(_ context.Context, sessionID, title string) {
 	}))
 }
 
-// ThoughtDelta reports a chunk of the agent's reasoning. It is broadcast live
-// and never persisted or buffered.
+// ThoughtDelta reports a chunk of the agent's reasoning. It is kept in the
+// node's in-memory transcript (bounded) so a page opened mid-turn can restore
+// what the agent already reasoned; it never reaches Postgres.
 func (s *connSink) ThoughtDelta(_ context.Context, sessionID, text string) {
+	s.n.transcripts.appendThought(sessionID, text)
 	s.emit(protocol.EvSessionThought, protocol.SessionThought{SessionID: sessionID, Text: text})
 }
 

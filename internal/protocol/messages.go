@@ -272,12 +272,13 @@ type SessionTranscriptRequest struct {
 // the prompt of the unanswered user-input ask. An empty transcript is a valid
 // answer: a session may be live before its first event.
 type SessionTranscriptResponse struct {
-	ReqID         string    `json:"req_id"`
-	SessionID     string    `json:"session_id"`
-	Messages      []Message `json:"messages"`
-	PartialOutput string    `json:"partial_output"`
-	PendingInput  string    `json:"pending_input"`
-	Error         string    `json:"error,omitempty"`
+	ReqID          string    `json:"req_id"`
+	SessionID      string    `json:"session_id"`
+	Messages       []Message `json:"messages"`
+	PartialOutput  string    `json:"partial_output"`
+	PartialThought string    `json:"partial_thought"`
+	PendingInput   string    `json:"pending_input"`
+	Error          string    `json:"error,omitempty"`
 }
 
 // FSListRequest asks a node to enumerate the directories under Path so the

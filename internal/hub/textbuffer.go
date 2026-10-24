@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"fleetdeck/internal/protocol"
 )
@@ -22,12 +23,13 @@ const sessionTextTTL = 24 * time.Hour
 // sessionText is the buffered text state of one session: the complete
 // messages that transited the hub while the session was live, the streaming
 // assistant text of the in-progress turn (so a page reload mid-turn does not
-// lose it), plus the prompt of the current unanswered user-input ask (empty
-// when none).
+// lose it), the in-progress turn's reasoning (bounded, same purpose), plus the
+// prompt of the current unanswered user-input ask (empty when none).
 type sessionText struct {
-	Messages      []protocol.Message `json:"messages"`
-	PartialOutput []byte             `json:"partial_output,omitempty"`
-	PendingInput  string             `json:"pending_input,omitempty"`
+	Messages       []protocol.Message `json:"messages"`
+	PartialOutput  []byte             `json:"partial_output,omitempty"`
+	PartialThought string             `json:"partial_thought,omitempty"`
+	PendingInput   string             `json:"pending_input,omitempty"`
 }
 
 // textBufferEntry is one TTL'd slot in the hub's text buffer.
@@ -92,11 +94,13 @@ func (h *Hub) appendBufferedMessage(ctx context.Context, sessionID string, msg p
 			if st.Messages[i].ID == msg.ID {
 				st.Messages[i] = msg
 				st.PartialOutput = nil
+				st.PartialThought = ""
 				return
 			}
 		}
 		st.Messages = append(st.Messages, msg)
 		st.PartialOutput = nil
+		st.PartialThought = ""
 	})
 }
 
@@ -124,12 +128,47 @@ func (h *Hub) appendPartialText(sessionID, text string) {
 	h.text[sessionID] = e
 }
 
-// clearPartialText drops the streaming partial (a complete assistant message
-// or a terminal turn superseded it).
+// clearPartialText drops the streaming partial and the turn's reasoning (a
+// complete assistant message or a terminal turn superseded them).
 func (h *Hub) clearPartialText(ctx context.Context, sessionID string) {
 	h.updateTextBuffer(ctx, sessionID, func(st *sessionText) {
 		st.PartialOutput = nil
+		st.PartialThought = ""
 	})
+}
+
+// maxBufferedThought bounds the buffered reasoning window, matching the web's
+// live trace. A long chain of thought must not grow hub memory without bound.
+const maxBufferedThought = 4000
+
+// appendThoughtText accumulates one reasoning chunk into the session's buffer.
+// Like appendPartialText it takes the lock directly: thought frames can be
+// frequent, and the opportunistic expiry sweep is O(sessions).
+func (h *Hub) appendThoughtText(sessionID, text string) {
+	if text == "" {
+		return
+	}
+	h.textMu.Lock()
+	defer h.textMu.Unlock()
+	now := time.Now()
+	e, ok := h.text[sessionID]
+	if ok && now.After(e.expires) {
+		delete(h.text, sessionID)
+		e, ok = textBufferEntry{}, false
+	}
+	if !ok {
+		e = textBufferEntry{text: sessionText{}}
+	}
+	e.text.PartialThought += text
+	if len(e.text.PartialThought) > maxBufferedThought {
+		cut := len(e.text.PartialThought) - maxBufferedThought
+		for cut < len(e.text.PartialThought) && !utf8.RuneStart(e.text.PartialThought[cut]) {
+			cut++
+		}
+		e.text.PartialThought = e.text.PartialThought[cut:]
+	}
+	e.expires = now.Add(sessionTextTTL)
+	h.text[sessionID] = e
 }
 
 // setPendingInput records (or, with an empty prompt, clears) the session's

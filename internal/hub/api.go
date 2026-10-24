@@ -833,14 +833,16 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 // owning task. Task is a pointer so an unresolvable parent renders as JSON null,
 // matching the web's SessionSnapshot type ({ session, task: Task | null }).
 // PendingInput is the prompt of the session's unanswered user-input ask (empty
-// when none) and PartialOutput is the streaming assistant text of the
-// in-progress turn: both live in the ephemeral text buffer, not the database,
-// and the latter is what lets a page reload mid-turn keep the visible output.
+// when none), PartialOutput the streaming assistant text of the in-progress
+// turn, and PartialThought its reasoning trace (bounded): all live in the
+// ephemeral text buffer, not the database, and the latter two let a page
+// reopened mid-turn keep what the agent already produced.
 type sessionSnapshot struct {
-	Session       protocol.Session `json:"session"`
-	Task          *protocol.Task   `json:"task"`
-	PendingInput  string           `json:"pending_input"`
-	PartialOutput string           `json:"partial_output"`
+	Session        protocol.Session `json:"session"`
+	Task           *protocol.Task   `json:"task"`
+	PendingInput   string           `json:"pending_input"`
+	PartialOutput  string           `json:"partial_output"`
+	PartialThought string           `json:"partial_thought"`
 }
 
 // snapshotNeedsNodeText reports whether the hub buffer has no live text for a
@@ -872,13 +874,15 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	partial := string(buffered.PartialOutput)
+	partialThought := buffered.PartialThought
 	// A hub restart loses its text buffer while the node keeps the live
 	// transcript. When the buffer has nothing, read the in-progress turn's
-	// text and (only for an already-awaiting session, so a stale status never
-	// pairs with a prompt) the pending ask from the node.
+	// text/thought and (only for an already-awaiting session, so a stale status
+	// never pairs with a prompt) the pending ask from the node.
 	if snapshotNeedsNodeText(session, buffered) {
 		if live, ok := h.nodeTranscript(r.Context(), session); ok {
 			partial = live.PartialOutput
+			partialThought = live.PartialThought
 			if session.Status == protocol.SessionAwaitingUser {
 				pendingInput = live.PendingInput
 			}
@@ -886,9 +890,10 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	snapshot := sessionSnapshot{
-		Session:       session,
-		PendingInput:  pendingInput,
-		PartialOutput: partial,
+		Session:        session,
+		PendingInput:   pendingInput,
+		PartialOutput:  partial,
+		PartialThought: partialThought,
 	}
 	// The parent task should always exist (session.task_id is a FK), but resolve
 	// defensively: an unresolvable task yields JSON null rather than an error.

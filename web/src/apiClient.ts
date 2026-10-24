@@ -27,6 +27,8 @@ export interface SessionSnapshot {
   pending_input: string
   /** Streaming assistant text of the in-progress turn ("" when none). */
   partial_output: string
+  /** In-progress reasoning trace (bounded; "" when none). */
+  partial_thought: string
 }
 
 /** POST /api/nodes/join-tokens response: the plaintext token is shown once. */

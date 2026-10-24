@@ -799,6 +799,9 @@
         "partial_output": {
           "type": "string"
         },
+        "partial_thought": {
+          "type": "string"
+        },
         "pending_input": {
           "type": "string"
         },
@@ -813,6 +816,7 @@
         "session_id",
         "messages",
         "partial_output",
+        "partial_thought",
         "pending_input"
       ]
     },

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/protocol"
@@ -34,6 +35,10 @@ type liveTranscript struct {
 	index map[string]int
 	// partial accumulates agent_message chunks for the running turn.
 	partial strings.Builder
+	// thought is the in-progress turn's reasoning, bounded to the same window
+	// the web renders. It is memory-only: a page reload reads it back through
+	// the snapshot instead of losing everything the agent already thought.
+	thought string
 	// pending is the prompt of the outstanding user-input ask.
 	pending string
 	// run distinguishes adapter generations after a resume: adapter-side
@@ -73,6 +78,7 @@ func (s *transcriptStore) beginRun(sessionID string) {
 	t.run++
 	t.nextID = 0
 	t.partial.Reset()
+	t.thought = ""
 	t.pending = ""
 	t.updated = time.Now()
 }
@@ -118,6 +124,7 @@ func (s *transcriptStore) addMessage(sessionID string, msg protocol.Message) pro
 		msg.CreatedAt = time.Now().UTC()
 	}
 	t.partial.Reset()
+	t.thought = ""
 	s.appendLocked(t, msg)
 	return msg
 }
@@ -185,6 +192,32 @@ func (s *transcriptStore) appendDelta(sessionID, text string) {
 	t.updated = time.Now()
 }
 
+// maxLiveThought bounds the buffered reasoning window, matching what the web
+// renders. Older chunks fall off so a long chain of thought cannot grow the
+// node's memory without bound.
+const maxLiveThought = 4000
+
+// appendThought accumulates the in-progress turn's reasoning. It is not an
+// ordered message: the browser shows it in the live trace until the turn's
+// assistant message (or the agent replay) supersedes it.
+func (s *transcriptStore) appendThought(sessionID, text string) {
+	if s == nil || text == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t := s.getLocked(sessionID, time.Now())
+	t.thought += text
+	if len(t.thought) > maxLiveThought {
+		cut := len(t.thought) - maxLiveThought
+		for cut < len(t.thought) && !utf8.RuneStart(t.thought[cut]) {
+			cut++
+		}
+		t.thought = t.thought[cut:]
+	}
+	t.updated = time.Now()
+}
+
 // clearPartial drops the in-progress turn's text (the complete message or a
 // terminal state superseded it).
 func (s *transcriptStore) clearPartial(sessionID string) {
@@ -195,6 +228,7 @@ func (s *transcriptStore) clearPartial(sessionID string) {
 	defer s.mu.Unlock()
 	if t, ok := s.sessions[sessionID]; ok {
 		t.partial.Reset()
+		t.thought = ""
 		t.updated = time.Now()
 	}
 }
@@ -221,6 +255,7 @@ func (s *transcriptStore) finishSession(sessionID string) {
 	defer s.mu.Unlock()
 	if t, ok := s.sessions[sessionID]; ok {
 		t.partial.Reset()
+		t.thought = ""
 		t.pending = ""
 		t.updated = time.Now()
 	}
@@ -229,23 +264,23 @@ func (s *transcriptStore) finishSession(sessionID string) {
 // snapshot returns a copy of the session's transcript state. A missing entry
 // is an empty transcript, not an error: a live session may not have produced
 // anything yet.
-func (s *transcriptStore) snapshot(sessionID string) (msgs []protocol.Message, partial, pending string) {
+func (s *transcriptStore) snapshot(sessionID string) (msgs []protocol.Message, partial, thought, pending string) {
 	msgs = []protocol.Message{}
 	if s == nil {
-		return msgs, "", ""
+		return msgs, "", "", ""
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepLocked(time.Now())
 	t, ok := s.sessions[sessionID]
 	if !ok {
-		return msgs, "", ""
+		return msgs, "", "", ""
 	}
 	msgs = make([]protocol.Message, len(t.messages))
 	for i, m := range t.messages {
 		msgs[i] = cloneMessage(m)
 	}
-	return msgs, t.partial.String(), t.pending
+	return msgs, t.partial.String(), t.thought, t.pending
 }
 
 func (s *transcriptStore) getLocked(sessionID string, now time.Time) *liveTranscript {

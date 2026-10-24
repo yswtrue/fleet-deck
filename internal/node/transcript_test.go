@@ -1,7 +1,9 @@
 package node
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/protocol"
@@ -21,9 +23,12 @@ func TestTranscriptKeepsOrderedToolRows(t *testing.T) {
 	s.upsertTool("sess-1", adapters.ToolCall{ID: "call-1", Status: "completed"})
 	s.addMessage("sess-1", protocol.Message{ID: "adapter-1", Role: protocol.RoleAssistant, Content: "done"})
 
-	msgs, partial, pending := s.snapshot("sess-1")
+	msgs, partial, thought, pending := s.snapshot("sess-1")
 	if partial != "" {
 		t.Fatalf("partial = %q, want cleared by the complete message", partial)
+	}
+	if thought != "" {
+		t.Fatalf("thought = %q, want cleared by the complete message", thought)
 	}
 	if pending != "" {
 		t.Fatalf("pending = %q, want empty", pending)
@@ -60,7 +65,7 @@ func TestTranscriptIDsAreUniqueAcrossRuns(t *testing.T) {
 	if first.ID == second.ID {
 		t.Fatalf("resumed run reused id %q", first.ID)
 	}
-	msgs, _, _ := s.snapshot("sess-1")
+	msgs, _, _, _ := s.snapshot("sess-1")
 	if len(msgs) != 2 {
 		t.Fatalf("messages = %d, want both runs kept: %+v", len(msgs), msgs)
 	}
@@ -72,14 +77,42 @@ func TestTranscriptPendingAndPartial(t *testing.T) {
 	s := newTranscriptStore()
 	s.setPending("sess-1", "Should I proceed?")
 	s.appendDelta("sess-1", "half an answer")
-	_, partial, pending := s.snapshot("sess-1")
-	if partial != "half an answer" || pending != "Should I proceed?" {
-		t.Fatalf("partial/pending = %q/%q", partial, pending)
+	_, partial, thought, pending := s.snapshot("sess-1")
+	if partial != "half an answer" || pending != "Should I proceed?" || thought != "" {
+		t.Fatalf("partial/thought/pending = %q/%q/%q", partial, thought, pending)
 	}
 	s.setPending("sess-1", "")
 	s.clearPartial("sess-1")
-	_, partial, pending = s.snapshot("sess-1")
-	if partial != "" || pending != "" {
-		t.Fatalf("cleared partial/pending = %q/%q", partial, pending)
+	_, partial, thought, pending = s.snapshot("sess-1")
+	if partial != "" || thought != "" || pending != "" {
+		t.Fatalf("cleared partial/thought/pending = %q/%q/%q", partial, thought, pending)
+	}
+}
+
+// The in-progress reasoning survives in the cache for a late browser attach,
+// but is bounded to the window the UI renders and drops with the turn.
+func TestTranscriptThought(t *testing.T) {
+	s := newTranscriptStore()
+	s.appendThought("sess-1", "weighing ")
+	s.appendThought("sess-1", "the options")
+	_, _, thought, _ := s.snapshot("sess-1")
+	if thought != "weighing the options" {
+		t.Fatalf("thought = %q", thought)
+	}
+
+	long := strings.Repeat("é", maxLiveThought)
+	s.appendThought("sess-1", long)
+	_, _, thought, _ = s.snapshot("sess-1")
+	if len(thought) > maxLiveThought+2 {
+		t.Fatalf("thought length = %d, want bounded near %d", len(thought), maxLiveThought)
+	}
+	if !utf8.ValidString(thought) {
+		t.Fatal("bounded thought split a UTF-8 rune")
+	}
+
+	s.addMessage("sess-1", protocol.Message{Role: protocol.RoleAssistant, Content: "answer"})
+	_, _, thought, _ = s.snapshot("sess-1")
+	if thought != "" {
+		t.Fatalf("thought after message = %q, want cleared", thought)
 	}
 }

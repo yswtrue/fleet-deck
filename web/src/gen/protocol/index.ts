@@ -155,6 +155,7 @@ export interface SessionTranscriptResponse {
   session_id: string;
   messages: Message[];
   partial_output: string;
+  partial_thought: string;
   pending_input: string;
   error?: string;
 }

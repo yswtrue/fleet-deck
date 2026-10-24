@@ -51,8 +51,9 @@ export function useSession(sessionId: string) {
   })
 
   const [delta, setDelta] = useState('')
-  // thought is the agent's live reasoning trace (never persisted, dropped on
-  // reload); it is cleared when the turn produces a message or ends.
+  // thought is the agent's live reasoning trace. The node and hub keep a
+  // bounded copy for the session snapshot, so reopening the page mid-turn
+  // restores it; the agent's own replay provides it for finished sessions.
   const [thought, setThought] = useState('')
   const [sessionStatus, setSessionStatus] = useState<SessionStateChanged['status'] | null>(null)
   // pendingPermission is the structured ACP permission ask awaiting a pick
@@ -265,6 +266,15 @@ export function useSession(sessionId: string) {
         const partial = snapshot.partial_output ?? ''
         if (partial) {
           setDelta((current) => (partial.length >= current.length ? partial : current))
+        }
+        // Reasoning is live-only over WS, but the hub/node keep a bounded copy
+        // for the snapshot so reopening the page mid-turn does not blank the
+        // trace. A live chunk that outgrew the snapshot wins.
+        const partialThought = snapshot.partial_thought ?? ''
+        if (partialThought) {
+          setThought((current) =>
+            partialThought.length >= current.length ? partialThought : current
+          )
         }
         // The pending ask's prompt is content: it lives in the hub's ephemeral
         // buffer (not the event stream, which stores only its occurrence), so

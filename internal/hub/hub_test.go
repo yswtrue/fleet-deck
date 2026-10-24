@@ -612,6 +612,67 @@ func TestEvSessionDeltaSurvivesReload(t *testing.T) {
 	}
 }
 
+// TestEvSessionThoughtSurvivesReload pins reasoning restoration: thought
+// frames are live-only in the wire contract, but the hub keeps a bounded copy
+// in the ephemeral buffer so reopening the page mid-turn shows what the agent
+// already reasoned. A complete message (or terminal state) clears it.
+func TestEvSessionThoughtSurvivesReload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("thought-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	for _, chunk := range []string{"weighing ", "the ", "options"} {
+		if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+			Type: protocol.EvSessionThought,
+			Data: protocol.SessionThought{SessionID: task.SessionID, Text: chunk},
+		})); err != nil {
+			t.Fatalf("send thought: %v", err)
+		}
+	}
+
+	snapshot := func() sessionSnapshot {
+		t.Helper()
+		resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID)
+		return decodeOK[sessionSnapshot](t, "GET /api/sessions/{id}", resp, raw)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if got := snapshot().PartialThought; got == "weighing the options" {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("partial_thought = %q, want the accumulated trace", got)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// A complete assistant message supersedes the turn's reasoning.
+	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgSessionEvent, protocol.SessionMessage{
+		SessionID: task.SessionID,
+		Message: protocol.Message{
+			SessionID: task.SessionID,
+			Role:      protocol.RoleAssistant,
+			Content:   "done",
+			CreatedAt: time.Now().UTC(),
+		},
+	})); err != nil {
+		t.Fatalf("send session message: %v", err)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		if got := snapshot().PartialThought; got == "" {
+			return
+		} else if time.Now().After(deadline) {
+			t.Fatalf("partial_thought = %q, want cleared by the final message", got)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func postJSON[T any](t *testing.T, token, url string, body any) T {
 	t.Helper()
 	resp, raw := postRaw(t, token, url, body)

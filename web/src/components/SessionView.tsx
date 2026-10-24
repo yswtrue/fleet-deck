@@ -101,6 +101,28 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
       const evt = dispatchEvent(event)
       if (!evt || !taskId) return
       if (evt.type === 'subtask.updated' && evt.data.task_id === taskId) {
+        // Apply the row instead of invalidating: todo snapshots arrive in
+        // bursts, and an invalidate that lands while a refetch is in flight is
+        // coalesced, leaving the last status unapplied until the next event.
+        const { subtask, removed } = evt.data
+        queryClient.setQueryData<Subtask[]>(['subtasks', taskId], (prev) => {
+          const list = prev ?? []
+          if (removed) return list.filter((s) => s.id !== subtask.id)
+          const idx = list.findIndex((s) => s.id === subtask.id)
+          const next = idx < 0 ? [...list, subtask] : list.map((s, i) => (i === idx ? subtask : s))
+          return next.sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id))
+        })
+        // A fetch that started before this frame can still resolve with the
+        // pre-update rows and overwrite them. Refetching (which cancels the
+        // in-flight request) keeps the list converging on the server's last
+        // write; when nothing is in flight the applied row is already exact.
+        if (queryClient.isFetching({ queryKey: ['subtasks', taskId] }) > 0) {
+          void queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+        }
+      }
+      // Subtask frames are transient. A state transition is a cheap point to
+      // re-read the mirrored list, healing a frame dropped under load.
+      if (evt.type === 'session.state_changed' && evt.data.session_id === sessionId) {
         void queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
       }
       if (evt.type === 'task.title_changed' && evt.data.task_id === taskId) {
@@ -109,9 +131,17 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
         void refetchSnapshot()
       }
     },
-    [taskId, queryClient, refetchSnapshot]
+    [taskId, sessionId, queryClient, refetchSnapshot]
   )
   const { connectionState } = useWebSocket(handleSessionEvent)
+
+  // A reconnect may have missed subtask frames (the hub drops events for a
+  // subscriber that falls behind), so re-read the list once the socket is back.
+  useEffect(() => {
+    if (connectionState === 'open' && taskId) {
+      void queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+    }
+  }, [connectionState, taskId, queryClient])
 
   // Session meta: resolve the node name from the shared nodes list (the hub
   // has no GET /api/nodes/{id}; `getNode` 404s into the SPA fallback).

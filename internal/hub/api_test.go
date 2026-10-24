@@ -453,15 +453,16 @@ func TestGetSessionHappy(t *testing.T) {
 	}
 
 	// The body must carry exactly the SessionSnapshot fields: session, task,
-	// the pending ask's prompt and the in-progress streaming text (both served
+	// the pending ask's prompt and the in-progress text/thought (all served
 	// from the ephemeral buffer).
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &keys); err != nil {
 		t.Fatalf("decode raw keys: %v (%s)", err, raw)
 	}
-	if len(keys) != 4 || keys["session"] == nil || keys["task"] == nil ||
-		keys["pending_input"] == nil || keys["partial_output"] == nil {
-		t.Fatalf("response keys = %v, want exactly session+task+pending_input+partial_output", keys)
+	if len(keys) != 5 || keys["session"] == nil || keys["task"] == nil ||
+		keys["pending_input"] == nil || keys["partial_output"] == nil ||
+		keys["partial_thought"] == nil {
+		t.Fatalf("response keys = %v, want exactly session+task+pending_input+partial_output+partial_thought", keys)
 	}
 }
 

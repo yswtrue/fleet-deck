@@ -77,15 +77,15 @@ assistant 消息、tool call 和进行中回合的流式正文按到达顺序写
 (重启 hub 也不丢),tool call 作为 `role=tool` 的一等行按稳定 id 原地更新。已结束会话通过 node 按需
 replay agent 自己的会话存储(`session.history_req/resp`,ACP `session/load` 全量回放),再与 node
 缓存(agent 未回放的 tool call/额外输出)和 hub 兜底缓冲合并;三者都没有才 503。hub 仍保留一份
-**内存文本缓冲**(24h TTL)用于会话快照的 `partial_output`/待答 ask 的 `pending_input`,以及 node
-离线期间收到、尚未被 node 缓存的消息兜底。流式 delta 仍会累积进缓冲并经快照暴露,运行中刷新不丢
-已产出正文;完整 assistant 消息或终态清空 partial。node 在 `session/new`(或 resume 的
+**内存文本缓冲**(24h TTL)用于会话快照的 `partial_output`/`partial_thought`/待答 ask 的 `pending_input`,以及 node
+离线期间收到、尚未被 node 缓存的消息兜底。流式 delta 与推理片段仍会累积进缓冲并经快照暴露,运行中刷新不丢
+已产出的正文和思考;完整 assistant 消息或终态清空 partial。node 在 `session/new`(或 resume 的
 `session/load`)成功后上报 `session.started`,hub 把 agent 侧会话 id 写进 `session.external_session_id`
 ——没有它,回放无从定位,`GET /api/sessions/{id}/messages` 只能靠 node/hub 缓存,缓存没了就是 503。
 任务下发时 hub 把 prompt 作为会话第一条 user 消息(同一 id)同时写入广播、hub 兜底缓冲和
 `task.start`,运行中的会话一打开就能看到指令。已结束会话的回放还包含 agent 自己的 thinking 片段
 (`role=thinking`,来自 `session/load` 的 `agent_thought_chunk`);实时回合的推理走 `session.thought`
-实时流,两者都不入库。`event` 表只存状态类事件的出现记录,`user_input_requested` 持久化时剥掉
+实时流,node 缓存与 hub 缓冲各存一份有界副本(刷新可恢复),两者都不入库。`event` 表只存状态类事件的出现记录,`user_input_requested` 持久化时剥掉
 prompt(空 prompt 占位,保持 web 事件契约)。
 
 **任务状态机**(4 状态,固定):
@@ -109,7 +109,7 @@ waiting ──start──▶ running ──agent_done──▶ done
 
 `internal/protocol` 里的 Go struct 是**唯一真源**。`cmd/fleetctl schema export` 导出 JSON Schema,`web/` 再生成 TS 类型。三端(hub/node/web)共享同一套消息形状。
 
-- **Hub ↔ Web(订阅/推送)**:事件类型如 `task.created` / `task.status_changed` / `task.title_changed` / `subtask.updated` / `session.delta` / `session.thought`(agent 推理流:仅实时广播,不落库、不进文本缓冲)/ `session.user_input_requested` / `node.status_changed`。
+- **Hub ↔ Web(订阅/推送)**:事件类型如 `task.created` / `task.status_changed` / `task.title_changed` / `subtask.updated` / `session.delta` / `session.thought`(agent 推理流:实时广播,内存缓冲有界副本,不落库)/ `session.user_input_requested` / `node.status_changed`。
 - **Hub ↔ Node(命令/上报)**:hub 下发 `task.start` / `session.send_message` / `session.cancel` / `session.history_req`(按需回放会话历史)/ `session.transcript_req`(读取 node 本地实时 transcript,运行中会话的权威顺序)/ `fs.list_req`(目录浏览);node 上报文本增量、完整消息/tool call(`session.message`,tool 行带稳定 id 原地更新)、todo 更新、状态变更、请求用户输入、`session.started`(agent 侧会话 id,供后续回放)、`session.title`(agent 自定会话标题,回填临时任务标题)、`session.history_resp`、`session.transcript_resp`、`fs.list_resp`。`task.start` / `session.send_message` / `session.resume` 携带 hub 记录的 `user_message`(同 id),node 用它作为本地 transcript 的 user 行。
 - **node 注册**:未知节点名必须出示一次性加入令牌(`POST /api/nodes/join-tokens` 生成,任何已登录用户可生成;或部署级 `FLEETDECK_NODE_JOIN_TOKEN`)。hub 在创建节点行的同一事务里烧掉令牌,并把令牌创建者绑定到该节点;随后签发 node token(存 `token_file`),后续重连只用 node token。`POST /api/nodes` 已移除,不能凭空预建可被抢注的节点行。
 - **工作空间创建**:web「新建工作区」的目录选择器经 `GET /api/nodes/{id}/fs?path=` 把 `fs.list_req` / `fs.list_resp` 转发给节点(只列目录、返回 symlink 解析后的绝对路径;空 `path` 从节点用户 home 开始;节点离线 503,路径不可读 400)。`fleetdeck-node workspace add|list` 从节点机器经 hub REST 管理工作空间,使用**用户** Bearer(`--token` / `FLEETDECK_HUB_TOKEN`,或 `--email`/`--password`;hub 地址取 `FLEETDECK_HUB_URL` 或配置里的 `hub_url`)——node token 从不用于 REST。hub 仍是唯一 DB 写入者。

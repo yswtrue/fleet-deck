@@ -272,13 +272,14 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 // It is memory-only and cheap, so it runs synchronously; the hub uses it as
 // the authoritative source for a live session's message order.
 func (n *Node) sendTranscript(cmd protocol.SessionTranscriptRequest) {
-	messages, partial, pending := n.transcripts.snapshot(cmd.SessionID)
+	messages, partial, thought, pending := n.transcripts.snapshot(cmd.SessionID)
 	n.enqueue(protocol.NewEnvelope(protocol.MsgSessionTranscriptResp, protocol.SessionTranscriptResponse{
-		ReqID:         cmd.ReqID,
-		SessionID:     cmd.SessionID,
-		Messages:      messages,
-		PartialOutput: partial,
-		PendingInput:  pending,
+		ReqID:          cmd.ReqID,
+		SessionID:      cmd.SessionID,
+		Messages:       messages,
+		PartialOutput:  partial,
+		PartialThought: thought,
+		PendingInput:   pending,
 	}))
 }
 
