@@ -120,4 +120,65 @@ describe('AppLayout', () => {
     expect(await screen.findByText('Dashboard')).toBeTruthy()
     expect(screen.getByText('Nodes')).toBeTruthy()
   })
+
+  it('resolves node, workspace and task crumbs for a session deep link', async () => {
+    // A direct /sessions/{id} URL has no cached board/workspace state: the
+    // header must resolve the parent chain from the snapshot + lookups.
+    const snapshot = {
+      session: {
+        id: 's-1',
+        task_id: 't-1',
+        node_id: 'n-1',
+        agent_type: 'fake',
+        status: 'running',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+      task: {
+        id: 't-1',
+        workspace_id: 'w-1',
+        title: 'Fix the breadcrumb',
+        status: 'running',
+        agent_type: 'fake',
+        sort_order: 0,
+        auto_start: true,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+      },
+      pending_input: '',
+      partial_output: '',
+      partial_thought: '',
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input)
+        const payload = url.startsWith('/api/auth/me')
+          ? adminUser
+          : url.startsWith('/api/health')
+            ? { status: 'ok', version: 'v9.9.9' }
+            : url === '/api/sessions/s-1'
+              ? snapshot
+              : url === '/api/workspaces/w-1'
+                ? { id: 'w-1', node_id: 'n-1', name: 'Repo' }
+                : url === '/api/nodes/n-1'
+                  ? { id: 'n-1', name: 'Box' }
+                  : {}
+        return Promise.resolve(
+          new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        )
+      })
+    )
+    stubMatchMedia(false)
+    renderLayout('/sessions/s-1')
+
+    const nodeCrumb = await screen.findByRole('link', { name: 'Box' })
+    expect(nodeCrumb.getAttribute('href')).toBe('/nodes/n-1')
+    expect(screen.getByRole('link', { name: 'Repo' }).getAttribute('href')).toBe('/workspaces/w-1')
+    expect(screen.getByRole('link', { name: 'Fix the breadcrumb' }).getAttribute('href')).toBe(
+      '/sessions/s-1'
+    )
+  })
 })

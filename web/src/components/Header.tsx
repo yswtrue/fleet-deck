@@ -99,10 +99,43 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
     retry: false,
   })
 
-  const workspaceId = section === 'workspaces' && routeId ? routeId : ''
-  const workspace = useCachedWorkspace(workspaceId)
-  const nodeId = (section === 'nodes' && routeId ? routeId : '') || workspace?.node_id || ''
-  const node = useCachedNode(nodeId)
+  // A session route is the task detail page: the snapshot carries the owning
+  // task, whose workspace_id and the session's node_id supply the parent
+  // chain. Same query key as SessionView, so opening a session fetches once.
+  const sessionId = section === 'sessions' && routeId ? routeId : ''
+  const sessionSnapshotQuery = useQuery({
+    queryKey: ['session', sessionId],
+    queryFn: () => api.getSession(sessionId),
+    enabled: !!sessionId,
+    retry: false,
+  })
+  const sessionTask = sessionSnapshotQuery.data?.task ?? undefined
+
+  const workspaceId =
+    (section === 'workspaces' && routeId ? routeId : '') || sessionTask?.workspace_id || ''
+  // Resolve names for deep links too. The keys match Workspace/NodeDetail, so
+  // a page rendered beside the header shares the same cache entry (one fetch).
+  const workspaceQuery = useQuery({
+    queryKey: ['workspace', workspaceId],
+    queryFn: () => api.getWorkspace(workspaceId),
+    enabled: !!workspaceId,
+    retry: false,
+  })
+  const cachedWorkspace = useCachedWorkspace(workspaceId)
+  const workspace = workspaceQuery.data ?? cachedWorkspace
+  const nodeId =
+    (section === 'nodes' && routeId ? routeId : '') ||
+    workspace?.node_id ||
+    sessionSnapshotQuery.data?.session.node_id ||
+    ''
+  const nodeQuery = useQuery({
+    queryKey: ['nodes', nodeId],
+    queryFn: () => api.getNode(nodeId),
+    enabled: !!nodeId,
+    retry: false,
+  })
+  const cachedNode = useCachedNode(nodeId)
+  const node = nodeQuery.data ?? cachedNode
 
   const refresh = () => {
     queryClient.invalidateQueries()
@@ -130,10 +163,31 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
       title: <NavLink to={`/workspaces/${routeId}`}>{workspace?.name ?? shortId(routeId)}</NavLink>,
     })
   } else if (section === 'sessions' && routeId) {
+    const sessionNodeId = sessionSnapshotQuery.data?.session.node_id
+    if (sessionNodeId) {
+      crumbs.push({
+        key: 'node',
+        title: (
+          <NavLink to={`/nodes/${sessionNodeId}`}>{node?.name ?? shortId(sessionNodeId)}</NavLink>
+        ),
+      })
+    }
+    if (workspaceId) {
+      crumbs.push({
+        key: 'workspace',
+        title: (
+          <NavLink to={`/workspaces/${workspaceId}`}>
+            {workspace?.name ?? shortId(workspaceId)}
+          </NavLink>
+        ),
+      })
+    }
     crumbs.push({
       key: 'session',
       title: (
-        <NavLink to={`/sessions/${routeId}`}>{t('sessionCrumb', { id: shortId(routeId) })}</NavLink>
+        <NavLink to={`/sessions/${routeId}`}>
+          {sessionTask?.title || t('sessionCrumb', { id: shortId(routeId) })}
+        </NavLink>
       ),
     })
   }
