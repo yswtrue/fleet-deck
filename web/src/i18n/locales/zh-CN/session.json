@@ -77,5 +77,9 @@
     "status": "状态",
     "agent": "Agent",
     "node": "节点"
+  },
+  "failure": {
+    "title": "任务失败",
+    "unknown": "未报告失败原因。"
   }
 }

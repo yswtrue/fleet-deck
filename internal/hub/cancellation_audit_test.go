@@ -20,7 +20,7 @@ func TestTaskCancellationAudit(t *testing.T) {
 	for _, initial := range []protocol.SessionStatus{protocol.SessionRunning, protocol.SessionAwaitingUser} {
 		t.Run(string(initial), func(t *testing.T) {
 			task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
-			h.applySessionStatus(ctx, task.SessionID, initial)
+			h.applySessionStatus(ctx, task.SessionID, initial, "")
 			resp, raw := patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"status": "done"})
 			requireStatus(t, "manual termination", resp, raw, http.StatusOK)
 			var cancelled protocol.Task
@@ -35,8 +35,8 @@ func TestTaskCancellationAudit(t *testing.T) {
 			// rewrite the first cancellation timestamp.
 			resp, raw = patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"status": "done"})
 			requireStatus(t, "repeat termination", resp, raw, http.StatusOK)
-			h.applySessionStatus(ctx, task.SessionID, protocol.SessionRunning)
-			h.applySessionStatus(ctx, task.SessionID, protocol.SessionDone)
+			h.applySessionStatus(ctx, task.SessionID, protocol.SessionRunning, "")
+			h.applySessionStatus(ctx, task.SessionID, protocol.SessionDone, "")
 			resp, raw = getRaw(t, auth.token, ts.URL+"/api/tasks?workspace_id="+task.WorkspaceID)
 			requireStatus(t, "read audit", resp, raw, http.StatusOK)
 			var tasks []protocol.Task
@@ -51,7 +51,7 @@ func TestTaskCancellationAudit(t *testing.T) {
 	for _, terminal := range []protocol.SessionStatus{protocol.SessionDone, protocol.SessionFailed} {
 		t.Run(string(terminal), func(t *testing.T) {
 			task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
-			h.applySessionStatus(ctx, task.SessionID, terminal)
+			h.applySessionStatus(ctx, task.SessionID, terminal, "")
 			resp, raw := patchRaw(t, auth.token, ts.URL+"/api/tasks/"+task.ID, map[string]any{"status": "done"})
 			requireStatus(t, "idempotent natural completion", resp, raw, http.StatusOK)
 			stored, err := st.Queries().GetTask(ctx, task.ID)

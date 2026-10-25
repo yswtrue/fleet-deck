@@ -369,6 +369,7 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 	_ = c.Close()
 
 	var sawSessionFailed, sawTaskFailed bool
+	var failedEvent protocol.SessionStateChanged
 	timeout := time.After(3 * time.Second)
 	for !sawSessionFailed || !sawTaskFailed {
 		select {
@@ -380,6 +381,7 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 				if sc, ok := evt.Data.(protocol.SessionStateChanged); ok &&
 					sc.SessionID == task.SessionID && sc.Status == protocol.SessionFailed {
 					sawSessionFailed = true
+					failedEvent = sc
 				}
 			}
 			if evt.Type == protocol.EvTaskStatusChanged {
@@ -398,9 +400,64 @@ func TestNodeOfflineCascadesSessions(t *testing.T) {
 	if err != nil || sess.Status != protocol.SessionFailed {
 		t.Fatalf("session status = %q (err %v), want failed", sess.Status, err)
 	}
+	if sess.Error != "node offline" {
+		t.Fatalf("session error = %q, want %q", sess.Error, "node offline")
+	}
+	if failedEvent.Error != "node offline" {
+		t.Fatalf("state event error = %q, want %q", failedEvent.Error, "node offline")
+	}
 	got, err := st.Queries().GetTask(ctx, task.ID)
 	if err != nil || got.Status != protocol.TaskFailed {
 		t.Fatalf("task status = %q (err %v), want failed", got.Status, err)
+	}
+}
+
+// A node-reported failure carries the adapter's reason: the hub records it on
+// the session (so a reload can show it) and clears it when the session runs
+// again. The reason is the operator's only explanation of why the task stopped.
+func TestNodeReportedFailureReason(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("fail-reason-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+	ctx := context.Background()
+	const reason = "acp: prompt stopped: refusal"
+
+	h.handleNodeMessage(ctx, nodeID, protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+		Type: protocol.EvSessionStateChanged,
+		Data: protocol.SessionStateChanged{
+			SessionID: task.SessionID,
+			Status:    protocol.SessionFailed,
+			Error:     reason,
+		},
+		Ts: time.Now().UTC(),
+	}))
+
+	sess, err := st.Queries().GetSession(ctx, task.SessionID)
+	if err != nil || sess.Status != protocol.SessionFailed {
+		t.Fatalf("session status = %q (err %v), want failed", sess.Status, err)
+	}
+	if sess.Error != reason {
+		t.Fatalf("session error = %q, want %q", sess.Error, reason)
+	}
+
+	// A resumed session (running again) must not keep the old reason.
+	h.handleNodeMessage(ctx, nodeID, protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+		Type: protocol.EvSessionStateChanged,
+		Data: protocol.SessionStateChanged{SessionID: task.SessionID, Status: protocol.SessionRunning},
+		Ts:   time.Now().UTC(),
+	}))
+	sess, err = st.Queries().GetSession(ctx, task.SessionID)
+	if err != nil || sess.Error != "" {
+		t.Fatalf("session error after resume = %q (err %v), want cleared", sess.Error, err)
 	}
 }
 

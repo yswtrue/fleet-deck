@@ -84,6 +84,7 @@ type Session struct {
 	Status            string
 	CreatedAt         time.Time
 	EndedAt           *time.Time
+	Error             string
 }
 
 type Subtask struct {

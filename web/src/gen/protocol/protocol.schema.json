@@ -335,6 +335,9 @@
             "awaiting_user"
           ]
         },
+        "error": {
+          "type": "string"
+        },
         "created_at": {
           "type": "string",
           "format": "date-time"
@@ -696,6 +699,9 @@
             "failed",
             "awaiting_user"
           ]
+        },
+        "error": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

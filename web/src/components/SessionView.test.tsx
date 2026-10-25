@@ -1,8 +1,8 @@
 /**
  * SessionView composer gating per session status.
  *
- * SessionView mixes Refine's useOne (session snapshot), react-query (messages)
- * and the app WebSocketContext. This test drives the composer through two
+ * SessionView mixes a react-query session snapshot, react-query messages and
+ * the app WebSocketContext. This test drives the composer through two
  * finished states:
  * - `done`: the composer is enabled with the "continue the conversation" copy
  *   and sending the same send API lets the hub reopen the session;
@@ -12,11 +12,8 @@ import { describe, expect, it, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Refine } from '@refinedev/core'
-import routerProvider from '@refinedev/react-router'
 import { SessionView } from './SessionView.tsx'
 import { WebSocketContext } from '../hooks/WebSocketContext.ts'
-import { dataProvider } from '../dataProvider.ts'
 import type { SessionSnapshot } from '../apiClient.ts'
 
 const fetchMock = vi.fn()
@@ -42,7 +39,8 @@ const doneTask = {
 function snapshotWith(
   status: SessionSnapshot['session']['status'],
   partial = '',
-  thought = ''
+  thought = '',
+  failure = ''
 ): SessionSnapshot {
   return {
     session: {
@@ -52,6 +50,7 @@ function snapshotWith(
       agent_type: 'fake',
       status,
       external_session_id: 'ext-1',
+      error: failure || undefined,
       workspace_path: '/tmp/w',
       created_at: '2026-09-28T00:00:00Z',
       updated_at: '2026-09-28T00:00:00Z',
@@ -73,10 +72,11 @@ function renderView(
     partial?: string
     thought?: string
     subtasks?: unknown[]
+    failure?: string
     subscribe?: (handler: (event: never) => void) => () => void
   } = {}
 ) {
-  const snapshot = snapshotWith(sessionStatus, opts.partial, opts.thought)
+  const snapshot = snapshotWith(sessionStatus, opts.partial, opts.thought, opts.failure)
   if (opts.pending) snapshot.pending_input = opts.pending
   fetchMock.mockImplementation((input: unknown) => {
     const url = String(input)
@@ -94,20 +94,18 @@ function renderView(
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <Refine dataProvider={dataProvider} routerProvider={routerProvider}>
-          <WebSocketContext.Provider
-            value={{
-              connected: opts.connected ?? false,
-              connectionState: opts.connected ? 'open' : 'closed',
-              seq: 0,
-              lastSeq: 0,
-              error: null,
-              subscribe: opts.subscribe ?? (() => () => {}),
-            }}
-          >
-            <SessionView sessionId="s-1" />
-          </WebSocketContext.Provider>
-        </Refine>
+        <WebSocketContext.Provider
+          value={{
+            connected: opts.connected ?? false,
+            connectionState: opts.connected ? 'open' : 'closed',
+            seq: 0,
+            lastSeq: 0,
+            error: null,
+            subscribe: opts.subscribe ?? (() => () => {}),
+          }}
+        >
+          <SessionView sessionId="s-1" />
+        </WebSocketContext.Provider>
       </MemoryRouter>
     </QueryClientProvider>
   )
@@ -133,6 +131,43 @@ describe.each(['done', 'failed'] as const)('SessionView finished session (%s)', 
       method: 'POST',
       body: JSON.stringify({ message: 'one more thing' }),
     })
+  })
+})
+
+describe('SessionView failure reason', () => {
+  it('shows the persisted reason after a reload', async () => {
+    renderView('failed', { failure: 'acp: agent exited: exit status 2' })
+    expect(await screen.findByText('This task failed')).toBeTruthy()
+    expect(screen.getByText('acp: agent exited: exit status 2')).toBeTruthy()
+  })
+
+  it('shows the reason from a live failed state event', async () => {
+    const subscribers: Array<(event: unknown) => void> = []
+    renderView('running', {
+      connected: true,
+      subscribe: (handler) => {
+        subscribers.push(handler as (event: unknown) => void)
+        return () => {}
+      },
+    })
+    await waitFor(() => expect(subscribers.length).toBeGreaterThan(0))
+    // Let the snapshot land first: the gap-fill sync (running) must not clobber
+    // the live failure this test then emits.
+    await screen.findByPlaceholderText('Waiting for the agent to ask a question…')
+
+    subscribers.forEach((h) =>
+      h({
+        type: 'session.state_changed',
+        data: {
+          session_id: 's-1',
+          status: 'failed',
+          error: 'acp: prompt stopped: refusal',
+        },
+      })
+    )
+
+    expect(await screen.findByText('This task failed')).toBeTruthy()
+    expect(screen.getByText('acp: prompt stopped: refusal')).toBeTruthy()
   })
 })
 

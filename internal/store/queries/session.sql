@@ -11,6 +11,11 @@ UPDATE session
 SET status = $2, ended_at = sqlc.narg('ended_at')
 WHERE id = $1;
 
+-- name: UpdateSessionError :exec
+UPDATE session
+SET error = $2
+WHERE id = $1;
+
 -- name: UpdateSessionExternalID :exec
 UPDATE session
 SET external_session_id = $2

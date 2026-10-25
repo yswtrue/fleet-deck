@@ -13,7 +13,7 @@ import (
 const createSession = `-- name: CreateSession :one
 INSERT INTO session (task_id, node_id, agent_type, external_session_id, status)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, task_id, node_id, agent_type, external_session_id, status, created_at, ended_at
+RETURNING id, task_id, node_id, agent_type, external_session_id, status, created_at, ended_at, error
 `
 
 type CreateSessionParams struct {
@@ -42,12 +42,13 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 		&i.Status,
 		&i.CreatedAt,
 		&i.EndedAt,
+		&i.Error,
 	)
 	return i, err
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, task_id, node_id, agent_type, external_session_id, status, created_at, ended_at FROM session WHERE id = $1
+SELECT id, task_id, node_id, agent_type, external_session_id, status, created_at, ended_at, error FROM session WHERE id = $1
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -62,12 +63,13 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Status,
 		&i.CreatedAt,
 		&i.EndedAt,
+		&i.Error,
 	)
 	return i, err
 }
 
 const listSessionsByNode = `-- name: ListSessionsByNode :many
-SELECT id, task_id, node_id, agent_type, external_session_id, status, created_at, ended_at FROM session WHERE node_id = $1 ORDER BY created_at
+SELECT id, task_id, node_id, agent_type, external_session_id, status, created_at, ended_at, error FROM session WHERE node_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListSessionsByNode(ctx context.Context, nodeID string) ([]Session, error) {
@@ -88,6 +90,7 @@ func (q *Queries) ListSessionsByNode(ctx context.Context, nodeID string) ([]Sess
 			&i.Status,
 			&i.CreatedAt,
 			&i.EndedAt,
+			&i.Error,
 		); err != nil {
 			return nil, err
 		}
@@ -100,7 +103,7 @@ func (q *Queries) ListSessionsByNode(ctx context.Context, nodeID string) ([]Sess
 }
 
 const listSessionsByTask = `-- name: ListSessionsByTask :many
-SELECT id, task_id, node_id, agent_type, external_session_id, status, created_at, ended_at FROM session WHERE task_id = $1 ORDER BY created_at
+SELECT id, task_id, node_id, agent_type, external_session_id, status, created_at, ended_at, error FROM session WHERE task_id = $1 ORDER BY created_at
 `
 
 func (q *Queries) ListSessionsByTask(ctx context.Context, taskID string) ([]Session, error) {
@@ -121,6 +124,7 @@ func (q *Queries) ListSessionsByTask(ctx context.Context, taskID string) ([]Sess
 			&i.Status,
 			&i.CreatedAt,
 			&i.EndedAt,
+			&i.Error,
 		); err != nil {
 			return nil, err
 		}
@@ -130,6 +134,22 @@ func (q *Queries) ListSessionsByTask(ctx context.Context, taskID string) ([]Sess
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateSessionError = `-- name: UpdateSessionError :exec
+UPDATE session
+SET error = $2
+WHERE id = $1
+`
+
+type UpdateSessionErrorParams struct {
+	ID    string
+	Error string
+}
+
+func (q *Queries) UpdateSessionError(ctx context.Context, arg UpdateSessionErrorParams) error {
+	_, err := q.db.Exec(ctx, updateSessionError, arg.ID, arg.Error)
+	return err
 }
 
 const updateSessionExternalID = `-- name: UpdateSessionExternalID :exec

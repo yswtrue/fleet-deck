@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useOne } from '@refinedev/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Typography, message } from 'antd'
+import { Alert, Button, Input, Typography, message } from 'antd'
 import { MessageBubble } from './MessageBubble.tsx'
 import { SessionUsage } from './SessionUsage.tsx'
 import { PermissionPicker } from './PermissionPicker.tsx'
@@ -19,7 +18,6 @@ import { useTranslation } from '../i18n/index.ts'
 import { formatPermissionReply } from '../permission.ts'
 import { formatElicitationReply } from '../elicitation.ts'
 import styles from './SessionView.module.css'
-import type { SessionSnapshot } from '../apiClient.ts'
 import type { Event as ProtocolEvent } from '../gen/protocol/index.ts'
 import type { Subtask, Task } from '../types.ts'
 
@@ -42,6 +40,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     isLoading,
     error,
     sessionStatus,
+    failureReason,
     pendingPermission,
     pendingElicitation,
     thought,
@@ -64,13 +63,15 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   const queryClient = useQueryClient()
   const taskFromState = (location.state as { task?: Task } | null)?.task
   // Direct URLs carry no location.state task. Fetch the session snapshot so
-  // the header shows the task title (Refine getOne('sessions') maps to
-  // GET /api/sessions/{id}, which returns the owning task). useOne exposes the
-  // unwrapped record as `result`, not react-query's `data`.
-  const { result: snapshot, query: snapshotQuery } = useOne<SessionSnapshot>({
-    resource: 'sessions',
-    id: sessionId,
+  // the header shows the task title (GET /api/sessions/{id} returns the owning
+  // task). Header resolves the breadcrumb parents from the same query key, so
+  // both share one request.
+  const snapshotQuery = useQuery({
+    queryKey: ['session', sessionId],
+    queryFn: () => api.getSession(sessionId),
+    enabled: !!sessionId,
   })
+  const snapshot = snapshotQuery.data
   const refetchSnapshot = snapshotQuery.refetch
   const resolvedTask = task ?? taskFromState ?? snapshot?.task ?? undefined
   const session = snapshot?.session
@@ -151,6 +152,9 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
 
   const currentStatus = sessionStatus ?? session?.status
   const agentType = session?.agent_type ?? resolvedTask?.agent_type
+  // The live event carries the reason; the snapshot is the reload fallback.
+  const failureText =
+    currentStatus === 'failed' ? failureReason || session?.error || t('failure.unknown') : ''
 
   useEffect(() => {
     const el = scrollRef.current
@@ -238,6 +242,16 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
           </span>
         )}
       </header>
+
+      {failureText && (
+        <Alert
+          className={styles.failureBanner}
+          type="error"
+          showIcon
+          message={t('failure.title')}
+          description={failureText}
+        />
+      )}
 
       <div className={styles.panes}>
         <section className={styles.transcriptPane}>

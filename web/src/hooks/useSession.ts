@@ -56,6 +56,10 @@ export function useSession(sessionId: string) {
   // restores it; the agent's own replay provides it for finished sessions.
   const [thought, setThought] = useState('')
   const [sessionStatus, setSessionStatus] = useState<SessionStateChanged['status'] | null>(null)
+  // failureReason is why the session failed (adapter exit, lost node process).
+  // It arrives on the failed state event and in the session snapshot, so a
+  // reload still explains why the task stopped; cleared when it runs again.
+  const [failureReason, setFailureReason] = useState('')
   // pendingPermission is the structured ACP permission ask awaiting a pick
   // (null for plain free-text questions and once the ask is answered).
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
@@ -149,9 +153,10 @@ export function useSession(sessionId: string) {
           break
         }
         case 'session.state_changed': {
-          const { session_id, status: newStatus } = evt.data
+          const { session_id, status: newStatus, error: reason } = evt.data
           if (session_id !== sessionId) return
           setSessionStatus(newStatus)
+          setFailureReason(newStatus === 'failed' ? (reason ?? '') : '')
           if (newStatus !== 'awaiting_user') {
             setPendingPermission(null)
             setPendingElicitation(null)
@@ -259,6 +264,7 @@ export function useSession(sessionId: string) {
         const snapshot = await apiRef.current.getSession(sessionId)
         if (cancelled) return
         setSessionStatus(snapshot.session.status)
+        setFailureReason(snapshot.session.status === 'failed' ? (snapshot.session.error ?? '') : '')
         // Streaming text lives only in the hub's buffer. Restore it after the
         // event replay so a refresh mid-turn keeps the output produced so far;
         // a live delta that outgrew the snapshot wins (it includes chunks the
@@ -343,6 +349,7 @@ export function useSession(sessionId: string) {
     isLoading,
     error,
     sessionStatus,
+    failureReason,
     pendingPermission,
     pendingElicitation,
     send,

@@ -820,6 +820,9 @@ func (h *Hub) resumeAwaitingSession(w http.ResponseWriter, r *http.Request, ctx 
 		h.serverError(w, "send message", err)
 		return
 	}
+	if err := h.store.Queries().UpdateSessionError(ctx, id, ""); err != nil {
+		h.log.Warn("clear session failure reason", "session_id", id, "err", err)
+	}
 	inserted := h.recordUserMessage(ctx, id, msgText)
 
 	// Locked decision: resume the parent task in lock-step with the session so
@@ -871,6 +874,9 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 	if err := h.store.Queries().UpdateSessionStatus(ctx, id, protocol.SessionRunning, nil); err != nil {
 		h.serverError(w, "resume session", err)
 		return
+	}
+	if err := h.store.Queries().UpdateSessionError(ctx, id, ""); err != nil {
+		h.log.Warn("clear session failure reason", "session_id", id, "err", err)
 	}
 	inserted := h.recordUserMessage(ctx, id, msgText)
 

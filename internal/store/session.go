@@ -56,6 +56,18 @@ func (q *Queries) UpdateSessionStatus(ctx context.Context, id string, status pro
 	return nil
 }
 
+// UpdateSessionError records (or clears, with "") why the session last failed.
+func (q *Queries) UpdateSessionError(ctx context.Context, id, reason string) error {
+	err := q.q.UpdateSessionError(ctx, sqlcgen.UpdateSessionErrorParams{
+		ID:    id,
+		Error: reason,
+	})
+	if err != nil {
+		return fmt.Errorf("store: update session error: %w", err)
+	}
+	return nil
+}
+
 // UpdateSessionExternalID records the agent-side session identifier.
 func (q *Queries) UpdateSessionExternalID(ctx context.Context, id, ext string) error {
 	err := q.q.UpdateSessionExternalID(ctx, sqlcgen.UpdateSessionExternalIDParams{

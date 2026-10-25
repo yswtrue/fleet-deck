@@ -100,6 +100,10 @@ type SessionMessage struct {
 type SessionStateChanged struct {
 	SessionID string        `json:"session_id"`
 	Status    SessionStatus `json:"status" jsonschema:"enum=waiting,enum=running,enum=done,enum=failed,enum=awaiting_user"`
+	// Error is why the session failed: the adapter's exit/stop reason or the
+	// hub's own cause ("node offline", "node restarted without the adapter").
+	// Set only when Status is failed.
+	Error string `json:"error,omitempty"`
 }
 
 // SessionUserInputRequested is emitted when the agent pauses and asks the user

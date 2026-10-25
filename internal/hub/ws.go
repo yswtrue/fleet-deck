@@ -370,7 +370,7 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 		case protocol.EvSessionStateChanged:
 			var s protocol.SessionStateChanged
 			if json.Unmarshal(we.Data, &s) == nil {
-				h.applySessionStatus(ctx, sessionID, s.Status)
+				h.applySessionStatus(ctx, sessionID, s.Status, s.Error)
 				if s.Status != protocol.SessionAwaitingUser {
 					h.setPendingInput(ctx, sessionID, "")
 				}
@@ -386,7 +386,7 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 			// handleGetSession reads the text buffer before the session row, so
 			// a snapshot that carries the ask always carries the matching
 			// status (no prompt on a still-running session).
-			h.applySessionStatus(ctx, sessionID, protocol.SessionAwaitingUser)
+			h.applySessionStatus(ctx, sessionID, protocol.SessionAwaitingUser, "")
 			if json.Unmarshal(we.Data, &u) == nil {
 				h.setPendingInput(ctx, sessionID, u.Prompt)
 			}
@@ -579,8 +579,10 @@ func (h *Hub) resumeTaskOnReply(ctx context.Context, sessionID string) {
 }
 
 // applySessionStatus updates the session row and derives the task's 4-state
-// status from it, broadcasting task.status_changed when it moves.
-func (h *Hub) applySessionStatus(ctx context.Context, sessionID string, status protocol.SessionStatus) {
+// status from it, broadcasting task.status_changed when it moves. reason is
+// recorded with a failed status and cleared otherwise; it is the operator's
+// only explanation of why the task stopped.
+func (h *Hub) applySessionStatus(ctx context.Context, sessionID string, status protocol.SessionStatus, reason string) {
 	q := h.store.Queries()
 	var endedAt *time.Time
 	if status == protocol.SessionDone || status == protocol.SessionFailed {
@@ -589,6 +591,12 @@ func (h *Hub) applySessionStatus(ctx context.Context, sessionID string, status p
 	}
 	if err := q.UpdateSessionStatus(ctx, sessionID, status, endedAt); err != nil {
 		h.log.Warn("update session status", "session_id", sessionID, "err", err)
+	}
+	if status != protocol.SessionFailed {
+		reason = ""
+	}
+	if err := q.UpdateSessionError(ctx, sessionID, reason); err != nil {
+		h.log.Warn("update session error", "session_id", sessionID, "err", err)
 	}
 	h.syncTaskFromSession(ctx, sessionID, status)
 }

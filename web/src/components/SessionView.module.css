@@ -41,6 +41,10 @@
   color: var(--status-failed-text);
 }
 
+.failureBanner {
+  margin-bottom: -4px;
+}
+
 .panes {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;

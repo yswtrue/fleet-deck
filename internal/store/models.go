@@ -195,6 +195,7 @@ func sessionFromRow(r sqlcgen.Session) protocol.Session {
 		AgentType:         r.AgentType,
 		ExternalSessionID: r.ExternalSessionID,
 		Status:            protocol.SessionStatus(r.Status),
+		Error:             r.Error,
 		CreatedAt:         r.CreatedAt,
 		EndedAt:           r.EndedAt,
 	}

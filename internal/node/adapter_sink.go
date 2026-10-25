@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"fleetdeck/internal/adapters"
@@ -118,8 +119,30 @@ func (s *connSink) Done(_ context.Context, sessionID string) {
 func (s *connSink) Error(_ context.Context, sessionID string, err error) {
 	s.n.log.Warn("adapter error", "session_id", sessionID, "err", err)
 	s.n.transcripts.finishSession(sessionID)
-	s.emit(protocol.EvSessionStateChanged, protocol.SessionStateChanged{SessionID: sessionID, Status: protocol.SessionFailed})
+	s.emit(protocol.EvSessionStateChanged, protocol.SessionStateChanged{
+		SessionID: sessionID,
+		Status:    protocol.SessionFailed,
+		Error:     failureReason(err),
+	})
 	s.n.forget(sessionID)
+}
+
+// maxFailureReason bounds the reason carried to the hub: an agent can dump a
+// long stderr block into an error, and the reason is rendered inline in the
+// UI (and persisted with the session row).
+const maxFailureReason = 2000
+
+// failureReason renders an adapter error for the operator, capped at
+// maxFailureReason runes so a runaway stderr dump cannot bloat the row.
+func failureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(err.Error())
+	if runes := []rune(msg); len(runes) > maxFailureReason {
+		msg = string(runes[:maxFailureReason]) + "…"
+	}
+	return msg
 }
 
 func (s *connSink) emit(eventType string, payload any) {

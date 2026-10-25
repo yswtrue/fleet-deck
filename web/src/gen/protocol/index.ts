@@ -107,6 +107,7 @@ export interface Session {
   agent_type: string;
   external_session_id?: string;
   status: "waiting" | "running" | "done" | "failed" | "awaiting_user";
+  error?: string;
   created_at: string;
   ended_at?: string;
 }
@@ -146,6 +147,7 @@ export interface SessionResumeCommand {
 export interface SessionStateChanged {
   session_id: string;
   status: "waiting" | "running" | "done" | "failed" | "awaiting_user";
+  error?: string;
 }
 export interface SessionThought {
   session_id: string;

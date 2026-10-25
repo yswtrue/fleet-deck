@@ -687,10 +687,13 @@ func (h *Hub) failSession(ctx context.Context, s protocol.Session, reason string
 		h.log.Warn("fail session", "session_id", s.ID, "reason", reason, "err", err)
 		return
 	}
+	if err := q.UpdateSessionError(ctx, s.ID, reason); err != nil {
+		h.log.Warn("record session failure reason", "session_id", s.ID, "reason", reason, "err", err)
+	}
 	h.log.Info("session failed", "session_id", s.ID, "reason", reason)
 	h.bus.Publish(protocol.Event{
 		Type: protocol.EvSessionStateChanged,
-		Data: protocol.SessionStateChanged{SessionID: s.ID, Status: protocol.SessionFailed},
+		Data: protocol.SessionStateChanged{SessionID: s.ID, Status: protocol.SessionFailed, Error: reason},
 	})
 
 	task, err := q.GetTaskBySessionID(ctx, s.ID)
@@ -847,6 +850,9 @@ func (h *Hub) resumeRetry(ctx context.Context, task protocol.Task) bool {
 		h.log.Warn("retry resume: reopen session", "task_id", task.ID,
 			"session_id", session.ID, "err", err)
 		return false
+	}
+	if err := q.UpdateSessionError(ctx, session.ID, ""); err != nil {
+		h.log.Warn("retry resume: clear failure reason", "session_id", session.ID, "err", err)
 	}
 	notice := h.recordSystemNotice(ctx, session.ID, retryContinuation)
 	h.reopenTaskOnResume(ctx, session.ID)

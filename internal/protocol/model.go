@@ -173,8 +173,11 @@ type Session struct {
 	AgentType         string        `json:"agent_type"`
 	ExternalSessionID string        `json:"external_session_id,omitempty"`
 	Status            SessionStatus `json:"status" jsonschema:"enum=waiting,enum=running,enum=done,enum=failed,enum=awaiting_user"`
-	CreatedAt         time.Time     `json:"created_at"`
-	EndedAt           *time.Time    `json:"ended_at,omitempty"`
+	// Error is the reason the session last failed, retained so a reload can
+	// show it; cleared when the session runs again.
+	Error     string     `json:"error,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
 }
 
 // Message is one line in a session's chat history.
