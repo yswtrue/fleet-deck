@@ -912,6 +912,33 @@ func TestSessionResume(t *testing.T) {
 	rec.waitDone(t)
 }
 
+// A failed session/load is reported as ErrResumeUnavailable and emits nothing:
+// the failure precedes the commit, so the node can start a fresh session with
+// the task's original prompt instead of failing the retried task.
+func TestSessionResumeUnavailableIsSentinel(t *testing.T) {
+	a := New("test")
+	a.cfg = agentConfig{
+		command: testBinary(t),
+		args:    []string{"-test.run=TestFakeACPAgent"},
+		env:     []string{"FLEETDECK_FAKE_ACP=1", "FLEETDECK_FAKE_ACP_SCENARIO=load-missing"},
+	}
+	a.ResumeSessionID = "agent-sess-gone"
+
+	rec := newRecorder()
+	if _, err := a.Start(context.Background(), adapters.StartRequest{
+		SessionID:     "sess-1",
+		Prompt:        "continue",
+		WorkspacePath: t.TempDir(),
+	}, rec); err == nil {
+		t.Fatal("Start (missing agent session) = nil error")
+	} else if !errors.Is(err, adapters.ErrResumeUnavailable) {
+		t.Fatalf("Start error = %v, want ErrResumeUnavailable", err)
+	}
+	if rec.hasEvent("state_change") || rec.hasEvent("error") || rec.hasEvent("done") {
+		t.Fatal("an uncommitted reattach failure emitted session events")
+	}
+}
+
 // A live resume reattaches with session/load, which replays the whole history
 // before the response. That replay is not this turn's output: it must not
 // stream into the delta or be flushed into the assistant message.
@@ -1191,6 +1218,14 @@ func runFakeAgent(scenario string) {
 				fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-1"})
 			}
 		case "session/load":
+			if scenario == "load-missing" {
+				// The agent-side conversation is gone (pruned session, or a
+				// build that cannot read it): the load fails before anything
+				// is committed.
+				_ = enc.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
+					"error": map[string]any{"code": -32002, "message": "session not found"}})
+				continue
+			}
 			if scenario == "load-replay" {
 				// ACP requires the whole conversation to be replayed before the
 				// load response; a live resume must treat this as history.

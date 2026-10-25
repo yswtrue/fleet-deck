@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -192,17 +193,19 @@ func (n *Node) forget(sessionID string) {
 // resumeSession revives a finished session from a session.resume command: it
 // builds a fresh adapter from the registry, arms it with the recorded
 // agent-side session id when the adapter supports reattach (adapters.Resumable
-// — the ACP adapter's session/load path; others resume as a fresh session),
-// and starts it with the user's follow-up as the first prompt. The adapter is
-// re-registered under the session id so later SendMessage/Cancel frames route
-// to it (connSink.forget removed the old instance after Done/Error).
+// — the ACP adapter's session/load path), and starts it with Message as the
+// first prompt. The adapter is re-registered under the session id so later
+// SendMessage/Cancel frames route to it (connSink.forget removed the old
+// instance after Done/Error).
 //
 // Unresumable sessions (no external id, or an adapter that cannot reattach)
-// degrade to a fresh session seeded with the task prompt plus the follow-up:
-// no error is reported to the hub beyond the normal event stream, and the
-// session runs to a fresh Done/Error. Rationale: the user's message is already
-// durable hub-side, and a follow-up deserves an answer even when the
-// agent-side session is gone.
+// still run: FallbackPrompt — the task's original instruction, sent only by the
+// hub's automatic retry — is then the prompt, because a continuation note
+// carries no context for a fresh conversation. Without a fallback (a user
+// follow-up) the follow-up itself is the prompt. No error is reported to the
+// hub beyond the normal event stream, and the session runs to a fresh
+// Done/Error. Rationale: the message is already durable hub-side, and a
+// follow-up deserves an answer even when the agent-side session is gone.
 func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeCommand) {
 	agentType := cmd.AgentType
 	if agentType == "" {
@@ -229,10 +232,13 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 		})
 	}
 
+	fallback := strings.TrimSpace(cmd.FallbackPrompt)
 	prompt := cmd.Message
+	resumeID := ""
 	if cmd.ExternalSessionID != "" {
 		if r, ok := adapter.(adapters.Resumable); ok {
 			r.SetResumeSessionID(cmd.ExternalSessionID)
+			resumeID = cmd.ExternalSessionID
 		} else {
 			n.log.Info("adapter cannot reattach; resuming as a fresh session",
 				"session_id", cmd.SessionID, "agent_type", agentType)
@@ -240,6 +246,15 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 	} else {
 		n.log.Info("no external session id; resuming as a fresh session",
 			"session_id", cmd.SessionID, "agent_type", agentType)
+	}
+	reattach := resumeID != ""
+	if !reattach && fallback != "" {
+		prompt = fallback
+		n.transcripts.addUser(cmd.SessionID, protocol.Message{
+			SessionID: cmd.SessionID,
+			Role:      protocol.RoleUser,
+			Content:   fallback,
+		})
 	}
 
 	n.sessMu.Lock()
@@ -259,8 +274,35 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 			WorkspacePath:   cmd.WorkspacePath,
 			AutoAllowScope:  cmd.AutoAllowScope,
 			AutoTitle:       cmd.AutoTitle,
-			ResumeSessionID: cmd.ExternalSessionID,
+			ResumeSessionID: resumeID,
 		}, sink)
+		if err != nil && reattach && fallback != "" && errors.Is(err, adapters.ErrResumeUnavailable) {
+			// session/load failed: the agent-side conversation is gone (pruned,
+			// or opened by a build that cannot read it). The retried task is
+			// still owed a run, so replay its original instruction in a fresh
+			// session. The failure is before commit, so nothing was emitted and
+			// this is the only terminal report.
+			log.Warn("reattach failed; starting a fresh session", "err", err)
+			if fresh, ok := n.registry.Get(agentType); ok {
+				n.transcripts.addUser(cmd.SessionID, protocol.Message{
+					SessionID: cmd.SessionID,
+					Role:      protocol.RoleUser,
+					Content:   fallback,
+				})
+				n.sessMu.Lock()
+				n.sessions[cmd.SessionID] = fresh
+				n.sessMu.Unlock()
+				result, err = fresh.Start(ctx, adapters.StartRequest{
+					SessionID:      cmd.SessionID,
+					TaskID:         cmd.TaskID,
+					AgentType:      agentType,
+					Prompt:         fallback,
+					WorkspacePath:  cmd.WorkspacePath,
+					AutoAllowScope: cmd.AutoAllowScope,
+					AutoTitle:      cmd.AutoTitle,
+				}, sink)
+			}
+		}
 		if err != nil {
 			log.Error("adapter resume failed", "err", err)
 			sink.Error(ctx, cmd.SessionID, err)

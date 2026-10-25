@@ -813,9 +813,10 @@ func TestReconnectWithinGraceKeepsSessionRunning(t *testing.T) {
 
 // An upgraded or crashed node restarts and comes back inside the offline grace
 // window with no live adapters. The orphaned running session is failed, and the
-// task is re-dispatched once with its original prompt (the documented default
-// retry budget); a session parked on a user question is not replayed.
-func TestRestartedNodeRetriesOrphanedSession(t *testing.T) {
+// task is retried once (the documented default budget) by resuming that same
+// session through session/load instead of replaying the prompt from the
+// beginning; a session parked on a user question is not replayed.
+func TestRestartedNodeResumesOrphanedSession(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
@@ -839,6 +840,28 @@ func TestRestartedNodeRetriesOrphanedSession(t *testing.T) {
 	}
 	prompt := task.Prompt
 
+	// The adapter named the agent-side conversation before it died; that id is
+	// what the retry reattaches to.
+	externalID := uniqueName("agent-side")
+	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgSessionStarted, protocol.SessionStarted{
+		SessionID:         task.SessionID,
+		ExternalSessionID: externalID,
+	})); err != nil {
+		t.Fatalf("report external session id: %v", err)
+	}
+	ctx := context.Background()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, err := st.Queries().GetSession(ctx, task.SessionID)
+		if err == nil && got.ExternalSessionID == externalID {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("external session id was not recorded (err %v)", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
 	// Restart: a fresh process, so no adapter survived the old session.
 	_ = c.Close()
 	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{})
@@ -847,31 +870,43 @@ func TestRestartedNodeRetriesOrphanedSession(t *testing.T) {
 		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
 	}
 
-	// The retry is a new session carrying the original prompt.
-	env := waitEnvelopeFrom(t, back, protocol.MsgTaskStart)
-	var cmd protocol.TaskStartCommand
+	// The retry continues the same session (session/load) instead of replaying
+	// the task prompt in a new one; the original prompt travels as the
+	// fallback for an agent-side conversation that is gone.
+	env := waitEnvelopeFrom(t, back, protocol.MsgSessionResume)
+	var cmd protocol.SessionResumeCommand
 	if err := env.Decode(&cmd); err != nil {
-		t.Fatalf("decode task.start: %v", err)
+		t.Fatalf("decode session.resume: %v", err)
 	}
-	if cmd.Prompt != prompt {
-		t.Fatalf("retry prompt = %q, want %q", cmd.Prompt, prompt)
+	if cmd.SessionID != task.SessionID {
+		t.Fatalf("retry session = %q, want the original %q", cmd.SessionID, task.SessionID)
 	}
-	if cmd.SessionID == task.SessionID {
-		t.Fatalf("retry reused session %q; want a fresh session", cmd.SessionID)
+	if cmd.ExternalSessionID != externalID {
+		t.Fatalf("retry external session id = %q, want %q", cmd.ExternalSessionID, externalID)
+	}
+	if cmd.Message != retryContinuation {
+		t.Fatalf("retry message = %q, want the continuation note", cmd.Message)
+	}
+	if cmd.FallbackPrompt != prompt {
+		t.Fatalf("retry fallback prompt = %q, want %q", cmd.FallbackPrompt, prompt)
+	}
+	if cmd.UserMessage == nil || cmd.UserMessage.Role != protocol.RoleSystem ||
+		cmd.UserMessage.Content != retryContinuation {
+		t.Fatalf("retry notice = %+v, want a system message carrying the continuation note", cmd.UserMessage)
 	}
 
-	ctx := context.Background()
 	oldSession, err := st.Queries().GetSession(ctx, task.SessionID)
-	if err != nil || oldSession.Status != protocol.SessionFailed {
-		t.Fatalf("old session status = %q (err %v), want failed", oldSession.Status, err)
+	if err != nil || oldSession.Status != protocol.SessionRunning || oldSession.EndedAt != nil {
+		t.Fatalf("resumed session = %q ended %v (err %v), want running with no ended_at",
+			oldSession.Status, oldSession.EndedAt, err)
 	}
 	got, err := st.Queries().GetTask(ctx, task.ID)
 	if err != nil {
 		t.Fatalf("get task: %v", err)
 	}
-	if got.Status != protocol.TaskRunning || got.SessionID != cmd.SessionID {
+	if got.Status != protocol.TaskRunning || got.SessionID != task.SessionID {
 		t.Fatalf("task after retry = %q session %q, want running/%q",
-			got.Status, got.SessionID, cmd.SessionID)
+			got.Status, got.SessionID, task.SessionID)
 	}
 	var retries int
 	if err := st.Pool().QueryRow(ctx, "SELECT retry_count FROM task WHERE id = $1", task.ID).Scan(&retries); err != nil {
@@ -882,7 +917,7 @@ func TestRestartedNodeRetriesOrphanedSession(t *testing.T) {
 	}
 
 	// The default budget is one retry: a second restart of the retried session
-	// fails the task instead of replaying it again.
+	// fails the task instead of resuming it again.
 	retriedSession := got.SessionID
 	_ = back.Close()
 	back2, back2Reg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{})
@@ -891,13 +926,18 @@ func TestRestartedNodeRetriesOrphanedSession(t *testing.T) {
 		t.Fatalf("second reconnect node id = %q, want %q", back2Reg.NodeID, reg.NodeID)
 	}
 	_ = back2.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	var extra protocol.Envelope
-	if err := back2.ReadJSON(&extra); err == nil && extra.Type == protocol.MsgTaskStart {
-		t.Fatal("retry budget exhausted, but the task was dispatched again")
+	for {
+		var extra protocol.Envelope
+		if err := back2.ReadJSON(&extra); err != nil {
+			break
+		}
+		if extra.Type == protocol.MsgTaskStart || extra.Type == protocol.MsgSessionResume {
+			t.Fatalf("retry budget exhausted, but %q was sent again", extra.Type)
+		}
 	}
 	_ = back2.SetReadDeadline(time.Time{})
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(5 * time.Second)
 	for {
 		session, serr := st.Queries().GetSession(ctx, retriedSession)
 		current, terr := st.Queries().GetTask(ctx, task.ID)
@@ -913,6 +953,61 @@ func TestRestartedNodeRetriesOrphanedSession(t *testing.T) {
 				session.Status, current.Status, serr, terr)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A node that died before the adapter named its agent-side session has nothing
+// to reattach: the retry falls back to dispatching the task's original prompt
+// as a new session, which is the only way that task can still run.
+func TestRestartedNodeRedispatchesWithoutExternalSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	h.offlineGrace = 30 * time.Second
+	name := uniqueName("hub-it-restart-fresh")
+
+	join := postJSON[struct {
+		Token string `json:"token"`
+	}](t, auth.token, ts.URL+"/api/nodes/join-tokens", map[string]int{})
+	c, reg := dialNodeFull(t, ts, st, name, "", join.Token, []string{})
+	if reg.NodeID == "" {
+		t.Fatalf("register: %s", reg.Error)
+	}
+	task := createWorkspaceAndTask(t, auth.token, ts, reg.NodeID)
+	if task.SessionID == "" {
+		t.Fatal("dispatch created no session")
+	}
+
+	// No session.started ever arrived, so the session has no agent-side id.
+	_ = c.Close()
+	back, backReg := dialNodeFull(t, ts, st, name, reg.Token, "", []string{})
+	defer func() { _ = back.Close() }()
+	if backReg.NodeID != reg.NodeID {
+		t.Fatalf("reconnect node id = %q, want %q", backReg.NodeID, reg.NodeID)
+	}
+
+	env := waitEnvelopeFrom(t, back, protocol.MsgTaskStart)
+	var cmd protocol.TaskStartCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode task.start: %v", err)
+	}
+	if cmd.Prompt != task.Prompt {
+		t.Fatalf("retry prompt = %q, want %q", cmd.Prompt, task.Prompt)
+	}
+	if cmd.SessionID == task.SessionID {
+		t.Fatalf("retry reused session %q without an agent-side id; want a fresh session", cmd.SessionID)
+	}
+
+	ctx := context.Background()
+	got, err := st.Queries().GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("get task: %v", err)
+	}
+	if got.Status != protocol.TaskRunning || got.SessionID != cmd.SessionID {
+		t.Fatalf("task after retry = %q session %q, want running/%q",
+			got.Status, got.SessionID, cmd.SessionID)
 	}
 }
 

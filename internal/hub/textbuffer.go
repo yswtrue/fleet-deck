@@ -195,6 +195,22 @@ func (h *Hub) recordUserMessage(ctx context.Context, sessionID, text string) pro
 	return msg
 }
 
+// recordSystemNotice buffers a hub-authored notice (the automatic retry's
+// continuation note) as a session message with a hub-minted id. Like any
+// transcript row it is broadcast live and buffered, never written to
+// Postgres; the role marks it as generated rather than user-authored.
+func (h *Hub) recordSystemNotice(ctx context.Context, sessionID, text string) protocol.Message {
+	msg := normalizeMessage(sessionID, protocol.Message{
+		SessionID: sessionID,
+		Role:      protocol.RoleSystem,
+		Content:   text,
+	}, time.Now().UTC())
+	h.updateTextBuffer(ctx, sessionID, func(st *sessionText) {
+		st.Messages = append(st.Messages, msg)
+	})
+	return msg
+}
+
 // normalizeMessage fills the hub-owned fields of a message passing through.
 // An id minted by the node's transcript is preserved: live broadcasts and the
 // transcript read must share it, otherwise the web cannot dedupe an assistant

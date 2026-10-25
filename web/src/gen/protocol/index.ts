@@ -141,6 +141,7 @@ export interface SessionResumeCommand {
   message: string;
   auto_title?: boolean;
   user_message?: Message;
+  fallback_prompt?: string;
 }
 export interface SessionStateChanged {
   session_id: string;

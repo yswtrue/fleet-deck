@@ -223,10 +223,12 @@ type SessionTitle struct {
 	Title     string `json:"title"`
 }
 
-// SessionResumeCommand revives a finished (done/failed) session with the
-// user's follow-up: the node reattaches to the agent-side session via
-// session/load and then prompts with Message. ExternalSessionID is the
-// agent-side session id recorded when the session first ran.
+// SessionResumeCommand revives a finished (done/failed) session: the node
+// reattaches to the agent-side session via session/load and then prompts with
+// Message. ExternalSessionID is the agent-side session id recorded when the
+// session first ran. The hub sends it for a user follow-up (/send) and for the
+// automatic retry of a session lost with the node process (Message is then a
+// continuation note, and FallbackPrompt carries the task's first instruction).
 type SessionResumeCommand struct {
 	SessionID     string `json:"session_id"`
 	TaskID        string `json:"task_id"`
@@ -243,6 +245,13 @@ type SessionResumeCommand struct {
 	// UserMessage is the hub's recorded follow-up; the node appends it to its
 	// live transcript under the id the hub broadcast.
 	UserMessage *Message `json:"user_message,omitempty"`
+	// FallbackPrompt is the task's original instruction, set only by the
+	// automatic retry after a node restart. Reattaching can fail (the
+	// agent-side conversation was pruned, or the adapter cannot reattach at
+	// all); the task is still owed a run, so the node then starts a fresh
+	// session with this prompt instead of prompting an empty conversation
+	// with Message.
+	FallbackPrompt string `json:"fallback_prompt,omitempty"`
 }
 
 // CancelCommand terminates a running session.

@@ -434,7 +434,9 @@ func (a *Adapter) openSession(ctx context.Context, workspace string) (string, er
 		})
 		a.loading.Store(false)
 		if err != nil {
-			return "", fmt.Errorf("acp: session/load: %w", err)
+			// The sentinel lets the node retry the task as a fresh session: the
+			// failure is before commit, so no event has been emitted yet.
+			return "", fmt.Errorf("acp: session/load: %w (%v)", adapters.ErrResumeUnavailable, err)
 		}
 		a.captureModel(raw)
 		return a.ResumeSessionID, nil

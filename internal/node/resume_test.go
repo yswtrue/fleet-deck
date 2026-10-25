@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -207,6 +208,152 @@ func TestResumeSessionUnknownAdapterType(t *testing.T) {
 		case <-time.After(time.Until(deadline)):
 			t.Fatal("timed out waiting for resume failure event")
 		}
+	}
+}
+
+// plainAdapter is scriptedAdapter without the Resumable interface: a launcher
+// that cannot reattach to an agent-side session.
+type plainAdapter struct{ inner *scriptedAdapter }
+
+func (a plainAdapter) Start(ctx context.Context, req adapters.StartRequest, sink adapters.EventSink) (adapters.StartResult, error) {
+	return a.inner.Start(ctx, req, sink)
+}
+func (a plainAdapter) SendMessage(ctx context.Context, sessionID, text string) error {
+	return a.inner.SendMessage(ctx, sessionID, text)
+}
+func (a plainAdapter) Cancel(ctx context.Context, sessionID string) error {
+	return a.inner.Cancel(ctx, sessionID)
+}
+
+// An automatic retry carries the task's original instruction as
+// FallbackPrompt because the continuation note alone means nothing to a fresh
+// conversation. An adapter that cannot reattach must run that prompt, not the
+// note.
+func TestResumeSessionWithoutReattachUsesFallbackPrompt(t *testing.T) {
+	reg := adapters.NewRegistry()
+	inner := &scriptedAdapter{}
+	reg.Register("plain", func() adapters.Adapter { return plainAdapter{inner: inner} })
+
+	n := New(Config{Name: "resume-fallback-node", DefaultAdapter: "plain"}, reg)
+	started := make(chan struct{})
+	inner.onStart = func() { close(started) }
+
+	n.handle(context.Background(), protocol.NewEnvelope(protocol.MsgSessionResume, protocol.SessionResumeCommand{
+		SessionID:         "sess-2",
+		TaskID:            "task-2",
+		AgentType:         "plain",
+		WorkspacePath:     "/tmp/ws",
+		ExternalSessionID: "agent-gone",
+		Message:           "continue the task",
+		FallbackPrompt:    "do the thing",
+	}))
+
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for resumed session Start")
+	}
+
+	inner.mu.Lock()
+	defer inner.mu.Unlock()
+	if len(inner.startReqs) != 1 {
+		t.Fatalf("Start calls = %d, want 1", len(inner.startReqs))
+	}
+	req := inner.startReqs[0]
+	if req.Prompt != "do the thing" {
+		t.Fatalf("prompt = %q, want the fallback instruction", req.Prompt)
+	}
+	if req.ResumeSessionID != "" {
+		t.Fatalf("ResumeSessionID = %q, want empty for a non-resumable adapter", req.ResumeSessionID)
+	}
+	messages, _, _, _ := n.transcripts.snapshot("sess-2")
+	if len(messages) < 2 || messages[0].Content != "continue the task" ||
+		messages[1].Content != "do the thing" {
+		t.Fatalf("transcript = %+v, want the continuation note then the fallback prompt", messages)
+	}
+}
+
+// failingResumeAdapter implements Resumable but refuses session/load, the way
+// an agent whose session was pruned does. A retry must then start a fresh
+// session with the fallback prompt instead of failing the task.
+type failingResumeAdapter struct{ inner *scriptedAdapter }
+
+func (a *failingResumeAdapter) SetResumeSessionID(id string) { a.inner.SetResumeSessionID(id) }
+func (a *failingResumeAdapter) Start(ctx context.Context, req adapters.StartRequest, sink adapters.EventSink) (adapters.StartResult, error) {
+	if req.ResumeSessionID != "" {
+		a.inner.mu.Lock()
+		a.inner.startReqs = append(a.inner.startReqs, req)
+		a.inner.mu.Unlock()
+		return adapters.StartResult{}, fmt.Errorf("acp: session/load: %w (session not found)", adapters.ErrResumeUnavailable)
+	}
+	return a.inner.Start(ctx, req, sink)
+}
+func (a *failingResumeAdapter) SendMessage(ctx context.Context, sessionID, text string) error {
+	return a.inner.SendMessage(ctx, sessionID, text)
+}
+func (a *failingResumeAdapter) Cancel(ctx context.Context, sessionID string) error {
+	return a.inner.Cancel(ctx, sessionID)
+}
+
+func TestResumeSessionFallsBackWhenReattachFails(t *testing.T) {
+	reg := adapters.NewRegistry()
+	var mu sync.Mutex
+	var instances []*scriptedAdapter
+	reg.Register("flaky", func() adapters.Adapter {
+		a := &scriptedAdapter{}
+		mu.Lock()
+		instances = append(instances, a)
+		mu.Unlock()
+		return &failingResumeAdapter{inner: a}
+	})
+
+	n := New(Config{Name: "resume-load-fail-node", DefaultAdapter: "flaky"}, reg)
+	n.handle(context.Background(), protocol.NewEnvelope(protocol.MsgSessionResume, protocol.SessionResumeCommand{
+		SessionID:         "sess-3",
+		TaskID:            "task-3",
+		AgentType:         "flaky",
+		WorkspacePath:     "/tmp/ws",
+		ExternalSessionID: "agent-pruned",
+		Message:           "continue the task",
+		FallbackPrompt:    "do the thing",
+	}))
+
+	// The first instance only sees the refused reattach; the factory's second
+	// instance runs the fallback prompt as a fresh session.
+	startReqs := func(a *scriptedAdapter) []adapters.StartRequest {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return append([]adapters.StartRequest{}, a.startReqs...)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		mu.Lock()
+		count := len(instances)
+		var fresh *scriptedAdapter
+		if count > 1 {
+			fresh = instances[1]
+		}
+		mu.Unlock()
+		if fresh != nil {
+			if reqs := startReqs(fresh); len(reqs) > 0 {
+				if reqs[0].Prompt != "do the thing" || reqs[0].ResumeSessionID != "" {
+					t.Fatalf("fresh run = prompt %q resume %q, want the fallback prompt and no reattach",
+						reqs[0].Prompt, reqs[0].ResumeSessionID)
+				}
+				mu.Lock()
+				first := instances[0]
+				mu.Unlock()
+				firstReqs := startReqs(first)
+				if len(firstReqs) != 1 || firstReqs[0].ResumeSessionID != "agent-pruned" {
+					t.Fatalf("reattach attempt = %+v, want one session/load attempt", firstReqs)
+				}
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for the fallback run (instances %d)", count)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 

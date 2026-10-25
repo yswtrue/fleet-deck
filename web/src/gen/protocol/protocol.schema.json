@@ -665,6 +665,9 @@
         },
         "user_message": {
           "$ref": "#/$defs/Message"
+        },
+        "fallback_prompt": {
+          "type": "string"
         }
       },
       "additionalProperties": false,

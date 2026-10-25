@@ -5,9 +5,18 @@ package adapters
 
 import (
 	"context"
+	"errors"
 
 	"fleetdeck/internal/protocol"
 )
+
+// ErrResumeUnavailable reports that an adapter was armed to reattach to an
+// agent-side session but the session could not be loaded (it was pruned, or
+// the agent build cannot read it). The failure happens before the session is
+// committed, so nothing was emitted to the sink: the node may start a fresh
+// session instead — with the task's original prompt when the hub sent one as
+// the retry fallback.
+var ErrResumeUnavailable = errors.New("agent-side session cannot be reattached")
 
 // StartRequest is the input to Adapter.Start.
 type StartRequest struct {

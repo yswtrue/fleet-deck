@@ -740,6 +740,13 @@ func (h *Hub) scheduleNodeRetry(ctx context.Context, s protocol.Session, reason 
 	h.log.Info("task retry scheduled", "task_id", task.ID, "session_id", s.ID, "reason", reason)
 }
 
+// retryContinuation is the prompt a retried session receives after the node
+// process that ran it died. The conversation is reattached with session/load,
+// so the agent already holds the earlier turns; this note only tells it to
+// carry on instead of replaying the task's first instruction.
+const retryContinuation = "Your previous turn was interrupted: the FleetDeck node process that ran this session restarted. " +
+	"Continue the task from where you left off. Do not repeat work that is already complete."
+
 // retryPendingTasks re-dispatches the tasks whose running session was lost
 // with the node's previous process. It runs only after the returning node has
 // joined the registry and its writer is draining: dispatchTask's online check
@@ -795,6 +802,12 @@ func (h *Hub) retryPendingTasks(ctx context.Context, nodeID string, live []strin
 			strings.TrimSpace(task.Prompt) == "" {
 			continue
 		}
+		// Continue the lost conversation when the agent-side session survived
+		// the restart; only a session with nothing to reattach falls back to
+		// replaying the task prompt from the beginning.
+		if h.resumeRetry(ctx, task) {
+			continue
+		}
 		dispatched, err := h.dispatchTask(ctx, task)
 		if err != nil {
 			h.log.Warn("retry task dispatch", "task_id", task.ID, "err", err)
@@ -807,6 +820,64 @@ func (h *Hub) retryPendingTasks(ctx context.Context, nodeID string, live []strin
 		h.log.Info("task retried after node reconnect", "task_id", task.ID,
 			"session_id", dispatched.SessionID)
 	}
+}
+
+// resumeRetry reopens the task's failed session and asks the node to reattach
+// it (session/load), so the retry continues the earlier conversation instead
+// of replaying the task's first prompt in a new session. It reports false when
+// the session cannot be resumed — no session row, no recorded agent-side id, an
+// unknown workspace, or an offline node — and the caller dispatches a fresh
+// one. The session is only mutated once every precondition holds: a reopened
+// session must always be handed to the node.
+func (h *Hub) resumeRetry(ctx context.Context, task protocol.Task) bool {
+	if task.SessionID == "" {
+		return false
+	}
+	q := h.store.Queries()
+	session, err := q.GetSession(ctx, task.SessionID)
+	if err != nil || session.ExternalSessionID == "" {
+		return false
+	}
+	workspace, err := q.GetWorkspace(ctx, task.WorkspaceID)
+	if err != nil || !h.nodeOnline(workspace.NodeID) {
+		return false
+	}
+	// A resume clears the terminal ended_at: the session is live again.
+	if err := q.UpdateSessionStatus(ctx, session.ID, protocol.SessionRunning, nil); err != nil {
+		h.log.Warn("retry resume: reopen session", "task_id", task.ID,
+			"session_id", session.ID, "err", err)
+		return false
+	}
+	notice := h.recordSystemNotice(ctx, session.ID, retryContinuation)
+	h.reopenTaskOnResume(ctx, session.ID)
+	h.bus.Publish(protocol.Event{
+		Type: protocol.EvSessionMessage,
+		Data: protocol.SessionMessage{SessionID: session.ID, Message: notice},
+	})
+	h.bus.Publish(protocol.Event{
+		Type: protocol.EvSessionStateChanged,
+		Data: protocol.SessionStateChanged{SessionID: session.ID, Status: protocol.SessionRunning},
+	})
+
+	env := protocol.NewEnvelope(protocol.MsgSessionResume, protocol.SessionResumeCommand{
+		SessionID:         session.ID,
+		TaskID:            task.ID,
+		AgentType:         session.AgentType,
+		WorkspacePath:     workspace.Path,
+		AutoAllowScope:    workspace.AutoAllowScope,
+		AutoTitle:         task.TitleAuto,
+		ExternalSessionID: session.ExternalSessionID,
+		Message:           retryContinuation,
+		UserMessage:       &notice,
+		FallbackPrompt:    task.Prompt,
+	})
+	if !h.sendToNode(workspace.NodeID, env) {
+		h.log.Warn("could not deliver retry session.resume to node",
+			"task_id", task.ID, "session_id", session.ID, "node_id", workspace.NodeID)
+	}
+	h.log.Info("task retry resumed after node reconnect", "task_id", task.ID,
+		"session_id", session.ID)
+	return true
 }
 
 // dispatchTask opens a session for a freshly created task and tells the owning
