@@ -18,6 +18,9 @@ export function NodeDetail() {
     queryKey: ['nodes', nodeId],
     queryFn: () => api.getNode(nodeId ?? ''),
     enabled: !!nodeId,
+    // last_seen_at tracks node heartbeats; poll so the displayed age and the
+    // live status overlay do not freeze at page load.
+    refetchInterval: 30_000,
     // Deep links to missing/invisible nodes are permanent failures: surface
     // the error state immediately instead of retrying behind a skeleton.
     retry: false,
@@ -25,7 +28,8 @@ export function NodeDetail() {
   if (!nodeId) return <ErrorState title={t('node.invalid')} />
   // An invisible or deleted node is a dead end: do not render the workspaces
   // section (and its create button) below for a node the user cannot see.
-  if (nodeQuery.isError)
+  // A failed background heartbeat refetch keeps the last good node on screen.
+  if (nodeQuery.isError && !nodeQuery.data)
     return (
       <ErrorState title={t('node.notFound')} onRetry={() => void nodeQuery.refetch()}>
         {t('node.notFoundBody')}

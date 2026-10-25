@@ -168,7 +168,15 @@ func (h *Hub) handleNodeWS(w http.ResponseWriter, r *http.Request) {
 		Data: protocol.NodeStatusChanged{NodeID: registered.ID, Status: protocol.NodeOnline},
 	})
 
-	c.SetPongHandler(func(string) error { return c.SetReadDeadline(time.Now().Add(wsReadTimeout)) })
+	c.SetPongHandler(func(string) error {
+		if err := c.SetReadDeadline(time.Now().Add(wsReadTimeout)); err != nil {
+			return err
+		}
+		// The pong is the heartbeat: last_seen_at must track liveness, not the
+		// handshake time (a node can stay connected for days).
+		h.recordNodeHeartbeat(registered.ID)
+		return nil
+	})
 	_ = c.SetReadDeadline(time.Now().Add(wsReadTimeout))
 
 	writerDone := make(chan struct{})
@@ -209,7 +217,7 @@ func (h *Hub) handleNodeWS(w http.ResponseWriter, r *http.Request) {
 // nodeWriteLoop drains a node's outbound queue and sends periodic pings. It
 // exits when the connection is torn down (done closed) or a write fails.
 func (h *Hub) nodeWriteLoop(c *websocket.Conn, nc *nodeConn) {
-	ping := time.NewTicker(wsPingInterval)
+	ping := time.NewTicker(h.nodePingInterval)
 	defer ping.Stop()
 	for {
 		select {
@@ -226,6 +234,17 @@ func (h *Hub) nodeWriteLoop(c *websocket.Conn, nc *nodeConn) {
 				return
 			}
 		}
+	}
+}
+
+// recordNodeHeartbeat persists the last-seen time carried by a node's WS pong.
+// A bounded detached context keeps a cancelled request (or a slow database)
+// from stalling the node's read loop past its own liveness deadline.
+func (h *Hub) recordNodeHeartbeat(nodeID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := h.store.Queries().TouchNodeLastSeen(ctx, nodeID, time.Now().UTC()); err != nil {
+		h.log.Warn("record node heartbeat", "node_id", nodeID, "err", err)
 	}
 }
 

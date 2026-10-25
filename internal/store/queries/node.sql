@@ -23,6 +23,16 @@ UPDATE node
 SET status = $2, last_seen_at = $3
 WHERE id = $1;
 
+-- name: TouchNodeLastSeen :exec
+UPDATE node
+SET last_seen_at = $2
+WHERE id = $1;
+
+-- name: MarkNodeOffline :exec
+UPDATE node
+SET status = 'offline'
+WHERE id = $1;
+
 -- name: MarkNodesOffline :exec
 UPDATE node
 SET status = 'offline'

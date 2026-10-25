@@ -16,6 +16,9 @@ export function Home() {
   const nodesQuery = useQuery({
     queryKey: ['nodes'],
     queryFn: () => api.listNodes(),
+    // last_seen_at tracks node heartbeats; poll so the displayed age (and the
+    // live status overlay) stays fresh while the page is open.
+    refetchInterval: 30_000,
   })
 
   const nodes = nodesQuery.data ?? []
@@ -33,7 +36,7 @@ export function Home() {
       </header>
       {nodesQuery.isLoading ? (
         <LoadingSkeleton count={6} />
-      ) : nodesQuery.error ? (
+      ) : nodesQuery.isError && !nodesQuery.data ? (
         <ErrorState title={t('home.loadError')} onRetry={() => void nodesQuery.refetch()}>
           {nodesQuery.error.message}
         </ErrorState>

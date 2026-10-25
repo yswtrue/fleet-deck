@@ -84,6 +84,10 @@ type Hub struct {
 	offlineTimers map[string]*time.Timer
 	offlineGrace  time.Duration
 
+	// nodePingInterval is the hub->node heartbeat period (wsPingInterval in
+	// production). Tests shorten it to observe real ping/pong heartbeats.
+	nodePingInterval time.Duration
+
 	// taskRetryLimit bounds the automatic re-dispatches of a task whose
 	// running session was lost with its node (0 disables). The setting is
 	// read from FLEETDECK_TASK_RETRY_LIMIT; the default is one retry, so a
@@ -151,19 +155,22 @@ func New(ctx context.Context, st *store.Store, registry *adapters.Registry, c ca
 		c = cache.Noop{}
 	}
 	h := &Hub{
-		store:          st,
-		registry:       registry,
-		log:            slog.Default().With("component", "hub"),
-		cache:          c,
-		bindings:       newBindingCache(),
-		nodes:          make(map[string]*nodeConn),
-		offlineTimers:  make(map[string]*time.Timer),
-		offlineGrace:   nodeOfflineGrace,
-		taskRetryLimit: taskRetryLimitFromEnv(),
-		text:           make(map[string]textBufferEntry),
-		histWait:       make(map[string]chan protocol.SessionHistoryResponse),
-		transcriptWait: make(map[string]chan protocol.SessionTranscriptResponse),
-		fsWait:         make(map[string]chan protocol.FSListResponse),
+		store:         st,
+		registry:      registry,
+		log:           slog.Default().With("component", "hub"),
+		cache:         c,
+		bindings:      newBindingCache(),
+		nodes:         make(map[string]*nodeConn),
+		offlineTimers: make(map[string]*time.Timer),
+		offlineGrace:  nodeOfflineGrace,
+		// The hub pings each node on this period; the pong refreshes the
+		// node's last_seen_at (see recordNodeHeartbeat).
+		nodePingInterval: wsPingInterval,
+		taskRetryLimit:   taskRetryLimitFromEnv(),
+		text:             make(map[string]textBufferEntry),
+		histWait:         make(map[string]chan protocol.SessionHistoryResponse),
+		transcriptWait:   make(map[string]chan protocol.SessionTranscriptResponse),
+		fsWait:           make(map[string]chan protocol.FSListResponse),
 		// Deployment-level pairing secret for automated nodes; unset means only
 		// UI-minted single-use tokens can register a new node.
 		joinToken: os.Getenv("FLEETDECK_NODE_JOIN_TOKEN"),
@@ -606,7 +613,7 @@ func (h *Hub) markNodeOffline(ctx context.Context, nodeID string) {
 	defer cancel()
 
 	q := h.store.Queries()
-	if err := q.UpdateNodeStatus(ctx, nodeID, protocol.NodeOffline, time.Now().UTC()); err != nil {
+	if err := q.MarkNodeOffline(ctx, nodeID); err != nil {
 		h.log.Warn("mark node offline", "node_id", nodeID, "err", err)
 	}
 	h.bus.Publish(protocol.Event{

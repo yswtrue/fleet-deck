@@ -140,6 +140,29 @@ func (q *Queries) UpdateNodeStatus(ctx context.Context, id string, status protoc
 	return nil
 }
 
+// TouchNodeLastSeen records a heartbeat. It deliberately leaves the status
+// column alone: connectivity is the live registry's job, and a heartbeat
+// landing while the offline cascade runs must not flip the row back online.
+func (q *Queries) TouchNodeLastSeen(ctx context.Context, id string, seenAt time.Time) error {
+	if err := q.q.TouchNodeLastSeen(ctx, sqlcgen.TouchNodeLastSeenParams{
+		ID:         id,
+		LastSeenAt: seenAt,
+	}); err != nil {
+		return fmt.Errorf("store: touch node last seen: %w", err)
+	}
+	return nil
+}
+
+// MarkNodeOffline flips one node's status without touching last_seen_at: the
+// displayed time is the last heartbeat, not the moment the hub noticed the
+// disconnect (which runs after offlineGrace and can be much later).
+func (q *Queries) MarkNodeOffline(ctx context.Context, id string) error {
+	if err := q.q.MarkNodeOffline(ctx, id); err != nil {
+		return fmt.Errorf("store: mark node offline: %w", err)
+	}
+	return nil
+}
+
 // MarkNodesOffline flips every non-offline node row to offline. The hub calls
 // it at startup: a process that died while nodes were connected never gets
 // their disconnect frames, so the persisted status would otherwise claim those

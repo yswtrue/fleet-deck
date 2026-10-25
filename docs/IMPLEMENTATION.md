@@ -183,6 +183,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 5. hub 侧的 `FLEETDECK_NODE_JOIN_TOKEN` 是部署级密钥:节点把它作为 `--join-token` 传入即可跳过数据库令牌,不产生所有者绑定,用于 devenv 与自动化部署。
 6. **一机一节点**:node 启动前获取机器级文件锁(`lock_file`,默认 `$TMPDIR/fleetdeck-node.lock`),第二个进程直接退出并打印持锁 pid;同时每次握手携带 `machine_id`(OS 机器标识的 sha256,可用 `machine_id` 覆盖),`node.machine_id` 有部分唯一索引——同一台机器换名字注册会被拒绝并报出已注册节点名,复制 node token 到另一台机器也会被拒。旧节点在下一次握手补录 machine_id。
 7. **重连 ≠ 重启**:adapter 活在 node 进程内,所以离线级联有 30 秒宽限期,短暂断线重连不杀任务。每次握手还携带 `sessions`(本进程仍存活的 session id 列表):hub 在连接进入注册表、恢复派发之前,把该节点上仍未终态、却不在列表里的 session 直接置为 `failed`(并同步 task 状态)。因此 `node update`/崩溃/服务重启这类**进程重启**会立刻释放卡在 running 的任务,而同一进程的重连保留会话;旧版 daemon 不带该字段(JSON `null`)时 hub 不做推断。**running** session 丢失时 hub 会登记一次自动重试(`task.retry_pending` / `retry_count`,上限 `FLEETDECK_TASK_RETRY_LIMIT`,默认 1,0 关闭):节点重新注册后,`retryPendingTasks` 原子领取该行并以原 prompt 派发一个**新 session**(旧失败 session 保留供追溯)。`awaiting_user` 不重放(会丢掉待回答的问题),由用户回复继续。
+8. **最后在线时间**:`node.last_seen_at` 是最近一次 WS 心跳(hub 每 30s 发 ping,node 自动回 pong)的时间,不是连接建立时间;离线级联只改 `status`,不再覆盖这个时间。web 节点列表/详情每 30s 重新读取,使展示的“最后在线”随心跳前进。
 
 ### 3.7 node 离线事件缓冲
 

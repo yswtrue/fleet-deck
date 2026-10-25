@@ -7,9 +7,125 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"fleetdeck/internal/adapters"
 	"fleetdeck/internal/protocol"
 )
+
+// TestNodeHeartbeatAdvancesLastSeen pins the UI rule: a node's last_seen_at is
+// its latest WebSocket heartbeat (the pong answering the hub's ping), not the
+// time it established the connection. Without this, a node that stays connected
+// for days would keep showing its handshake time.
+func TestNodeHeartbeatAdvancesLastSeen(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	// Shorten the production 30 s heartbeat so the test observes a real
+	// ping -> gorilla auto-pong -> last_seen_at update sequence.
+	h.nodePingInterval = 20 * time.Millisecond
+
+	c, nodeID := dialNode(t, ts, st, uniqueName("hub-heartbeat-node"))
+	t.Cleanup(func() { _ = c.Close() })
+
+	// Gorilla answers pings with pongs only while the read side is running.
+	go func() {
+		for {
+			if _, _, err := c.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+
+	getNode := func() protocol.Node {
+		t.Helper()
+		resp, raw := getRaw(t, auth.token, ts.URL+"/api/nodes/"+nodeID)
+		requireStatus(t, "get heartbeat node", resp, raw, http.StatusOK)
+		var node protocol.Node
+		if err := json.Unmarshal(raw, &node); err != nil {
+			t.Fatalf("decode heartbeat node: %v (%s)", err, raw)
+		}
+		return node
+	}
+
+	initial := getNode()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if heartbeat := getNode(); heartbeat.LastSeenAt.After(initial.LastSeenAt) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("last_seen_at did not advance past the registration time %s",
+				initial.LastSeenAt)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestNodeOfflineKeepsLastHeartbeat pins the other half of the same rule: the
+// offline cascade runs after the grace period and must not overwrite the final
+// heartbeat with the later disconnect-detection time.
+func TestNodeOfflineKeepsLastHeartbeat(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, _ := newTestHub(t)
+	// Disable periodic pings so the only heartbeat is the explicit pong below.
+	h.nodePingInterval = time.Hour
+
+	c, nodeID := dialNode(t, ts, st, uniqueName("hub-offline-heartbeat-node"))
+	t.Cleanup(func() { _ = c.Close() })
+	initial, err := st.Queries().GetNode(context.Background(), nodeID)
+	if err != nil {
+		t.Fatalf("get node row: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if err := c.WriteMessage(websocket.PongMessage, nil); err != nil {
+		t.Fatalf("send heartbeat pong: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	var heartbeat time.Time
+	for {
+		row, err := st.Queries().GetNode(context.Background(), nodeID)
+		if err != nil {
+			t.Fatalf("get node row: %v", err)
+		}
+		if row.LastSeenAt.After(initial.LastSeenAt) {
+			heartbeat = row.LastSeenAt
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("last_seen_at %s did not advance past registration time %s",
+				row.LastSeenAt, initial.LastSeenAt)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	_ = c.Close()
+
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		row, err := st.Queries().GetNode(context.Background(), nodeID)
+		if err != nil {
+			t.Fatalf("get node row: %v", err)
+		}
+		if row.Status == protocol.NodeOffline {
+			if !row.LastSeenAt.Equal(heartbeat) {
+				t.Fatalf("offline last_seen_at = %s, want final heartbeat %s",
+					row.LastSeenAt, heartbeat)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("node row still %q after disconnect", row.Status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
 
 // TestNodeStatusReflectsLiveConnection pins the rule the UI depends on: node
 // status is connectivity, so a connected node reads online and the same row

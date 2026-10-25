@@ -262,6 +262,17 @@ func (q *Queries) MarkNodeJoinTokenUsed(ctx context.Context, arg MarkNodeJoinTok
 	return err
 }
 
+const markNodeOffline = `-- name: MarkNodeOffline :exec
+UPDATE node
+SET status = 'offline'
+WHERE id = $1
+`
+
+func (q *Queries) MarkNodeOffline(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, markNodeOffline, id)
+	return err
+}
+
 const markNodesOffline = `-- name: MarkNodesOffline :exec
 UPDATE node
 SET status = 'offline'
@@ -270,6 +281,22 @@ WHERE status <> 'offline'
 
 func (q *Queries) MarkNodesOffline(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, markNodesOffline)
+	return err
+}
+
+const touchNodeLastSeen = `-- name: TouchNodeLastSeen :exec
+UPDATE node
+SET last_seen_at = $2
+WHERE id = $1
+`
+
+type TouchNodeLastSeenParams struct {
+	ID         string
+	LastSeenAt time.Time
+}
+
+func (q *Queries) TouchNodeLastSeen(ctx context.Context, arg TouchNodeLastSeenParams) error {
+	_, err := q.db.Exec(ctx, touchNodeLastSeen, arg.ID, arg.LastSeenAt)
 	return err
 }
 
