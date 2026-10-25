@@ -150,6 +150,7 @@ func (n *Node) startSession(ctx context.Context, cmd protocol.TaskStartCommand) 
 			Prompt:         cmd.Prompt,
 			WorkspacePath:  cmd.WorkspacePath,
 			AutoAllowScope: cmd.AutoAllowScope,
+			AutoTitle:      cmd.AutoTitle,
 		}, sink)
 		if err != nil {
 			log.Error("adapter start failed", "err", err)
@@ -257,6 +258,7 @@ func (n *Node) resumeSession(ctx context.Context, cmd protocol.SessionResumeComm
 			Prompt:          prompt,
 			WorkspacePath:   cmd.WorkspacePath,
 			AutoAllowScope:  cmd.AutoAllowScope,
+			AutoTitle:       cmd.AutoTitle,
 			ResumeSessionID: cmd.ExternalSessionID,
 		}, sink)
 		if err != nil {

@@ -60,10 +60,16 @@
 //
 // # Session title
 //
-// `session_info_update` carries the title the agent assigns to its session
-// (omp derives one from the first prompt). It is relayed through the optional
-// adapters.TitleSink so the hub can backfill a provisional task title; replay
-// runs never emit it.
+// `session_info_update` carries the title the agent assigns to its session. It
+// is relayed through the optional adapters.TitleSink so the hub can backfill a
+// provisional task title; replay runs never emit it. Sources differ per
+// launcher: codex-acp generates a title in a fire-and-forget turn after
+// answering session/prompt (the process is kept alive for titleGrace so the
+// update is not lost), opencode/pi never name a session, and omp's ACP mode
+// forces PI_NO_TITLE (its automatic naming is TUI-only). omp is therefore
+// asked with its `/rename` built-in after the final turn when the hub says the
+// task title is still provisional; that internal turn's output is suppressed
+// and the task is already reported done while it runs.
 //
 // # Usage & model capture
 //
@@ -112,6 +118,16 @@ import (
 // before forcibly killing the agent process.
 const defaultCancelGrace = 2 * time.Second
 
+// titleRequestTimeout bounds the wait for an agent-named title after the
+// session's final turn. The task is already reported done when the request
+// starts, so this only keeps the agent process around: omp's default fork
+// title generator runs a real model turn and can take a couple of minutes.
+const titleRequestTimeout = 3 * time.Minute
+
+// titleResponseGrace is the extra wait after the title request's own response
+// for a `session_info_update` that the agent emits just behind it.
+const titleResponseGrace = 2 * time.Second
+
 // maxElicitationSchemaBytes bounds an agent-supplied elicitation schema before
 // it is mirrored into the hub's text buffer as a pending-input prompt.
 const maxElicitationSchemaBytes = 64 << 10
@@ -130,6 +146,17 @@ type agentConfig struct {
 	// requires are extra executables the launcher shells out to (beyond
 	// command itself), used by Requirements.
 	requires []string
+	// titlePrompt asks the agent to name its session when the task title is
+	// still provisional. omp accepts its built-in `/rename` command with no
+	// argument as "generate a title"; its ACP mode disables automatic titles
+	// (PI_NO_TITLE), so this is the only way to get one. Empty means the
+	// launcher has no such command.
+	titlePrompt string
+	// titleGrace keeps the agent process alive this long after the final turn
+	// so a title the agent names on its own still reaches the hub. codex-acp
+	// generates its title in a fire-and-forget turn after the prompt response;
+	// without the grace the process is killed before the update arrives.
+	titleGrace time.Duration
 }
 
 // agentInventory maps an agent_type to the canonical ACP launcher from the
@@ -139,6 +166,9 @@ var agentInventory = map[string]agentConfig{
 	"codex": {
 		command: "npx",
 		args:    []string{"-y", "@agentclientprotocol/codex-acp"},
+		// codex-acp names the thread itself once the first turn completes,
+		// after it has answered session/prompt.
+		titleGrace: 15 * time.Second,
 	},
 	"claude": {
 		command: "npx",
@@ -158,6 +188,10 @@ var agentInventory = map[string]agentConfig{
 	"omp": {
 		command: "omp",
 		args:    []string{"acp"},
+		// omp forces PI_NO_TITLE for ACP sessions, but its `/rename` built-in
+		// with no argument still generates a title and reports it through
+		// session_info_update.
+		titlePrompt: "/rename",
 	},
 }
 
@@ -242,6 +276,24 @@ type Adapter struct {
 	// the sink or the turn accumulator. (The history proxy sets replayAsm
 	// instead, collecting the same chunks.)
 	loading atomic.Bool
+
+	// wantTitle records that the hub still has a provisional task title and
+	// the launcher can supply the agent's own; the first finished turn
+	// consumes it. titleDone tracks whether a non-empty title was relayed, so
+	// a request is skipped when the agent already named the session.
+	wantTitle atomic.Bool
+	titleDone atomic.Bool
+	// titleChecked makes the post-turn title collection run at most once per
+	// adapter (a follow-up turn must not repeat it).
+	titleChecked atomic.Bool
+	// titleTurn marks a title-only window: the adapter-issued title command
+	// (omp) or the post-turn grace (codex-acp). Its output is not the task's
+	// answer (omp prints "Session renamed to ..."), so every update except the
+	// title itself is dropped while it runs.
+	titleTurn atomic.Bool
+	// titleCh is signalled when the first title arrives, waking the post-turn
+	// wait.
+	titleCh chan struct{}
 }
 
 var _ adapters.Adapter = (*Adapter)(nil)
@@ -292,6 +344,8 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 	a.sink = sink
 	a.cancelCh = make(chan struct{})
 	a.pending = make(map[int64]chan rpcResponse)
+	a.titleCh = make(chan struct{}, 1)
+	a.wantTitle.Store(req.AutoTitle && a.cfg.titlePrompt != "")
 	a.mu.Unlock()
 
 	command := a.cfg.command
@@ -819,7 +873,7 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 			a.terminate(ctx, sink, errors.New("acp: agent finished the turn without producing any output"))
 			return
 		}
-		a.terminate(ctx, sink, nil)
+		a.finishTurn(ctx, sink)
 	case "cancelled":
 		a.flushAssistantText(ctx, sink)
 		a.terminate(ctx, sink, nil)
@@ -964,6 +1018,12 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 	if json.Unmarshal(msg.Params, &p) != nil {
 		return
 	}
+	// The title command turn is adapter-internal: only the title it reports
+	// may reach the event stream (omp also prints "Session renamed to ..." as
+	// an agent message, which is not part of the task's answer).
+	if a.titleTurn.Load() && p.Update.SessionUpdate != "session_info_update" {
+		return
+	}
 	// Session history replayed by session/load during a live resume is not
 	// live output. The history proxy collects it via replayAsm instead.
 	if a.replayAsm == nil && a.loading.Load() {
@@ -1007,11 +1067,18 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 			}
 		}
 	case "session_info_update":
-		// Agents name their session (omp derives a title from the first
-		// prompt). The hub backfills a provisional task title from it; a title
-		// the operator chose is never touched. A replay run must not mutate
-		// the task, so it is skipped there.
+		// Agents name their session (codex-acp generates one after the turn;
+		// omp answers the `/rename` command with one). The hub backfills a
+		// provisional task title from it; a title the operator chose is never
+		// touched. A replay run must not mutate the task, so it is skipped
+		// there.
 		if title := strings.TrimSpace(p.Update.Title); title != "" && a.replayAsm == nil {
+			if !a.titleDone.Swap(true) {
+				select {
+				case a.titleCh <- struct{}{}:
+				default:
+				}
+			}
 			if ts, ok := sink.(adapters.TitleSink); ok {
 				ts.Title(ctx, sessionID, title)
 			}
@@ -1086,15 +1153,16 @@ func (a *Adapter) exitWatcher(ctx context.Context, sessionID string, sink adapte
 	a.terminate(ctx, sink, nil)
 }
 
-// terminate reports the terminal outcome exactly once and reaps the process.
-// Done and Error carry the final state themselves (see EventSink), so no
-// separate StateChange is emitted. It is a no-op before Start commits.
-func (a *Adapter) terminate(ctx context.Context, sink adapters.EventSink, err error) {
+// finishSession reports the terminal outcome exactly once (Done/Error) and
+// sets the terminal status. Done and Error carry the final state themselves
+// (see EventSink), so no separate StateChange is emitted. It never reaps the
+// process, so a caller can keep the agent alive briefly to receive a trailing
+// session title.
+func (a *Adapter) finishSession(ctx context.Context, sink adapters.EventSink, err error) {
 	if a.terminals != nil {
 		a.terminals.killAll()
 	}
 	if !a.committed.Load() {
-		a.killProc()
 		return
 	}
 	a.finishOnce.Do(func() {
@@ -1114,8 +1182,136 @@ func (a *Adapter) terminate(ctx context.Context, sink adapters.EventSink, err er
 				sink.Done(ctx, sessionID)
 			}
 		}
-		a.killProc()
 	})
+}
+
+// terminate reports the terminal outcome exactly once and reaps the process.
+// It is a no-op before Start commits.
+func (a *Adapter) terminate(ctx context.Context, sink adapters.EventSink, err error) {
+	a.finishSession(ctx, sink, err)
+	a.killProc()
+}
+
+// finishTurn ends a successful, completed turn: the session is reported done
+// first (the task must not wait on title generation), then the process stays
+// alive just long enough to collect the agent's own session title, and is
+// reaped.
+func (a *Adapter) finishTurn(ctx context.Context, sink adapters.EventSink) {
+	a.finishSession(ctx, sink, nil)
+	a.collectTitle(ctx)
+	a.killProc()
+}
+
+// collectTitle obtains the agent's title for a session the hub still treats as
+// provisionally named. Two sources exist: a launcher that cannot name itself
+// is asked with its own title command (omp's `/rename`); a launcher that names
+// the thread on its own after answering the turn (codex-acp) gets a grace
+// window to deliver the update. Either way the wait is bounded and the task has
+// already been reported done.
+func (a *Adapter) collectTitle(ctx context.Context) {
+	// At most once per adapter: follow-up turns must not re-trigger it.
+	if !a.titleChecked.CompareAndSwap(false, true) {
+		return
+	}
+	if !a.wantTitle.CompareAndSwap(true, false) {
+		return
+	}
+	if a.cfg.titlePrompt != "" {
+		// A title reported during the turn makes the request unnecessary.
+		if !a.titleDone.Load() {
+			a.requestAgentTitle(ctx)
+		}
+		return
+	}
+	// The grace is unconditional: codex-acp publishes a prompt-derived
+	// fallback title *before* answering the turn and renames the thread to its
+	// generated title afterwards. That second update must still be read, so an
+	// earlier title must not shorten the window.
+	if grace := a.cfg.titleGrace; grace > 0 {
+		a.titleTurn.Store(true)
+		defer a.titleTurn.Store(false)
+		a.linger(ctx, grace)
+	}
+}
+
+// linger keeps the session's read loop alive for d (or until the context is
+// cancelled) so trailing title updates are relayed before the process is
+// reaped. The task has already been reported done.
+func (a *Adapter) linger(ctx context.Context, d time.Duration) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+}
+
+// requestAgentTitle sends the launcher's title command as one internal turn
+// and waits for the title it reports. Its output is suppressed by
+// handleNotification; only the session_info_update title is relayed.
+func (a *Adapter) requestAgentTitle(ctx context.Context) {
+	prompt := strings.TrimSpace(a.cfg.titlePrompt)
+	if prompt == "" {
+		return
+	}
+	a.mu.Lock()
+	external := a.externalID
+	proc := a.proc
+	a.mu.Unlock()
+	if proc == nil || external == "" {
+		return
+	}
+
+	a.titleTurn.Store(true)
+	defer a.titleTurn.Store(false)
+
+	// A cancelled per-message ctx must not abort the request the moment the
+	// turn ends; node shutdown still stops it through proc.done/cancelCh.
+	callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), titleRequestTimeout)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = a.call(callCtx, "session/prompt", sessionPromptParams{
+			SessionID: external,
+			Prompt:    []contentBlock{{Type: "text", Text: prompt}},
+		})
+	}()
+
+	select {
+	case <-a.titleCh:
+		// The title arrived; hold the output suppression until the command's
+		// own response (or a short grace) so trailing command chatter —
+		// omp streams "Session renamed to ..." — cannot leak into the task.
+		select {
+		case <-done:
+		case <-time.After(titleResponseGrace):
+		case <-callCtx.Done():
+		}
+	case <-done:
+		// Agents emit session_info_update just before answering the title
+		// command; a short grace covers one emitted right after it.
+		a.awaitTitle(callCtx, titleResponseGrace)
+	case <-callCtx.Done():
+	}
+}
+
+// awaitTitle waits up to d for a title update, returning whether one arrived.
+func (a *Adapter) awaitTitle(ctx context.Context, d time.Duration) bool {
+	if a.titleDone.Load() {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-a.titleCh:
+		return true
+	case <-timer.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (a *Adapter) killProc() {

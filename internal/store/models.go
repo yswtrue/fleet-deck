@@ -156,6 +156,7 @@ func taskFromRow(r sqlcgen.Task) protocol.Task {
 		CancelledAt: r.CancelledAt,
 		CreatedAt:   r.CreatedAt,
 		UpdatedAt:   r.UpdatedAt,
+		TitleAuto:   r.TitleAuto,
 	}
 }
 

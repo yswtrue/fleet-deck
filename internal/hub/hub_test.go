@@ -1232,6 +1232,28 @@ func TestSessionTitleBackfillsProvisionalTask(t *testing.T) {
 	c, nodeID := dialNode(t, ts, st, uniqueName("title-node"))
 	defer func() { _ = c.Close() }()
 
+	// The session.title frames below travel on this same connection, so the
+	// reader must run concurrently with the test.
+	starts := make(chan protocol.TaskStartCommand, 4)
+	go func() {
+		for {
+			var env protocol.Envelope
+			if err := c.ReadJSON(&env); err != nil {
+				return
+			}
+			if env.Type != protocol.MsgTaskStart {
+				continue
+			}
+			var cmd protocol.TaskStartCommand
+			if env.Decode(&cmd) == nil {
+				select {
+				case starts <- cmd:
+				default:
+				}
+			}
+		}
+	}()
+
 	workspace := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
 		"node_id": nodeID,
 		"name":    uniqueName("title-ws"),
@@ -1257,6 +1279,22 @@ func TestSessionTitleBackfillsProvisionalTask(t *testing.T) {
 	})
 	if supplied.SessionID == "" {
 		t.Fatalf("titled task was not dispatched: %+v", supplied)
+	}
+
+	// The hub only asks the agent for a name while the task title is
+	// provisional; an operator title must not trigger the request.
+	for _, want := range []struct {
+		title string
+		auto  bool
+	}{{"Fix the parser", true}, {"Operator title", false}} {
+		select {
+		case cmd := <-starts:
+			if cmd.AutoTitle != want.auto {
+				t.Fatalf("task.start for %q: auto_title = %v, want %v", want.title, cmd.AutoTitle, want.auto)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("no task.start delivered for %q", want.title)
+		}
 	}
 
 	events, unsubscribe := h.bus.Subscribe(EventScope{All: true})

@@ -184,6 +184,11 @@ type TaskStartCommand struct {
 	// AutoAllowScope is the owning workspace's permission auto-allow range.
 	// Older hubs omit it; the node then asks for every permission request.
 	AutoAllowScope AutoAllowScope `json:"auto_allow_scope,omitempty" jsonschema:"enum=none,enum=workspace,enum=all"`
+	// AutoTitle asks the adapter to obtain the agent's own session title when
+	// the task still carries a provisional (prompt-derived) one. ACP agents
+	// either name the session themselves or expose a way to ask; request only
+	// when the hub would apply the result. Older hubs omit it (false).
+	AutoTitle bool `json:"auto_title,omitempty"`
 	// UserMessage is the prompt as the hub recorded it (id, timestamp). The
 	// node stores it at the head of its live transcript so a browser that
 	// attaches later sees the instruction without waiting for adapter output.
@@ -232,6 +237,9 @@ type SessionResumeCommand struct {
 	AutoAllowScope    AutoAllowScope `json:"auto_allow_scope,omitempty" jsonschema:"enum=none,enum=workspace,enum=all"`
 	ExternalSessionID string         `json:"external_session_id"`
 	Message           string         `json:"message"`
+	// AutoTitle mirrors TaskStartCommand.AutoTitle: request the agent's title
+	// when the task is still provisionally named.
+	AutoTitle bool `json:"auto_title,omitempty"`
 	// UserMessage is the hub's recorded follow-up; the node appends it to its
 	// live transcript under the id the hub broadcast.
 	UserMessage *Message `json:"user_message,omitempty"`

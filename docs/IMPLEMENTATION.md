@@ -207,7 +207,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 - **续跑**:对 `done`/`failed` 会话发消息(`POST /api/sessions/{id}/send`)即重开——会话→`running`、任务经 `moveTaskTo` 重开 `running`(手动 PATCH 表保持 `done` 终态不变),hub 下发 `MsgSessionResume`,node 以 `session/load` 重挂 agent 侧会话续跑;无法重挂(external id 缺失/未知会话)则**以该追问为 prompt 开新会话**兜底,保证用户消息必有回应。
 - **完成门**:会话自然结束(`end_turn`)时,若镜像子任务仍有未完成项,任务停靠 `awaiting_user` 而非 `done`(零子任务或全完成则照旧);`failed` 仍收敛 `done`。
-- **待办任务**:`POST /api/tasks` 带 `auto_start:false` 则不派发、停在 `waiting`(卡片带"待办"徽章);`POST /api/tasks/{id}/start` 手动派发(已启动/非 waiting → 409;节点离线 → 202 停 waiting)。任务必须有非空 `prompt`(创建和手动启动都校验,400):ACP 适配器在 prompt 为空时不发 `session/prompt`,会话会一直 running 且没有任何输出。`title` 可省略:缺省取 prompt 第一条非空行(截断到 80 个字符)作为**临时标题**(`task.title_auto`),ACP 的 `session_info_update` 标题经 `MsgSessionTitle` 上报后由 hub 回填并广播 `task.title_changed`;用户填写了标题则永不覆盖。web 表单不再把 prompt 镜像到标题框。
+- **待办任务**:`POST /api/tasks` 带 `auto_start:false` 则不派发、停在 `waiting`(卡片带"待办"徽章);`POST /api/tasks/{id}/start` 手动派发(已启动/非 waiting → 409;节点离线 → 202 停 waiting)。任务必须有非空 `prompt`(创建和手动启动都校验,400):ACP 适配器在 prompt 为空时不发 `session/prompt`,会话会一直 running 且没有任何输出。`title` 可省略:缺省取 prompt 第一条非空行(截断到 80 个字符)作为**临时标题**(`task.title_auto`)。临时任务的 `task.start` / `session.resume` 带 `auto_title`,适配器取得 agent 自定标题(`session_info_update` → `MsgSessionTitle`)后由 hub 回填并广播 `task.title_changed`;用户填写了标题则永不覆盖、也不发起请求。各 launcher 的标题来源不同:codex-acp 在 `session/prompt` 响应之后用 fire-and-forget 的一轮生成标题,适配器在 reap 前多留 15s(否则更新被丢弃);opencode/pi 从不命名会话;omp 的 ACP 模式强制 `PI_NO_TITLE`(自动命名只在 TUI 生效),因此适配器在最终轮之后用 omp 内置的 `/rename` 请求生成标题——这一内部轮的输出被抑制、最长等 3 分钟,且在会话已上报 done 之后才进行。web 表单不再把 prompt 镜像到标题框。
 - **归档**:`PATCH {archived:true}` 仅限 `done` 任务(否则 409),列表默认排除、`?archived=1` 只看归档;取消归档随时可用。
 
 ### 3.11 Token 统计 / 移动端 / 通知

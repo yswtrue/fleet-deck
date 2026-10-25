@@ -148,6 +148,11 @@ type Task struct {
 	CancelledAt *time.Time `json:"cancelled_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
+	// TitleAuto marks a prompt-derived title the agent may replace with its
+	// own session title. Server-side only: the hub needs it when dispatching
+	// to decide whether to ask the agent for a name, but it is not part of the
+	// wire/API contract.
+	TitleAuto bool `json:"-"`
 }
 
 // Subtask is a task's sub-step, mirrored from the agent session's todo list.

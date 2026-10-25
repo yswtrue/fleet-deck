@@ -1068,7 +1068,18 @@ func TestSendMessageResumesDoneSession(t *testing.T) {
 	defer func() { _ = c.Close() }()
 	envelopes := readEnvelopes(c)
 
-	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	workspace := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID,
+		"name":    uniqueName("resume-ws"),
+		"path":    "/tmp/resume-ws",
+	})
+	// Prompt-only: the task keeps a provisional title, so the hub must ask the
+	// agent to name the resumed session too.
+	task := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": workspace.ID,
+		"prompt":       "do the thing",
+		"agent_type":   "fake",
+	})
 	if task.SessionID == "" {
 		t.Fatalf("task has no session: %+v", task)
 	}
@@ -1185,6 +1196,9 @@ func TestSendMessageResumesDoneSession(t *testing.T) {
 	}
 	if cmd.AutoAllowScope != protocol.AutoAllowScopeAll {
 		t.Fatalf("resume auto_allow_scope = %q, want all", cmd.AutoAllowScope)
+	}
+	if !cmd.AutoTitle {
+		t.Fatal("resume did not ask for the agent's title although the task title is provisional")
 	}
 }
 

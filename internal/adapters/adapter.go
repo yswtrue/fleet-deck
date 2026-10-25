@@ -20,6 +20,10 @@ type StartRequest struct {
 	// Adapters that can answer permission asks automatically (the ACP adapter)
 	// consult it; others ignore it. The zero value means "none" (always ask).
 	AutoAllowScope protocol.AutoAllowScope
+	// AutoTitle asks the adapter to obtain the agent's own session title when
+	// the hub still treats the task title as provisional. Adapters whose agent
+	// cannot report a title ignore it.
+	AutoTitle bool
 	// ResumeSessionID, when non-empty, asks the adapter to reattach to the
 	// given agent-side session instead of starting a fresh one. Adapters
 	// that can reattach (see Resumable) run Prompt as the first turn on the

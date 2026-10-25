@@ -887,9 +887,11 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 
 	workspacePath := ""
 	var autoAllowScope protocol.AutoAllowScope
+	autoTitle := false
 	taskID := session.TaskID
 	if task, err := h.store.Queries().GetTask(ctx, session.TaskID); err == nil {
 		taskID = task.ID
+		autoTitle = task.TitleAuto
 		if ws, err := h.store.Queries().GetWorkspace(ctx, task.WorkspaceID); err == nil {
 			workspacePath = ws.Path
 			autoAllowScope = ws.AutoAllowScope
@@ -901,6 +903,7 @@ func (h *Hub) resumeFinishedSession(w http.ResponseWriter, r *http.Request, ctx 
 		AgentType:         session.AgentType,
 		WorkspacePath:     workspacePath,
 		AutoAllowScope:    autoAllowScope,
+		AutoTitle:         autoTitle,
 		ExternalSessionID: session.ExternalSessionID,
 		Message:           msgText,
 		UserMessage:       &inserted,

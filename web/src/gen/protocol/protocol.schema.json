@@ -660,6 +660,9 @@
         "message": {
           "type": "string"
         },
+        "auto_title": {
+          "type": "boolean"
+        },
         "user_message": {
           "$ref": "#/$defs/Message"
         }
@@ -1218,6 +1221,9 @@
             "workspace",
             "all"
           ]
+        },
+        "auto_title": {
+          "type": "boolean"
         },
         "user_message": {
           "$ref": "#/$defs/Message"

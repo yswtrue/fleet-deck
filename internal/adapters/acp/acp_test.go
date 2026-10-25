@@ -290,6 +290,11 @@ type adapterOpts struct {
 	workspace string // defaults to a fresh temp dir
 	autoAllow protocol.AutoAllowScope
 	location  string // tool call location for the permission-file scenario
+	// autoTitle mirrors StartRequest.AutoTitle; titlePrompt/titleGrace fill
+	// the launcher's title traits (an omp-style command, a codex-style grace).
+	autoTitle   bool
+	titlePrompt string
+	titleGrace  time.Duration
 }
 
 // testBinary returns the absolute path to this test binary, which the fake
@@ -317,6 +322,8 @@ func startTestAdapter(t *testing.T, opts adapterOpts) (*Adapter, *recorder) {
 	}
 	a.ResumeSessionID = opts.resume
 	a.CancelGrace = opts.grace
+	a.cfg.titlePrompt = opts.titlePrompt
+	a.cfg.titleGrace = opts.titleGrace
 	if opts.location != "" {
 		a.cfg.env = append(a.cfg.env, "FLEETDECK_FAKE_ACP_LOCATION="+opts.location)
 	}
@@ -333,6 +340,7 @@ func startTestAdapter(t *testing.T, opts adapterOpts) (*Adapter, *recorder) {
 		Prompt:         "do the thing",
 		WorkspacePath:  workspace,
 		AutoAllowScope: opts.autoAllow,
+		AutoTitle:      opts.autoTitle,
 	}, rec); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -1192,15 +1200,31 @@ func runFakeAgent(scenario string) {
 			}
 			fakeResult(enc, msg.ID, map[string]any{"sessionId": "agent-sess-loaded"})
 		case "session/prompt":
-			fakePrompt(enc, dec, msg.ID, scenario)
+			fakePrompt(enc, dec, msg.ID, scenario, msg.Params)
 		case "session/cancel":
 			// Deliberately ignored: the adapter must kill the process.
 		}
 	}
 }
 
-func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenario string) {
+func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenario string, params json.RawMessage) {
 	switch scenario {
+	case "title-request":
+		// The first turn answers normally; the adapter's internal title turn
+		// answers the `/rename` command with a generated title.
+		if fakePromptText(params) == "/rename" {
+			fakeNotify(enc, "session/update", fakeSessionInfo("Refactor the auth middleware"))
+			fakeNotify(enc, "session/update", fakeChunk("m2", "Session renamed to Refactor the auth middleware."))
+			fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+			return
+		}
+		fakeNotify(enc, "session/update", fakeChunk("m1", "done"))
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "late-title":
+		// codex-acp names the thread after answering the turn.
+		fakeNotify(enc, "session/update", fakeChunk("m1", "done"))
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+		fakeNotify(enc, "session/update", fakeSessionInfo("Late title"))
 	case "load-replay":
 		fakeNotify(enc, "session/update", fakeChunk("a-new", "new answer"))
 		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
@@ -1376,6 +1400,32 @@ func fakeUserChunk(messageID, text string) map[string]any {
 		"messageId":     messageID,
 		"content":       map[string]any{"type": "text", "text": text},
 	}}
+}
+
+// fakeSessionInfo mirrors an agent-reported session title.
+func fakeSessionInfo(title string) map[string]any {
+	return map[string]any{"sessionId": "agent-sess-1", "update": map[string]any{
+		"sessionUpdate": "session_info_update",
+		"title":         title,
+	}}
+}
+
+// fakePromptText joins the text blocks of a session/prompt request so the
+// fake agent can tell the task prompt from the adapter's title command.
+func fakePromptText(params json.RawMessage) string {
+	var p struct {
+		Prompt []struct {
+			Text string `json:"text"`
+		} `json:"prompt"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, block := range p.Prompt {
+		b.WriteString(block.Text)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func fakeTodoUpdate() map[string]any {
@@ -1591,8 +1641,70 @@ func TestSessionInfoTitleMapping(t *testing.T) {
 	}
 }
 
-// A session/load replay carries the agent's reasoning too; the hub serves it
-// as `thinking` history rows so a finished task keeps its full trail.
+// A provisional task title is replaced by the agent's own: launchers that
+// cannot name a session themselves (omp in ACP mode) are asked with their
+// title command after the final turn, and that internal turn's chatter never
+// reaches the task transcript.
+func TestTitleCommandNamesProvisionalTask(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{
+		scenario:    "title-request",
+		autoTitle:   true,
+		titlePrompt: "/rename",
+	})
+	rec.waitDone(t)
+
+	select {
+	case got := <-rec.titleCh:
+		if got != "Refactor the auth middleware" {
+			t.Fatalf("title = %q, want the agent-generated title", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("title command did not yield a session title")
+	}
+	for _, text := range rec.texts() {
+		if strings.Contains(text, "Session renamed") {
+			t.Fatalf("internal title turn leaked into the answer: %q", text)
+		}
+	}
+}
+
+// A launcher that names its session right after answering the turn (codex-acp)
+// must not be killed before the update arrives.
+func TestLateSessionTitleIsCollected(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{
+		scenario:   "late-title",
+		autoTitle:  true,
+		titleGrace: 2 * time.Second,
+	})
+	rec.waitDone(t)
+
+	select {
+	case got := <-rec.titleCh:
+		if got != "Late title" {
+			t.Fatalf("title = %q, want %q", got, "Late title")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("late session title was dropped")
+	}
+}
+
+// Without the hub's AutoTitle flag (an operator-chosen title) no title command
+// is sent: the fake agent's second turn blocks forever, so a stray request
+// would make the test hang in cleanup.
+func TestNoTitleCommandWithoutAutoTitle(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{
+		scenario:    "title-request",
+		titlePrompt: "/rename",
+	})
+	rec.waitDone(t)
+
+	select {
+	case got := <-rec.titleCh:
+		t.Fatalf("unexpected title %q", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 func TestReplayAssemblesThinking(t *testing.T) {
 	a := New("fake")
 	asm := &replayAssembler{sessionID: "sess-1"}

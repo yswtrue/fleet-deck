@@ -139,6 +139,7 @@ export interface SessionResumeCommand {
   auto_allow_scope?: "none" | "workspace" | "all";
   external_session_id: string;
   message: string;
+  auto_title?: boolean;
   user_message?: Message;
 }
 export interface SessionStateChanged {
@@ -213,6 +214,7 @@ export interface TaskStartCommand {
   prompt: string;
   workspace_path: string;
   auto_allow_scope?: "none" | "workspace" | "all";
+  auto_title?: boolean;
   user_message?: Message;
 }
 export interface TaskStats {

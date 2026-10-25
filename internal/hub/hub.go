@@ -881,6 +881,7 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 		Prompt:         task.Prompt,
 		WorkspacePath:  workspace.Path,
 		AutoAllowScope: workspace.AutoAllowScope,
+		AutoTitle:      task.TitleAuto,
 		UserMessage:    promptMessage,
 	})
 	if !h.sendToNode(workspace.NodeID, env) {
