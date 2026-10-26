@@ -774,6 +774,52 @@ func (q *Queries) UpdateTaskArchivedAt(ctx context.Context, arg UpdateTaskArchiv
 	return i, err
 }
 
+const updateTaskContent = `-- name: UpdateTaskContent :one
+UPDATE task
+SET title = $2,
+    prompt = $3,
+    title_auto = $4,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+`
+
+type UpdateTaskContentParams struct {
+	ID        string
+	Title     string
+	Prompt    string
+	TitleAuto bool
+}
+
+func (q *Queries) UpdateTaskContent(ctx context.Context, arg UpdateTaskContentParams) (Task, error) {
+	row := q.db.QueryRow(ctx, updateTaskContent,
+		arg.ID,
+		arg.Title,
+		arg.Prompt,
+		arg.TitleAuto,
+	)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Prompt,
+		&i.Status,
+		&i.AgentType,
+		&i.SessionID,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+		&i.AutoStart,
+		&i.CancelledAt,
+		&i.TitleAuto,
+		&i.RetryCount,
+		&i.RetryPending,
+	)
+	return i, err
+}
+
 const updateTaskSessionID = `-- name: UpdateTaskSessionID :exec
 UPDATE task
 SET session_id = $2, updated_at = now()

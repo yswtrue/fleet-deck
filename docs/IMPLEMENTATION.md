@@ -103,6 +103,8 @@ waiting ──start──▶ running ──agent_done──▶ done
 
 手动状态修改(`PATCH /api/tasks/{id}`)遵循同一状态机的**迁移表**:done 为终态、同状态幂等、非法迁移 409(`canTransitionTask`);session→task 的内部派生走自己的映射,不经过该表。
 
+**派发前内容编辑**同样走 `PATCH /api/tasks/{id}`,但只对**尚未开始**的任务开放(无 `session_id`;已派发返回 409,因为 agent 已持有原提示词)。只改 `prompt` 时,临时标题(`title_auto`)按新提示词的首个非空行重算;显式 `title` 去掉首尾空白并关闭自动命名(agent 之后不再覆盖);传空 `title` 恢复临时标题。标题变化广播 `task.title_changed`,看板卡片(无会话)上的铅笔按钮打开编辑对话框,未改动的标题不随请求发送,以保留自动命名。
+
 **任务标题模糊搜索**(pg_trgm):`task.title` 上建 GIN trigram 索引(`00008_task_title_search.sql`),`GET /api/tasks?...&q=term` 做子串 OR 三元相似度匹配、按相似度排序(容错打字错误);看板搜索框即接此端点。
 
 ### 3.3 协议(Protocol)

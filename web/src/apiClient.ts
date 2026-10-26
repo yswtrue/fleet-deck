@@ -85,8 +85,15 @@ export interface CreateTaskInput {
 
 export interface PatchTaskInput {
   status?: Task['status']
-  /** Archive (true; only `done` tasks) or unarchive (false) the task. */
+  /** Archive (true; only `waiting`/`done`/`failed` tasks) or unarchive (false). */
   archived?: boolean
+  /**
+   * Rename a task that has not been dispatched yet. An empty title restores
+   * the provisional prompt-derived label (and lets the agent name it).
+   */
+  title?: string
+  /** Rewrite the instruction of a task that has not been dispatched yet. */
+  prompt?: string
 }
 
 /**

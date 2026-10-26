@@ -53,7 +53,18 @@
     "unarchived": "“{{title}}” unarchived",
     "unarchiveError": "Could not unarchive task",
     "unarchiveErrorDetail": "Could not unarchive task: {{message}}",
+    "editButton": "Edit",
+    "editAria": "Edit {{title}}",
     "updated": "Updated {{time}}"
+  },
+  "edit": {
+    "title": "Edit task",
+    "titleLabel": "Title (optional)",
+    "titleHelp": "Clear it to let the agent name the task; the first prompt line is shown until then.",
+    "promptLabel": "Prompt",
+    "saved": "“{{title}}” updated",
+    "saveError": "Could not update task",
+    "saveErrorDetail": "Could not update task: {{message}}"
   },
   "form": {
     "title": "New task",

@@ -309,6 +309,23 @@ func (q *Queries) UpdateTaskArchivedAt(ctx context.Context, id string, archivedA
 	return taskFromRow(row), nil
 }
 
+// UpdateTaskContent rewrites a task's label and instruction. The hub only
+// calls it for tasks without a session (not dispatched yet); TitleAuto says
+// whether the title is provisional (prompt-derived) and may be replaced by the
+// agent's session title.
+func (q *Queries) UpdateTaskContent(ctx context.Context, id, title, prompt string, titleAuto bool) (protocol.Task, error) {
+	row, err := q.q.UpdateTaskContent(ctx, sqlcgen.UpdateTaskContentParams{
+		ID:        id,
+		Title:     title,
+		Prompt:    prompt,
+		TitleAuto: titleAuto,
+	})
+	if err != nil {
+		return protocol.Task{}, fmt.Errorf("store: update task content: %w", err)
+	}
+	return taskFromRow(row), nil
+}
+
 // TaskStatsFilter narrows AggregateTaskStats. Empty ids and nil times mean
 // "no restriction"; MemberUserID, when set, keeps only tasks whose workspace
 // lives on a node the user is bound to (non-admin visibility).

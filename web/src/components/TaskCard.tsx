@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Card, Dropdown, message } from 'antd'
 import type { MenuProps } from 'antd'
 import type { MessageInstance } from 'antd/es/message/interface'
 import { SubtaskDots } from './SubtaskDots.tsx'
+import { EditTaskModal } from './EditTaskModal.tsx'
 import {
   TASK_STATUS_TRANSITIONS,
   useArchiveTaskMutation,
@@ -53,6 +55,13 @@ const UnarchiveIcon = () => (
   </Icon>
 )
 
+const EditIcon = () => (
+  <Icon>
+    <path d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17v3z" />
+    <path d="M13.5 7.5l3 3" />
+  </Icon>
+)
+
 const MoreIcon = () => (
   <Icon>
     <circle cx="5" cy="12" r="1" />
@@ -90,9 +99,13 @@ export function TaskCard({
   const transitions = TASK_STATUS_TRANSITIONS[task.status]
   const isBacklog = task.status === 'waiting' && !task.auto_start
   const isArchived = !!task.archived_at
+  const [editing, setEditing] = useState(false)
   // Waiting tasks act through Start (dispatch) and Archive (shelve); the hub
   // rejects any manual status move from waiting.
   const canStart = task.status === 'waiting' && !task.session_id
+  // The hub accepts content edits only before dispatch; a session means the
+  // agent already holds the prompt.
+  const canEdit = !task.session_id
   const canArchive =
     (task.status === 'done' || task.status === 'failed' || task.status === 'waiting') && !isArchived
 
@@ -183,97 +196,116 @@ export function TaskCard({
   }
 
   return (
-    <Card
-      size="small"
-      hoverable
-      tabIndex={0}
-      className={`${styles.card}${isArchived ? ` ${styles.archived}` : ''}`}
-      onClick={openSession}
-      onKeyDown={handleKeyDown}
-      role="button"
-      aria-label={t('card.aria', { title: task.title, status: statusLabel(task.status) })}
-      styles={{ body: { padding: 12 } }}
-    >
-      {externalMessageApi ? null : localMessageHolder}
-      <div className={styles.top}>
-        <div className={styles.chips}>
-          <span className={styles.statusChip} data-status={task.status}>
-            {statusLabel(task.status)}
-          </span>
-          <span className={styles.agentChip}>{task.agent_type}</span>
-          {!task.session_id && !isBacklog && (
-            <span className={styles.noSessionChip} title={t('card.noSessionHint')}>
-              {t('card.noSession')}
+    <>
+      <Card
+        size="small"
+        hoverable
+        tabIndex={0}
+        className={`${styles.card}${isArchived ? ` ${styles.archived}` : ''}`}
+        onClick={openSession}
+        onKeyDown={handleKeyDown}
+        role="button"
+        aria-label={t('card.aria', { title: task.title, status: statusLabel(task.status) })}
+        styles={{ body: { padding: 12 } }}
+      >
+        {externalMessageApi ? null : localMessageHolder}
+        <div className={styles.top}>
+          <div className={styles.chips}>
+            <span className={styles.statusChip} data-status={task.status}>
+              {statusLabel(task.status)}
             </span>
-          )}
-          {isBacklog && (
-            <span className={styles.noSessionChip} title={t('card.backlogHint')}>
-              {t('card.backlog')}
-            </span>
-          )}
-        </div>
-        <span className={styles.actions}>
-          {canStart && (
-            <Button
-              size="small"
-              type="text"
-              className={styles.iconButton}
-              aria-label={t('card.startAria', { title: task.title })}
-              title={t('card.startButton')}
-              onClick={handleStart}
-              loading={startMutation.isPending}
-              icon={<StartIcon />}
-            />
-          )}
-          {canArchive && (
-            <Button
-              size="small"
-              type="text"
-              className={styles.iconButton}
-              aria-label={t('card.archiveAria', { title: task.title })}
-              title={t('card.archiveButton')}
-              onClick={handleArchiveToggle}
-              loading={archiveMutation.isPending}
-              icon={<ArchiveIcon />}
-            />
-          )}
-          {isArchived && (
-            <Button
-              size="small"
-              type="text"
-              className={styles.iconButton}
-              aria-label={t('card.unarchiveAria', { title: task.title })}
-              title={t('card.unarchiveButton')}
-              onClick={handleArchiveToggle}
-              loading={archiveMutation.isPending}
-              icon={<UnarchiveIcon />}
-            />
-          )}
-          {transitions.length > 0 && (
-            <Dropdown
-              menu={{ items: menuItems, onClick: handleMenuClick }}
-              trigger={['click']}
-              placement="bottomRight"
-            >
+            <span className={styles.agentChip}>{task.agent_type}</span>
+            {!task.session_id && !isBacklog && (
+              <span className={styles.noSessionChip} title={t('card.noSessionHint')}>
+                {t('card.noSession')}
+              </span>
+            )}
+            {isBacklog && (
+              <span className={styles.noSessionChip} title={t('card.backlogHint')}>
+                {t('card.backlog')}
+              </span>
+            )}
+          </div>
+          <span className={styles.actions}>
+            {canEdit && (
               <Button
                 size="small"
                 type="text"
                 className={styles.iconButton}
-                aria-label={t('card.moveAria', { title: task.title })}
-                title={t('card.moveTitle')}
-                onClick={(event) => event.stopPropagation()}
-                icon={<MoreIcon />}
+                aria-label={t('card.editAria', { title: task.title })}
+                title={t('card.editButton')}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setEditing(true)
+                }}
+                icon={<EditIcon />}
               />
-            </Dropdown>
-          )}
-        </span>
-      </div>
-      <p className={styles.title}>{task.title}</p>
-      {task.prompt && <p className={styles.prompt}>{task.prompt}</p>}
-      <div className={styles.footer}>
-        <SubtaskDots subtasks={subtasks} />
-        <span>{t('card.updated', { time: formatRelative(task.updated_at) })}</span>
-      </div>
-    </Card>
+            )}
+            {canStart && (
+              <Button
+                size="small"
+                type="text"
+                className={styles.iconButton}
+                aria-label={t('card.startAria', { title: task.title })}
+                title={t('card.startButton')}
+                onClick={handleStart}
+                loading={startMutation.isPending}
+                icon={<StartIcon />}
+              />
+            )}
+            {canArchive && (
+              <Button
+                size="small"
+                type="text"
+                className={styles.iconButton}
+                aria-label={t('card.archiveAria', { title: task.title })}
+                title={t('card.archiveButton')}
+                onClick={handleArchiveToggle}
+                loading={archiveMutation.isPending}
+                icon={<ArchiveIcon />}
+              />
+            )}
+            {isArchived && (
+              <Button
+                size="small"
+                type="text"
+                className={styles.iconButton}
+                aria-label={t('card.unarchiveAria', { title: task.title })}
+                title={t('card.unarchiveButton')}
+                onClick={handleArchiveToggle}
+                loading={archiveMutation.isPending}
+                icon={<UnarchiveIcon />}
+              />
+            )}
+            {transitions.length > 0 && (
+              <Dropdown
+                menu={{ items: menuItems, onClick: handleMenuClick }}
+                trigger={['click']}
+                placement="bottomRight"
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  className={styles.iconButton}
+                  aria-label={t('card.moveAria', { title: task.title })}
+                  title={t('card.moveTitle')}
+                  onClick={(event) => event.stopPropagation()}
+                  icon={<MoreIcon />}
+                />
+              </Dropdown>
+            )}
+          </span>
+        </div>
+        <p className={styles.title}>{task.title}</p>
+        {task.prompt && <p className={styles.prompt}>{task.prompt}</p>}
+        <div className={styles.footer}>
+          <SubtaskDots subtasks={subtasks} />
+          <span>{t('card.updated', { time: formatRelative(task.updated_at) })}</span>
+        </div>
+      </Card>
+      {editing && (
+        <EditTaskModal task={task} messageApi={messageApi} onClose={() => setEditing(false)} />
+      )}
+    </>
   )
 }

@@ -571,6 +571,10 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		Status    *protocol.TaskStatus `json:"status"`
 		SortOrder *int                 `json:"sort_order"`
 		Archived  *bool                `json:"archived"`
+		// Title and Prompt edit the task's own content; only tasks that have
+		// not been dispatched yet (no session) accept them.
+		Title  *string `json:"title"`
+		Prompt *string `json:"prompt"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -582,6 +586,19 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
+	}
+
+	// Content is only editable before dispatch: once a session exists the
+	// agent already received the prompt, and the title labels that session.
+	if req.Title != nil || req.Prompt != nil {
+		if task.SessionID != "" {
+			writeError(w, http.StatusConflict, "task already started: prompt and title are fixed")
+			return
+		}
+		if req.Prompt != nil && strings.TrimSpace(*req.Prompt) == "" {
+			writeError(w, http.StatusBadRequest, "prompt is required: the agent needs an instruction")
+			return
+		}
 	}
 
 	if req.Status != nil {
@@ -603,6 +620,37 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 			h.bus.Publish(protocol.Event{
 				Type: protocol.EvTaskStatusChanged,
 				Data: protocol.TaskStatusChanged{TaskID: id, From: task.Status, To: updated.Status},
+			})
+		}
+		task = updated
+	}
+
+	if req.Title != nil || req.Prompt != nil {
+		title, prompt, titleAuto := task.Title, task.Prompt, task.TitleAuto
+		if req.Prompt != nil {
+			prompt = *req.Prompt
+		}
+		if req.Title != nil {
+			if trimmed := strings.TrimSpace(*req.Title); trimmed != "" {
+				title, titleAuto = trimmed, false
+			} else {
+				// An empty title restores the provisional prompt-derived label.
+				title, titleAuto = taskTitleFromPrompt(prompt), true
+			}
+		} else if titleAuto {
+			// The provisional label was derived from the old prompt; follow
+			// the edited instruction instead of keeping a stale first line.
+			title = taskTitleFromPrompt(prompt)
+		}
+		updated, err := h.store.Queries().UpdateTaskContent(ctx, id, title, prompt, titleAuto)
+		if err != nil {
+			h.serverError(w, "update task content", err)
+			return
+		}
+		if updated.Title != task.Title {
+			h.bus.Publish(protocol.Event{
+				Type: protocol.EvTaskTitleChanged,
+				Data: protocol.TaskTitleChanged{TaskID: id, Title: updated.Title},
 			})
 		}
 		task = updated

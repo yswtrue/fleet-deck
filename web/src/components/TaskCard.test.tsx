@@ -238,4 +238,60 @@ describe('TaskCard', () => {
       body: JSON.stringify({ archived: false }),
     })
   })
+
+  it('an unstarted task opens the edit modal and PATCHes its content', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ...task,
+          session_id: '',
+          title: 'New label',
+          prompt: 'New instruction',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    )
+    renderCard({ ...task, session_id: '', status: 'waiting' })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Fix the flaky test' }))
+
+    const title = await screen.findByRole('textbox', { name: 'Title (optional)' })
+    const prompt = screen.getByRole('textbox', { name: 'Prompt' })
+    expect((title as HTMLInputElement).value).toBe('Fix the flaky test')
+    expect((prompt as HTMLTextAreaElement).value).toBe('Investigate and fix.')
+    fireEvent.change(title, { target: { value: 'New label' } })
+    fireEvent.change(prompt, { target: { value: 'New instruction' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/t-1')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PATCH' })
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      prompt: 'New instruction',
+      title: 'New label',
+    })
+    await waitFor(() => expect(document.body.textContent).toContain('“New label” updated'))
+  })
+
+  it('an untouched title is omitted so an auto title keeps following the prompt', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ...task, session_id: '', prompt: 'New instruction' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    renderCard({ ...task, session_id: '', status: 'waiting' })
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Fix the flaky test' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Prompt' }), {
+      target: { value: 'New instruction' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ prompt: 'New instruction' })
+  })
+
+  it('a dispatched task offers no edit action (the agent already holds the prompt)', () => {
+    renderCard({ ...task, session_id: 's-1' })
+    expect(screen.queryByRole('button', { name: 'Edit Fix the flaky test' })).toBeNull()
+  })
 })

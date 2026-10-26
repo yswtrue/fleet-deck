@@ -59,9 +59,9 @@ type TaskStatusChanged struct {
 	To     TaskStatus `json:"to" jsonschema:"enum=waiting,enum=running,enum=done,enum=awaiting_user"`
 }
 
-// TaskTitleChanged reports an agent-assigned task title. Only tasks whose
-// title is provisional (the caller left it out on create) receive one; a
-// user-supplied title is never overwritten.
+// TaskTitleChanged reports a task title change: the agent replacing the
+// provisional prompt-derived label with its own session title, or a user
+// editing a task that has not been dispatched yet.
 type TaskTitleChanged struct {
 	TaskID string `json:"task_id"`
 	Title  string `json:"title"`

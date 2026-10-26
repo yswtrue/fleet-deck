@@ -1018,6 +1018,83 @@ func TestPatchTaskTransitionValidation(t *testing.T) {
 	}
 }
 
+// TestPatchTaskContentEdit pins pre-dispatch content edits: a task without a
+// session accepts a new prompt and/or title, a provisional title keeps
+// following the prompt, an empty title restores it, an empty prompt is 400,
+// and a dispatched task rejects both with 409.
+func TestPatchTaskContentEdit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	// A task on an offline node is never dispatched: it keeps no session.
+	offline := seedNode(t, st, uniqueName("it-content-offline"))
+	ws := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": offline.ID, "name": uniqueName("it-content-ws"), "path": "/tmp/it-content",
+	})
+	task := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": ws.ID, "prompt": "first line\nbody", "agent_type": "fake",
+	})
+	if task.SessionID != "" {
+		t.Fatalf("task on an offline node has session_id %q, want none", task.SessionID)
+	}
+	// Omitted title: the provisional label is the prompt's first line.
+	if task.Title != "first line" {
+		t.Fatalf("derived title = %q, want %q", task.Title, "first line")
+	}
+	patchContent := func(id string, body map[string]any) (*http.Response, []byte) {
+		return patchRaw(t, auth.token, ts.URL+"/api/tasks/"+id, body)
+	}
+
+	// Prompt-only edit: the provisional title follows the new instruction.
+	resp, raw := patchContent(task.ID, map[string]any{"prompt": "second line\nmore"})
+	requireStatus(t, "edit prompt", resp, raw, http.StatusOK)
+	got := decodeOK[protocol.Task](t, "edit prompt", resp, raw)
+	if got.Prompt != "second line\nmore" || got.Title != "second line" {
+		t.Fatalf("after prompt edit: title=%q prompt=%q", got.Title, got.Prompt)
+	}
+
+	// Explicit title: trimmed, stored verbatim, no longer prompt-derived.
+	resp, raw = patchContent(task.ID, map[string]any{"title": "  My label  ", "prompt": "third line"})
+	requireStatus(t, "edit title", resp, raw, http.StatusOK)
+	got = decodeOK[protocol.Task](t, "edit title", resp, raw)
+	if got.Title != "My label" || got.Prompt != "third line" {
+		t.Fatalf("after title edit: title=%q prompt=%q", got.Title, got.Prompt)
+	}
+
+	// A user-supplied title must survive later prompt edits.
+	resp, raw = patchContent(task.ID, map[string]any{"prompt": "fourth line"})
+	requireStatus(t, "edit prompt again", resp, raw, http.StatusOK)
+	got = decodeOK[protocol.Task](t, "edit prompt again", resp, raw)
+	if got.Title != "My label" {
+		t.Fatalf("user title = %q, want it preserved", got.Title)
+	}
+
+	// An empty title restores the provisional label from the current prompt.
+	resp, raw = patchContent(task.ID, map[string]any{"title": ""})
+	requireStatus(t, "reset title", resp, raw, http.StatusOK)
+	if got = decodeOK[protocol.Task](t, "reset title", resp, raw); got.Title != "fourth line" {
+		t.Fatalf("reset title = %q, want %q", got.Title, "fourth line")
+	}
+
+	// An empty prompt is rejected: a session would open with no instruction.
+	resp, raw = patchContent(task.ID, map[string]any{"prompt": "   "})
+	requireStatus(t, "empty prompt", resp, raw, http.StatusBadRequest)
+
+	// Once dispatched, the agent already holds the prompt: 409 on both fields.
+	c, nodeID := dialNode(t, ts, st, uniqueName("it-content-live"))
+	defer func() { _ = c.Close() }()
+	live := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if live.SessionID == "" {
+		t.Fatal("dispatched task has no session")
+	}
+	resp, raw = patchContent(live.ID, map[string]any{"prompt": "nope"})
+	requireStatus(t, "edit started prompt", resp, raw, http.StatusConflict)
+	resp, raw = patchContent(live.ID, map[string]any{"title": "nope"})
+	requireStatus(t, "edit started title", resp, raw, http.StatusConflict)
+}
+
 // TestGetNodeByID covers GET /api/nodes/{id}, the lookup behind the web UI's
 // /nodes/:nodeId deep links: admins read every node, non-admins only their
 // bound nodes (unbound -> 404), unknown ids are 404, and anonymous callers

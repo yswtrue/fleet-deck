@@ -53,7 +53,18 @@
     "unarchived": "“{{title}}”已取消归档",
     "unarchiveError": "无法取消归档",
     "unarchiveErrorDetail": "无法取消归档：{{message}}",
+    "editButton": "编辑",
+    "editAria": "编辑 {{title}}",
     "updated": "更新于 {{time}}"
+  },
+  "edit": {
+    "title": "编辑任务",
+    "titleLabel": "标题（可选）",
+    "titleHelp": "留空则由 agent 自动命名；命名前先显示 Prompt 的第一行。",
+    "promptLabel": "提示词",
+    "saved": "“{{title}}”已更新",
+    "saveError": "无法更新任务",
+    "saveErrorDetail": "无法更新任务：{{message}}"
   },
   "form": {
     "title": "新建任务",

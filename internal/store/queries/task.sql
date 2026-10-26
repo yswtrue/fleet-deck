@@ -116,6 +116,15 @@ WHERE session_id = $1
   AND title IS DISTINCT FROM $2
 RETURNING *;
 
+-- name: UpdateTaskContent :one
+UPDATE task
+SET title = $2,
+    prompt = $3,
+    title_auto = $4,
+    updated_at = now()
+WHERE id = $1
+RETURNING *;
+
 -- name: UpdateTaskSortOrder :exec
 UPDATE task
 SET sort_order = $2, updated_at = now()
