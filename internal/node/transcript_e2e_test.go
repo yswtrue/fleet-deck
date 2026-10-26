@@ -123,7 +123,7 @@ func TestLiveTranscriptPreservesTextToolOrder(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	go func() { _ = n.runOnce(ctx) }()
+	go func() { _, _ = n.runOnce(ctx) }()
 
 	select {
 	case <-done:

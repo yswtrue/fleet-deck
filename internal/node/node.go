@@ -173,6 +173,10 @@ type Node struct {
 	// is the authoritative source for a running session's message order; the
 	// hub proxies it for GET /api/sessions/{id}/messages.
 	transcripts *transcriptStore
+
+	// readTimeout bounds how long the node waits for a frame from the hub (see
+	// dial). Production leaves it at nodeReadTimeout; tests shorten it.
+	readTimeout time.Duration
 }
 
 // New builds a Node. A nil registry uses adapters.Default. When
@@ -191,6 +195,7 @@ func New(cfg Config, registry *adapters.Registry) *Node {
 		log:         slog.Default().With("node", cfg.Name),
 		sessions:    make(map[string]adapters.Adapter),
 		transcripts: newTranscriptStore(),
+		readTimeout: nodeReadTimeout,
 	}
 	if dir := os.Getenv("FLEETDECK_EVENT_BUFFER_DIR"); dir != "" {
 		buf, err := openEventBuffer(dir)
@@ -205,42 +210,73 @@ func New(cfg Config, registry *adapters.Registry) *Node {
 	return n
 }
 
+const (
+	reconnectFloor = time.Second
+	reconnectCeil  = 30 * time.Second
+)
+
 // Run connects to the hub and serves commands until ctx is cancelled. It
-// reconnects with exponential backoff (1s doubling to a 30s ceiling) on
-// failure. Run returns when ctx is cancelled.
+// reconnects with exponential backoff (1s doubling to a 30s ceiling, reset
+// after every successful registration) on failure. Run returns when ctx is
+// cancelled.
 func (n *Node) Run(ctx context.Context) error {
-	backoff := time.Second
-	const maxBackoff = 30 * time.Second
+	var delay reconnectDelay
 
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		err := n.runOnce(ctx)
+		registered, err := n.runOnce(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		n.log.Warn("hub connection lost; reconnecting", "err", err, "backoff", backoff)
+		if registered {
+			// The hub accepted this process, so the link is healthy again:
+			// the next outage must start from the floor instead of inheriting
+			// the ceiling that an earlier, longer outage drove the backoff to.
+			delay.reset()
+		}
+		wait := delay.next()
+		n.log.Warn("hub connection lost; reconnecting", "err", err, "backoff", wait)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(backoff):
-		}
-		if backoff < maxBackoff {
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
+		case <-time.After(wait):
 		}
 	}
 }
 
+// reconnectDelay is the node's reconnect backoff: start at 1s, double after
+// each failed connection up to a 30s ceiling, and drop back to the floor once
+// a registration succeeds.
+type reconnectDelay struct{ d time.Duration }
+
+// next returns the delay to wait before the next attempt and arms the one
+// after it.
+func (r *reconnectDelay) next() time.Duration {
+	if r.d == 0 {
+		r.d = reconnectFloor
+	}
+	wait := r.d
+	if r.d < reconnectCeil {
+		r.d *= 2
+		if r.d > reconnectCeil {
+			r.d = reconnectCeil
+		}
+	}
+	return wait
+}
+
+// reset returns the backoff to the floor after a successful registration.
+func (r *reconnectDelay) reset() { r.d = reconnectFloor }
+
 // runOnce performs one connect/register/serve cycle. It returns when the
-// connection drops or dies.
-func (n *Node) runOnce(ctx context.Context) error {
-	c, err := dial(ctx, n.cfg.HubURL)
+// connection drops or dies, and reports whether the hub accepted the
+// registration so Run can reset its backoff after a healthy connection.
+func (n *Node) runOnce(ctx context.Context) (registered bool, err error) {
+	c, err := dial(ctx, n.cfg.HubURL, n.readTimeout)
 	if err != nil {
-		return fmt.Errorf("dial %s: %w", n.cfg.HubURL, err)
+		return false, fmt.Errorf("dial %s: %w", n.cfg.HubURL, err)
 	}
 	defer func() { _ = c.close() }()
 
@@ -268,22 +304,22 @@ func (n *Node) runOnce(ctx context.Context) error {
 		Sessions:       n.liveSessionIDs(),
 	})
 	if err := c.write(regEnv); err != nil {
-		return fmt.Errorf("send register_request: %w", err)
+		return false, fmt.Errorf("send register_request: %w", err)
 	}
 
 	respEnv, err := c.read()
 	if err != nil {
-		return fmt.Errorf("read register_response: %w", err)
+		return false, fmt.Errorf("read register_response: %w", err)
 	}
 	if respEnv.Type != protocol.MsgRegisterResponse {
-		return fmt.Errorf("unexpected first reply %q (want %s)", respEnv.Type, protocol.MsgRegisterResponse)
+		return false, fmt.Errorf("unexpected first reply %q (want %s)", respEnv.Type, protocol.MsgRegisterResponse)
 	}
 	var resp protocol.RegisterResponse
 	if err := respEnv.Decode(&resp); err != nil {
-		return fmt.Errorf("decode register_response: %w", err)
+		return false, fmt.Errorf("decode register_response: %w", err)
 	}
 	if resp.Error != "" {
-		return fmt.Errorf("hub rejected registration: %s", resp.Error)
+		return false, fmt.Errorf("hub rejected registration: %s", resp.Error)
 	}
 	if resp.Token != "" {
 		if err := n.writeToken(resp.Token); err != nil {
@@ -291,6 +327,7 @@ func (n *Node) runOnce(ctx context.Context) error {
 		}
 	}
 	n.log.Info("registered with hub", "node_id", resp.NodeID, "hub", n.cfg.HubURL)
+	registered = true
 
 	// --hub-url is a one-time bootstrap: once the hub accepted us, remember the
 	// endpoint in the config file so the next start needs only --config.
@@ -312,7 +349,7 @@ func (n *Node) runOnce(ctx context.Context) error {
 	for {
 		env, err := c.read()
 		if err != nil {
-			return err
+			return registered, err
 		}
 		n.handle(ctx, env)
 	}
