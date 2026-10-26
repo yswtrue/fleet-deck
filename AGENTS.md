@@ -6,7 +6,7 @@
 
 - **Go 1.27** (`go.mod`), **Node 22** + **pnpm**, **devenv** for local dev shell + Postgres
 - Go deps: `pgx/v5`, `gorilla/websocket`, `invopop/jsonschema`, `modelcontextprotocol/go-sdk v1.8.0`, `golang.org/x/crypto` (bcrypt)
-- Web deps: `react 19`, `react-router-dom 7`, `antd 5.29.3`, `@refinedev/{core,antd,react-router}`, `@tanstack/react-query 5`
+- Web deps: `react 19`, `react-router-dom 7`, `antd 5.29.3`, `@refinedev/{core,antd,react-router}`, `@tanstack/react-query 5`, `react-markdown` + `remark-gfm`/`remark-breaks` (transcript prose; raw HTML stays ignored)
 - Lint/format: `gofmt`, `goimports`, `golangci-lint`, `oxlint`, `prettier`, `nixfmt-rfc-style`; `treefmt.toml` wires goimports/prettier/nixfmt for `treefmt` (the pre-commit hook runs `treefmt --fail-on-change --no-cache`, style in `.prettierrc.json`)
 
 ## Local dev (devenv)

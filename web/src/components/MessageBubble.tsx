@@ -1,6 +1,7 @@
 import { permissionReplyOptionID } from '../permission.ts'
 import { parseElicitationReply } from '../elicitation.ts'
 import { i18n, useTranslation } from '../i18n/index.ts'
+import { Markdown } from './Markdown.tsx'
 import styles from './MessageBubble.module.css'
 import type { Message } from '../types.ts'
 
@@ -54,7 +55,7 @@ export function MessageBubble({ message }: { message: Message }) {
           </code>
         </div>
       ) : (
-        <p className={styles.content}>{message.content}</p>
+        <Markdown content={message.content} className={styles.content} />
       )}
     </article>
   )

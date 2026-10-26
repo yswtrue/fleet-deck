@@ -51,9 +51,6 @@
 
 .content {
   margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--text-h);
 }
 
 /* A tool call is a compact row, not prose: the agent's answer stays readable

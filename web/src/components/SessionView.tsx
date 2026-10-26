@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Input, Typography, message } from 'antd'
 import { MessageBubble } from './MessageBubble.tsx'
+import { Markdown } from './Markdown.tsx'
 import { SessionUsage } from './SessionUsage.tsx'
 import { PermissionPicker } from './PermissionPicker.tsx'
 import { ElicitationForm } from './ElicitationForm.tsx'
@@ -270,10 +271,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
             {delta && (
               <div className={styles.streaming} aria-live="polite">
                 <span className={styles.streamLabel}>{t('role.assistant')}</span>
-                <p className={styles.streamText}>
-                  {delta}
-                  <span className={styles.cursor} aria-hidden="true" />
-                </p>
+                <Markdown content={delta} className={styles.streamText} streaming />
               </div>
             )}
           </div>

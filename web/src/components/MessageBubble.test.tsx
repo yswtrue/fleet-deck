@@ -74,7 +74,7 @@ describe('MessageBubble', () => {
     expect(screen.getByText('Running')).toBeTruthy()
   })
 
-  it('renders ordinary content verbatim and labels the roles', () => {
+  it('renders plain content and labels the roles', () => {
     const { unmount } = render(
       <MessageBubble message={{ ...base, role: 'assistant', content: 'Hello, world' } as Message} />
     )
@@ -89,6 +89,61 @@ describe('MessageBubble', () => {
     )
     expect(screen.getByText('System')).toBeTruthy()
     expect(screen.getByText('node went offline')).toBeTruthy()
+  })
+
+  it('renders assistant markdown into elements, not literal syntax', () => {
+    const { container } = render(
+      <MessageBubble
+        message={
+          {
+            ...base,
+            role: 'assistant',
+            content:
+              '## Result\n\n**done** in `src/app.ts`\n\n- first\n- second\n\n| key | value |\n| --- | --- |\n| a | 1 |',
+          } as Message
+        }
+      />
+    )
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Result')
+    expect(container.querySelector('strong')?.textContent).toBe('done')
+    expect(container.querySelector('p code')?.textContent).toBe('src/app.ts')
+    expect(container.querySelectorAll('ul li')).toHaveLength(2)
+    expect(container.querySelector('table td')?.textContent).toBe('a')
+    expect(screen.queryByText(/\*\*done\*\*/)).toBeNull()
+  })
+
+  it('opens markdown links in a new tab without leaking window.opener', () => {
+    const { container } = render(
+      <MessageBubble
+        message={
+          {
+            ...base,
+            role: 'assistant',
+            content: '[docs](https://example.com/docs)',
+          } as Message
+        }
+      />
+    )
+    const link = container.querySelector('a')
+    expect(link?.getAttribute('href')).toBe('https://example.com/docs')
+    expect(link?.getAttribute('target')).toBe('_blank')
+    expect(link?.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('never injects raw HTML from message content', () => {
+    const { container } = render(
+      <MessageBubble
+        message={
+          {
+            ...base,
+            role: 'assistant',
+            content: '<img src="x" onerror="alert(1)"><script>alert(1)</script>',
+          } as Message
+        }
+      />
+    )
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
   })
 
   it('hides the time for replayed history without timestamps', () => {
