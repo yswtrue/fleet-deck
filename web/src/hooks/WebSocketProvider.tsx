@@ -13,8 +13,6 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const [connected, setConnected] = useState(false)
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting')
   const [error, setError] = useState<Error | null>(null)
-  const [seq, setSeq] = useState(0)
-  const seqRef = useRef(0)
   const listenersRef = useRef<Set<(event: ProtocolEvent) => void>>(new Set())
   const wsRef = useRef<WebSocket | null>(null)
   const backoffRef = useRef(1000)
@@ -75,10 +73,10 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
               return
             }
             const evt = parsed as ProtocolEvent
-            if (typeof evt.seq === 'number' && evt.seq > seqRef.current) {
-              seqRef.current = evt.seq
-              setSeq(evt.seq)
-            }
+            // The ordinal deliberately does not live in context state: a
+            // streamed turn emits hundreds of frames, and publishing each one
+            // as a context value re-rendered every consumer (the whole board
+            // and transcript) on every token.
             listenersRef.current.forEach((listener) => listener(evt))
           } catch (err) {
             console.error('Failed to parse WS message', err)
@@ -137,8 +135,8 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const value = useMemo<ContextValue>(
-    () => ({ connected, connectionState, seq, lastSeq: seq, error, subscribe }),
-    [connected, connectionState, seq, error, subscribe]
+    () => ({ connected, connectionState, error, subscribe }),
+    [connected, connectionState, error, subscribe]
   )
 
   return <WebSocketContext.Provider value={value}>{children}</WebSocketContext.Provider>

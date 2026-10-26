@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Input, Typography, message } from 'antd'
@@ -33,6 +33,16 @@ interface SessionViewProps {
   task?: Task
 }
 
+/**
+ * Rows rendered at the tail of the transcript. A long task can accumulate
+ * thousands of rows (every tool call is one), and parsing markdown for all of
+ * them synchronously on open — and reconciling them on every streamed delta —
+ * is what made long sessions slow. The window keeps the rendered set bounded;
+ * older rows load on demand, and new rows slide it forward while the reader
+ * stays pinned to the bottom.
+ */
+const TRANSCRIPT_PAGE = 100
+
 export function SessionView({ sessionId, task }: SessionViewProps) {
   const { t } = useTranslation('session')
   const {
@@ -54,6 +64,13 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   // Auto-scroll follows the stream only while the reader is pinned to the
   // bottom; scrolling up pauses it until "Jump to latest".
   const [atBottom, setAtBottom] = useState(true)
+  // frozenStart pins the rendered window after the reader scrolls away from
+  // the tail (null = follow the tail). Without it, a long turn's arrivals would
+  // slide rows out of the DOM while they are being read.
+  const [frozenStart, setFrozenStart] = useState<number | null>(null)
+  // Distance from the scroll bottom, captured before older rows are prepended
+  // so the row the reader is on stays put.
+  const restoreFromBottomRef = useRef<number | null>(null)
   // One reply in flight at a time: a double click must not send two answers.
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -157,11 +174,29 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   const failureText =
     currentStatus === 'failed' ? failureReason || session?.error || t('failure.unknown') : ''
 
+  // Render only the tail of the transcript; the whole list stays in the query
+  // cache so "show earlier" costs no request. `windowStart` is derived, not
+  // stored, while following the tail: new rows therefore slide the window
+  // forward without growing the rendered set.
+  const tailStart = Math.max(0, messages.length - TRANSCRIPT_PAGE)
+  const windowStart = frozenStart === null ? tailStart : Math.min(frozenStart, tailStart)
+  const visibleMessages = windowStart > 0 ? messages.slice(windowStart) : messages
+
   useEffect(() => {
     const el = scrollRef.current
     if (!el || !atBottom) return
     el.scrollTop = el.scrollHeight
   }, [messages, delta, atBottom])
+
+  // Older rows were prepended: hold the reader's distance from the bottom so
+  // the content under their eyes does not move.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    const fromBottom = restoreFromBottomRef.current
+    if (!el || fromBottom === null) return
+    restoreFromBottomRef.current = null
+    el.scrollTop = el.scrollHeight - fromBottom
+  }, [windowStart])
 
   useEffect(() => {
     if (canSend && inputRef.current) {
@@ -172,7 +207,18 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el) return
-    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 48)
+    const nextAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+    setAtBottom(nextAtBottom)
+    // Freeze the window while the reader is away from the tail so arrivals
+    // cannot unmount the rows being read; follow the tail again at the bottom.
+    if (!nextAtBottom && frozenStart === null) setFrozenStart(windowStart)
+    if (nextAtBottom && frozenStart !== null) setFrozenStart(null)
+  }
+
+  const loadEarlier = () => {
+    const el = scrollRef.current
+    if (el) restoreFromBottomRef.current = el.scrollHeight - el.scrollTop
+    setFrozenStart(Math.max(0, windowStart - TRANSCRIPT_PAGE))
   }
 
   const jumpToLatest = () => {
@@ -180,6 +226,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     if (!el) return
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
     setAtBottom(true)
+    setFrozenStart(null)
   }
 
   const handleSend = async (event?: React.FormEvent) => {
@@ -260,7 +307,18 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
             {messages.length === 0 && !delta ? (
               <EmptyState title={t('transcript.empty')} />
             ) : (
-              messages.map((m) => <MessageBubble key={m.id} message={m} />)
+              <>
+                {windowStart > 0 && (
+                  <div className={styles.earlier}>
+                    <Button size="small" onClick={loadEarlier}>
+                      {t('transcript.showEarlier')}
+                    </Button>
+                  </div>
+                )}
+                {visibleMessages.map((m) => (
+                  <MessageBubble key={m.id} message={m} />
+                ))}
+              </>
             )}
             {thought && (
               <div className={styles.thinking} aria-live="polite">

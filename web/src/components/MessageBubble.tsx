@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { permissionReplyOptionID } from '../permission.ts'
 import { parseElicitationReply } from '../elicitation.ts'
 import { i18n, useTranslation } from '../i18n/index.ts'
@@ -5,7 +6,10 @@ import { Markdown } from './Markdown.tsx'
 import styles from './MessageBubble.module.css'
 import type { Message } from '../types.ts'
 
-export function MessageBubble({ message }: { message: Message }) {
+// Every streamed delta re-renders the transcript; a message whose identity is
+// unchanged must not re-parse its markdown. The node replaces a row's object
+// on update, so reference identity is the update signal.
+export const MessageBubble = memo(function MessageBubble({ message }: { message: Message }) {
   const { t } = useTranslation('session')
   // A permission reply is stored verbatim as `[permission_response] option_id=…`
   // (the locked adapter wire format); render the chosen option instead of the
@@ -59,4 +63,4 @@ export function MessageBubble({ message }: { message: Message }) {
       )}
     </article>
   )
-}
+})

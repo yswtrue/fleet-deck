@@ -12,6 +12,7 @@
   "transcript": {
     "empty": "智能体还没有发言。",
     "jumpToLatest": "跳到最新",
+    "showEarlier": "显示更早的消息",
     "thinking": "思考中…"
   },
   "role": {

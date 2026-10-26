@@ -98,8 +98,6 @@ function renderView(
           value={{
             connected: opts.connected ?? false,
             connectionState: opts.connected ? 'open' : 'closed',
-            seq: 0,
-            lastSeq: 0,
             error: null,
             subscribe: opts.subscribe ?? (() => () => {}),
           }}
@@ -315,5 +313,29 @@ describe('SessionView subtasks', () => {
       fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/tasks/t-1/subtasks'))
         .length
     ).toBe(before)
+  })
+})
+
+describe('SessionView transcript window', () => {
+  // A long task accumulates far more rows than a page should render; the view
+  // keeps only the tail mounted and reveals history in pages.
+  const history = Array.from({ length: 150 }, (_, i) => ({
+    id: `m-${i}`,
+    session_id: 's-1',
+    role: 'assistant',
+    content: `Message ${i}`,
+    created_at: '2026-09-28T00:00:00Z',
+  }))
+
+  it('renders the newest page and reveals earlier rows on demand', async () => {
+    renderView('done', { messages: history })
+    expect(await screen.findByText('Message 149')).toBeTruthy()
+    // Rows beyond the page are not in the DOM at all.
+    expect(screen.queryByText('Message 49')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show earlier messages' }))
+
+    expect(await screen.findByText('Message 0')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Show earlier messages' })).toBeNull()
   })
 })

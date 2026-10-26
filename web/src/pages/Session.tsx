@@ -9,5 +9,7 @@ export function Session() {
 
   if (!sessionId) return <ErrorState title={t('invalid')} />
 
-  return <SessionView sessionId={sessionId} />
+  // Keyed by session: switching sessions must drop the transcript window,
+  // streamed text and composer state rather than carry them over.
+  return <SessionView key={sessionId} sessionId={sessionId} />
 }

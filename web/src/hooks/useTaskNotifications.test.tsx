@@ -41,8 +41,6 @@ const listeners = new Set<(event: ProtocolEvent) => void>()
 const fakeContext: ContextValue = {
   connected: true,
   connectionState: 'open',
-  seq: 1,
-  lastSeq: 0,
   error: null,
   subscribe(listener) {
     listeners.add(listener)

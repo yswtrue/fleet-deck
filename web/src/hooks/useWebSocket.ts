@@ -9,8 +9,6 @@ export function useWebSocket(onEvent: (event: ProtocolEvent) => void) {
   return {
     connected: ctx.connected,
     connectionState: ctx.connectionState,
-    seq: ctx.seq,
-    lastSeq: ctx.lastSeq,
     error: ctx.error,
   }
 }

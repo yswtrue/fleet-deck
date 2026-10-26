@@ -24,8 +24,8 @@ if (typeof window !== 'undefined' && !window.matchMedia) {
     }) as MediaQueryList
 }
 
-// jsdom only defines requestAnimationFrame with pretendToBeVisual; the session
-// view batches streamed text/reasoning on it.
+// jsdom only defines requestAnimationFrame with pretendToBeVisual; some
+// libraries (antd's animation runtimes) call it unconditionally.
 if (typeof globalThis.requestAnimationFrame !== 'function') {
   globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) =>
     setTimeout(() => cb(Date.now()), 0)) as typeof requestAnimationFrame

@@ -15,6 +15,13 @@ import type {
 } from '../gen/protocol/index.ts'
 
 /**
+ * Coalescing window for streamed text. Markdown rendering re-parses the whole
+ * partial answer, so per-frame flushes make a long answer quadratic; 100 ms
+ * still reads as a live stream.
+ */
+const STREAM_FLUSH_MS = 100
+
+/**
  * mergeMessage appends or updates a message in a session's list:
  * - an existing row with the same id is replaced in place. The node's live
  *   transcript is authoritative; tool calls send the same id again as their
@@ -65,15 +72,15 @@ export function useSession(sessionId: string) {
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   // pendingElicitation is the structured ACP form ask awaiting submit/decline.
   const [pendingElicitation, setPendingElicitation] = useState<ElicitationRequest | null>(null)
-  const rafRef = useRef<number | null>(null)
+  const flushRef = useRef<number | null>(null)
   const pendingRef = useRef('')
-  const thoughtRafRef = useRef<number | null>(null)
+  const thoughtFlushRef = useRef<number | null>(null)
   const pendingThoughtRef = useRef('')
 
   const flush = useCallback(() => {
     setDelta((d) => d + pendingRef.current)
     pendingRef.current = ''
-    rafRef.current = null
+    flushRef.current = null
   }, [])
 
   const flushThought = useCallback(() => {
@@ -81,14 +88,18 @@ export function useSession(sessionId: string) {
     // growing the DOM for the whole turn.
     setThought((t) => (t + pendingThoughtRef.current).slice(-4000))
     pendingThoughtRef.current = ''
-    thoughtRafRef.current = null
+    thoughtFlushRef.current = null
   }, [])
 
+  // Streamed text is rendered as markdown, so every flush re-parses the whole
+  // answer produced so far. Honouring each animation frame means a long answer
+  // burns the main thread parsing itself ~60×/s; coalescing onto a short timer
+  // keeps the text live while ~6× less work is done.
   const appendDelta = useCallback(
     (text: string) => {
       pendingRef.current += text
-      if (rafRef.current === null) {
-        rafRef.current = requestAnimationFrame(flush)
+      if (flushRef.current === null) {
+        flushRef.current = window.setTimeout(flush, STREAM_FLUSH_MS)
       }
     },
     [flush]
@@ -97,31 +108,31 @@ export function useSession(sessionId: string) {
   const appendThought = useCallback(
     (text: string) => {
       pendingThoughtRef.current += text
-      if (thoughtRafRef.current === null) {
-        thoughtRafRef.current = requestAnimationFrame(flushThought)
+      if (thoughtFlushRef.current === null) {
+        thoughtFlushRef.current = window.setTimeout(flushThought, STREAM_FLUSH_MS)
       }
     },
     [flushThought]
   )
 
   // discardDelta drops both the painted stream and any chunks still waiting
-  // for the next animation frame. Without cancelling the queued frame, a
-  // terminal state or complete message clears the text and the pending flush
-  // immediately resurrects it — the stale-chunk bug that made a finished turn
-  // bleed into the next one.
+  // for the next flush. Without cancelling the queued timer, a terminal state
+  // or complete message clears the text and the pending flush immediately
+  // resurrects it — the stale-chunk bug that made a finished turn bleed into
+  // the next one.
   const discardDelta = useCallback(() => {
-    if (rafRef.current !== null) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
+    if (flushRef.current !== null) {
+      clearTimeout(flushRef.current)
+      flushRef.current = null
     }
     pendingRef.current = ''
     setDelta('')
   }, [])
 
   const discardThought = useCallback(() => {
-    if (thoughtRafRef.current !== null) {
-      cancelAnimationFrame(thoughtRafRef.current)
-      thoughtRafRef.current = null
+    if (thoughtFlushRef.current !== null) {
+      clearTimeout(thoughtFlushRef.current)
+      thoughtFlushRef.current = null
     }
     pendingThoughtRef.current = ''
     setThought('')
@@ -129,8 +140,8 @@ export function useSession(sessionId: string) {
 
   useEffect(() => {
     return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
-      if (thoughtRafRef.current !== null) cancelAnimationFrame(thoughtRafRef.current)
+      clearTimeout(flushRef.current ?? undefined)
+      clearTimeout(thoughtFlushRef.current ?? undefined)
     }
   }, [])
 

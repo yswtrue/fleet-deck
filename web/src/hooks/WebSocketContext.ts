@@ -13,8 +13,6 @@ export type ConnectionState = 'connecting' | 'open' | 'closed' | 'failed'
 export interface ContextValue {
   connected: boolean
   connectionState: ConnectionState
-  seq: number
-  lastSeq: number
   error: Error | null
   subscribe: (listener: Listener) => () => void
 }

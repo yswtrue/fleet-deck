@@ -85,8 +85,6 @@ function renderWithProviders(
             value={{
               connected: false,
               connectionState: 'closed',
-              seq: 0,
-              lastSeq: 0,
               error: null,
               subscribe,
             }}

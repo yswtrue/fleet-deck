@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
@@ -33,7 +34,9 @@ interface MarkdownProps {
   streaming?: boolean
 }
 
-export function Markdown({ content, className, streaming }: MarkdownProps) {
+// Parsing markdown is the expensive part of the transcript: a bubble whose
+// content did not change must not re-parse on an unrelated re-render.
+export const Markdown = memo(function Markdown({ content, className, streaming }: MarkdownProps) {
   return (
     <div
       className={className ? `${styles.markdown} ${className}` : styles.markdown}
@@ -44,4 +47,4 @@ export function Markdown({ content, className, streaming }: MarkdownProps) {
       </ReactMarkdown>
     </div>
   )
-}
+})

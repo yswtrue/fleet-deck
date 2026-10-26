@@ -12,6 +12,7 @@
   "transcript": {
     "empty": "The agent hasn't said anything yet.",
     "jumpToLatest": "Jump to latest",
+    "showEarlier": "Show earlier messages",
     "thinking": "Thinking…"
   },
   "role": {
