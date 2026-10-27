@@ -56,8 +56,8 @@ func (q *Queries) GetTask(ctx context.Context, id string) (protocol.Task, error)
 	return taskFromRow(row), nil
 }
 
-// ListTasksByWorkspace returns a board's unarchived tasks ordered by
-// sort_order. Archived rows are hidden by default; use
+// ListTasksByWorkspace returns a board's unarchived tasks, most recently
+// updated first. Archived rows are hidden by default; use
 // ListArchivedTasksByWorkspace with ?archived=1.
 func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) ([]protocol.Task, error) {
 	rows, err := q.q.ListTasksByWorkspace(ctx, workspaceID)
@@ -77,7 +77,7 @@ func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID 
 }
 
 // ListTasksByNode returns every unarchived task on every workspace of a
-// node, ordered by sort_order.
+// node, most recently updated first.
 func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]protocol.Task, error) {
 	rows, err := q.q.ListTasksByNode(ctx, nodeID)
 	if err != nil {

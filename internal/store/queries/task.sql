@@ -7,36 +7,36 @@ RETURNING *;
 SELECT * FROM task WHERE id = $1;
 
 -- name: ListTasksByWorkspace :many
-SELECT * FROM task WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY sort_order, created_at;
+SELECT * FROM task WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY updated_at DESC, created_at DESC, id;
 
 -- name: ListArchivedTasksByWorkspace :many
-SELECT * FROM task WHERE workspace_id = $1 AND archived_at IS NOT NULL ORDER BY sort_order, created_at;
+SELECT * FROM task WHERE workspace_id = $1 AND archived_at IS NOT NULL ORDER BY updated_at DESC, created_at DESC, id;
 
 -- name: ListTasksByNode :many
 SELECT t.* FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.archived_at IS NULL
-ORDER BY t.sort_order, t.created_at;
+ORDER BY t.updated_at DESC, t.created_at DESC, t.id;
 
 -- name: ListArchivedTasksByNode :many
 SELECT t.* FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.archived_at IS NOT NULL
-ORDER BY t.sort_order, t.created_at;
+ORDER BY t.updated_at DESC, t.created_at DESC, t.id;
 
 -- name: SearchTasksByWorkspace :many
 SELECT * FROM task
 WHERE workspace_id = $1
   AND archived_at IS NULL
   AND (title ILIKE '%' || sqlc.arg('q') || '%' OR title % sqlc.arg('q'))
-ORDER BY similarity(title, sqlc.arg('q')) DESC, sort_order, created_at;
+ORDER BY similarity(title, sqlc.arg('q')) DESC, updated_at DESC, created_at DESC, id;
 
 -- name: SearchArchivedTasksByWorkspace :many
 SELECT * FROM task
 WHERE workspace_id = $1
   AND archived_at IS NOT NULL
   AND (title ILIKE '%' || sqlc.arg('q') || '%' OR title % sqlc.arg('q'))
-ORDER BY similarity(title, sqlc.arg('q')) DESC, sort_order, created_at;
+ORDER BY similarity(title, sqlc.arg('q')) DESC, updated_at DESC, created_at DESC, id;
 
 -- name: SearchTasksByNode :many
 SELECT t.* FROM task t
@@ -44,7 +44,7 @@ JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1
   AND t.archived_at IS NULL
   AND (t.title ILIKE '%' || sqlc.arg('q') || '%' OR t.title % sqlc.arg('q'))
-ORDER BY similarity(t.title, sqlc.arg('q')) DESC, t.sort_order, t.created_at;
+ORDER BY similarity(t.title, sqlc.arg('q')) DESC, t.updated_at DESC, t.created_at DESC, t.id;
 
 -- name: SearchArchivedTasksByNode :many
 SELECT t.* FROM task t
@@ -52,7 +52,7 @@ JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1
   AND t.archived_at IS NOT NULL
   AND (t.title ILIKE '%' || sqlc.arg('q') || '%' OR t.title % sqlc.arg('q'))
-ORDER BY similarity(t.title, sqlc.arg('q')) DESC, t.sort_order, t.created_at;
+ORDER BY similarity(t.title, sqlc.arg('q')) DESC, t.updated_at DESC, t.created_at DESC, t.id;
 
 -- name: UpdateTaskStatus :one
 UPDATE task

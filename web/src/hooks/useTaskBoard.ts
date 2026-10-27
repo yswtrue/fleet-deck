@@ -20,6 +20,18 @@ function mapSessionStatus(status: SessionStatus): Task['status'] {
   }
 }
 
+/**
+ * Task lists are ordered by `updated_at` DESC on the hub. A live patch must
+ * therefore move the touched card to the front as well, or a status/rename
+ * event would leave it at its old position until the next REST read.
+ */
+function patchTaskInList(list: Task[], id: string, patch: Partial<Task>): Task[] {
+  const task = list.find((t) => t.id === id)
+  if (!task) return list
+  const updated = { ...task, ...patch, updated_at: new Date().toISOString() }
+  return [updated, ...list.filter((t) => t.id !== id)]
+}
+
 export function useTaskBoard(workspaceId: string, q = '', archived = false) {
   const api = useHubApi()
   const queryClient = useQueryClient()
@@ -48,8 +60,8 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
     // Board state is not gap-filled from the event stream (task deltas are not
     // persisted) and this hook only listens while the board is mounted, so any
     // transition that lands while the operator is on a session page (or in
-    // another tab) would leave the cached list stale for up to the global
-    // staleTime. Remounting must therefore always re-read the REST truth.
+    // another tab) would leave the cached list stale. Remounting must therefore
+    // always re-read the REST truth, independent of any query staleTime.
     refetchOnMount: 'always',
   })
 
@@ -64,7 +76,8 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
           if (task.workspace_id === workspaceId) {
             queryClient.setQueryData<Task[]>(['tasks', workspaceId], (prev = []) => {
               if (prev.some((t) => t.id === task.id)) return prev
-              return [...prev, task]
+              // Newest first, matching the hub's updated_at DESC ordering.
+              return [task, ...prev]
             })
           }
           break
@@ -74,10 +87,8 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
           // Patch every board cache under this workspace (canonical and
           // search-filtered): a filtered board renders its own query key, so
           // writing only the canonical entry would leave visible cards stale.
-          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev = []) =>
-            prev.map((t) =>
-              t.id === task_id ? { ...t, status: to, updated_at: new Date().toISOString() } : t
-            )
+          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev) =>
+            prev ? patchTaskInList(prev, task_id, { status: to }) : prev
           )
           break
         }
@@ -85,10 +96,8 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
           const { task_id, title } = evt.data
           // Patch every board cache under this workspace (canonical and
           // search-filtered) so a renamed row never keeps the provisional title.
-          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev = []) =>
-            prev.map((t) =>
-              t.id === task_id ? { ...t, title, updated_at: new Date().toISOString() } : t
-            )
+          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev) =>
+            prev ? patchTaskInList(prev, task_id, { title }) : prev
           )
           break
         }
@@ -112,12 +121,7 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
           queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev = []) => {
             const task = prev.find((t) => t.session_id === session_id)
             if (!task) return prev
-            const nextStatus = mapSessionStatus(sessionStatus)
-            return prev.map((t) =>
-              t.id === task.id
-                ? { ...t, status: nextStatus, updated_at: new Date().toISOString() }
-                : t
-            )
+            return patchTaskInList(prev, task.id, { status: mapSessionStatus(sessionStatus) })
           })
           break
         }
@@ -126,11 +130,7 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
           queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev = []) => {
             const task = prev.find((t) => t.session_id === session_id)
             if (!task) return prev
-            return prev.map((t) =>
-              t.id === task.id
-                ? { ...t, status: 'awaiting_user' as const, updated_at: new Date().toISOString() }
-                : t
-            )
+            return patchTaskInList(prev, task.id, { status: 'awaiting_user' as const })
           })
           break
         }
@@ -189,11 +189,7 @@ export function useTaskStatusMutation() {
       await queryClient.cancelQueries({ queryKey: ['tasks'] })
       const previous = queryClient.getQueriesData<Task[]>({ queryKey: ['tasks'] })
       queryClient.setQueriesData<Task[]>({ queryKey: ['tasks'] }, (prev) =>
-        prev
-          ? prev.map((t) =>
-              t.id === id ? { ...t, status, updated_at: new Date().toISOString() } : t
-            )
-          : prev
+        prev ? patchTaskInList(prev, id, { status }) : prev
       )
       return { previous }
     },

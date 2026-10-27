@@ -288,7 +288,7 @@ const listArchivedTasksByNode = `-- name: ListArchivedTasksByNode :many
 SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.archived_at IS NOT NULL
-ORDER BY t.sort_order, t.created_at
+ORDER BY t.updated_at DESC, t.created_at DESC, t.id
 `
 
 func (q *Queries) ListArchivedTasksByNode(ctx context.Context, nodeID string) ([]Task, error) {
@@ -329,7 +329,7 @@ func (q *Queries) ListArchivedTasksByNode(ctx context.Context, nodeID string) ([
 }
 
 const listArchivedTasksByWorkspace = `-- name: ListArchivedTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task WHERE workspace_id = $1 AND archived_at IS NOT NULL ORDER BY sort_order, created_at
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task WHERE workspace_id = $1 AND archived_at IS NOT NULL ORDER BY updated_at DESC, created_at DESC, id
 `
 
 func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID string) ([]Task, error) {
@@ -417,7 +417,7 @@ const listTasksByNode = `-- name: ListTasksByNode :many
 SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.archived_at IS NULL
-ORDER BY t.sort_order, t.created_at
+ORDER BY t.updated_at DESC, t.created_at DESC, t.id
 `
 
 func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]Task, error) {
@@ -458,7 +458,7 @@ func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]Task, e
 }
 
 const listTasksByWorkspace = `-- name: ListTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY sort_order, created_at
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY updated_at DESC, created_at DESC, id
 `
 
 func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) ([]Task, error) {
@@ -542,7 +542,7 @@ JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1
   AND t.archived_at IS NOT NULL
   AND (t.title ILIKE '%' || $2 || '%' OR t.title % $2)
-ORDER BY similarity(t.title, $2) DESC, t.sort_order, t.created_at
+ORDER BY similarity(t.title, $2) DESC, t.updated_at DESC, t.created_at DESC, t.id
 `
 
 type SearchArchivedTasksByNodeParams struct {
@@ -592,7 +592,7 @@ SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_ord
 WHERE workspace_id = $1
   AND archived_at IS NOT NULL
   AND (title ILIKE '%' || $2 || '%' OR title % $2)
-ORDER BY similarity(title, $2) DESC, sort_order, created_at
+ORDER BY similarity(title, $2) DESC, updated_at DESC, created_at DESC, id
 `
 
 type SearchArchivedTasksByWorkspaceParams struct {
@@ -643,7 +643,7 @@ JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1
   AND t.archived_at IS NULL
   AND (t.title ILIKE '%' || $2 || '%' OR t.title % $2)
-ORDER BY similarity(t.title, $2) DESC, t.sort_order, t.created_at
+ORDER BY similarity(t.title, $2) DESC, t.updated_at DESC, t.created_at DESC, t.id
 `
 
 type SearchTasksByNodeParams struct {
@@ -693,7 +693,7 @@ SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_ord
 WHERE workspace_id = $1
   AND archived_at IS NULL
   AND (title ILIKE '%' || $2 || '%' OR title % $2)
-ORDER BY similarity(title, $2) DESC, sort_order, created_at
+ORDER BY similarity(title, $2) DESC, updated_at DESC, created_at DESC, id
 `
 
 type SearchTasksByWorkspaceParams struct {

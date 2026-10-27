@@ -160,6 +160,11 @@ func TestSmokeCRUDRoundTrip(t *testing.T) {
 	if got, err := q.UpdateTaskStatus(ctx, task.ID, protocol.TaskRunning); err != nil || got.Status != protocol.TaskRunning {
 		t.Fatalf("UpdateTaskStatus: %v (status %q)", err, got.Status)
 	}
+	// The board lists most recently updated first: the update above bumped
+	// task's updated_at, so it must lead the workspace list.
+	if list, err := q.ListTasksByWorkspace(ctx, ws.ID); err != nil || len(list) < 2 || list[0].ID != task.ID {
+		t.Fatalf("ListTasksByWorkspace order: %v (%d rows, want %s first)", err, len(list), task.ID)
+	}
 
 	// session ----------------------------------------------------------------
 	sess, err := q.CreateSession(ctx, CreateSessionParams{

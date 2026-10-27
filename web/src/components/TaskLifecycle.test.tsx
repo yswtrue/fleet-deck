@@ -311,13 +311,58 @@ describe('Board live status while searching', () => {
   })
 })
 
+describe('Board task ordering', () => {
+  it('moves a live-updated card to the top of its column', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.startsWith('/api/tasks')) {
+        return Promise.resolve(
+          json([
+            createdTask({ id: 't-1', title: 'Older', status: 'done' }),
+            createdTask({ id: 't-2', title: 'Newer', status: 'done' }),
+          ])
+        )
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+    let emit: ((event: ProtocolEvent) => void) | undefined
+    renderWithProviders(<Board workspaceId="w-1" nodeId="n-1" />, (listener) => {
+      emit = listener
+      return () => {}
+    })
+
+    const done = await screen.findByRole('region', { name: 'Done tasks' })
+    expect(
+      within(done)
+        .getAllByRole('button', { name: /^Task / })
+        .map((card) => card.getAttribute('aria-label'))
+    ).toEqual(['Task Older, status Done', 'Task Newer, status Done'])
+
+    act(() => {
+      emit?.({
+        type: 'task.title_changed',
+        data: { task_id: 't-2', title: 'Newer, renamed' },
+      } as ProtocolEvent)
+    })
+    // The hub orders by updated_at DESC; the live patch must reorder too, not
+    // just replace the title in place.
+    await waitFor(() =>
+      expect(
+        within(done)
+          .getAllByRole('button', { name: /^Task / })
+          .map((card) => card.getAttribute('aria-label'))
+      ).toEqual(['Task Newer, renamed, status Done', 'Task Older, status Done'])
+    )
+  })
+})
+
 describe('Board remount freshness', () => {
   it('re-reads the task list on remount instead of trusting the stale cache', async () => {
     // The board only listens to WS events while mounted and task deltas are not
     // gap-filled, so a status change that lands while the operator is on a
-    // session page must be recovered by the remount fetch. The shared client
-    // pins the app's 5-minute staleTime, under which a plain remount would
-    // render the cached (pre-transition) list.
+    // session page must be recovered by the remount fetch. The hostile client
+    // below pins a long staleTime to prove the board's own refetchOnMount
+    // guarantee, not the global default.
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: 5 * 60_000 } },
     })
