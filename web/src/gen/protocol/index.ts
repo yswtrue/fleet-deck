@@ -99,6 +99,7 @@ export interface SendMessageCommand {
   session_id: string;
   message: string;
   user_message?: Message;
+  steer?: boolean;
 }
 export interface Session {
   id: string;

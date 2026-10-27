@@ -19,7 +19,8 @@
     "search": "Search",
     "add": "Add",
     "remove": "Remove",
-    "back": "Back"
+    "back": "Back",
+    "stop": "Stop"
   },
   "time": {
     "justNow": "just now",

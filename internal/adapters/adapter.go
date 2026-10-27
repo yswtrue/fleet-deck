@@ -72,11 +72,41 @@ type Adapter interface {
 	// Done or Error. Must be safe to call once per Adapter instance.
 	Start(ctx context.Context, req StartRequest, sink EventSink) (StartResult, error)
 
-	// SendMessage resumes an awaiting_user session with the user's reply.
+	// SendMessage resumes an awaiting_user session with the user's reply, or
+	// starts the next turn of a running session after InterruptTurn (see
+	// Steerer). Implementations must not run two turns at once.
 	SendMessage(ctx context.Context, sessionID string, message string) error
 
-	// Cancel terminates a running session.
+	// Cancel terminates a running session. The terminal report is Error with
+	// ErrStoppedByUser: a user stop is an interrupted task, not a finished one.
 	Cancel(ctx context.Context, sessionID string) error
+}
+
+// ErrStoppedByUser is the terminal reason an adapter reports when Cancel
+// stopped a session. The hub persists it as the session's failure reason.
+var ErrStoppedByUser = errors.New("session stopped by user")
+
+// SteerResult is what an interrupted turn left behind.
+type SteerResult struct {
+	// Active reports whether a turn was in flight (and therefore interrupted).
+	// False means the session was between turns; SendMessage then starts one.
+	Active bool
+	// Text is the assistant text the interrupted turn produced. The adapter
+	// does not emit it as a message: the node commits it to the transcript
+	// ahead of the steering message, so the reader sees what the agent said
+	// before the redirect (and the text is never duplicated).
+	Text string
+}
+
+// Steerer is implemented by adapters that can stop the in-flight turn of a
+// running session without ending it, so a user message can redirect the work.
+// The node probes for it before SendMessage; adapters that do not implement it
+// simply receive the message as the next turn.
+type Steerer interface {
+	// InterruptTurn cancels the turn in flight, waits for the agent to settle
+	// it, and returns the text produced so far. It is a no-op (Active false)
+	// when no turn is running.
+	InterruptTurn(ctx context.Context, sessionID string) (SteerResult, error)
 }
 
 // Resumable is implemented by adapters that can reattach to an earlier

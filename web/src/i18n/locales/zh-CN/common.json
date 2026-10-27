@@ -19,7 +19,8 @@
     "search": "搜索",
     "add": "添加",
     "remove": "移除",
-    "back": "返回"
+    "back": "返回",
+    "stop": "停止"
   },
   "time": {
     "justNow": "刚刚",

@@ -132,6 +132,12 @@
   min-width: 0;
 }
 
+.composerHint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;

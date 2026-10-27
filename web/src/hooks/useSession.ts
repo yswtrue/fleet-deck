@@ -353,6 +353,13 @@ export function useSession(sessionId: string) {
     [sessionId, api, queryClient]
   )
 
+  // cancel stops a live session. The terminal state arrives over the WS as a
+  // failed session (the node reports "session stopped by user"); the caller
+  // only handles the request's own failure.
+  const cancel = useCallback(async () => {
+    await api.cancelSession(sessionId)
+  }, [api, sessionId])
+
   return {
     messages: messages ?? [],
     delta,
@@ -364,5 +371,6 @@ export function useSession(sessionId: string) {
     pendingPermission,
     pendingElicitation,
     send,
+    cancel,
   }
 }

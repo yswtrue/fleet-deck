@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Card, Dropdown, message } from 'antd'
+import { Button, Card, Dropdown, Popconfirm, message } from 'antd'
 import type { MenuProps } from 'antd'
 import type { MessageInstance } from 'antd/es/message/interface'
 import { SubtaskDots } from './SubtaskDots.tsx'
 import { EditTaskModal } from './EditTaskModal.tsx'
+import { useHubApi } from '../hooks/useHubApi.ts'
 import {
   TASK_STATUS_TRANSITIONS,
   useArchiveTaskMutation,
@@ -70,6 +71,12 @@ const MoreIcon = () => (
   </Icon>
 )
 
+const StopIcon = () => (
+  <Icon>
+    <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+  </Icon>
+)
+
 export function TaskCard({
   task,
   subtasks = [],
@@ -94,6 +101,8 @@ export function TaskCard({
   const statusMutation = useTaskStatusMutation()
   const startMutation = useStartTaskMutation()
   const archiveMutation = useArchiveTaskMutation()
+  const api = useHubApi()
+  const [stopping, setStopping] = useState(false)
   // `done` is terminal: no move menu at all, and the hub would 409 anyway.
   // Archive/unarchive and backlog-start are separate actions below.
   const transitions = TASK_STATUS_TRANSITIONS[task.status]
@@ -108,6 +117,12 @@ export function TaskCard({
   const canEdit = !task.session_id
   const canArchive =
     (task.status === 'done' || task.status === 'failed' || task.status === 'waiting') && !isArchived
+  // A live session is the only thing a stop can act on; the node cancels the
+  // turn and reports the task failed.
+  const canStop =
+    (task.status === 'running' || task.status === 'awaiting_user') &&
+    !!task.session_id &&
+    !isArchived
 
   const openSession = () => {
     if (task.session_id) {
@@ -130,8 +145,11 @@ export function TaskCard({
     label: t('card.moveTo', { status: statusLabel(status) }),
   }))
 
-  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-    const status = key as Task['status']
+  const handleMenuClick: MenuProps['onClick'] = (info) => {
+    // The menu renders in a portal but is still a React child of the card:
+    // without this the card's click handler would open the session as well.
+    info.domEvent.stopPropagation()
+    const status = info.key as Task['status']
     // mutateAsync + promise callbacks, not mutate(vars, callbacks): react-query
     // v5 only runs per-mutate callbacks while the observer still has listeners
     // (mutationObserver.js `hasListeners()` gate), and this card unmounts when
@@ -166,6 +184,25 @@ export function TaskCard({
             : t('card.startError')
         )
       )
+  }
+
+  // stop cancels the live session; the node's failed report moves the card to
+  // the failed column (the card may unmount with the move, hence the promise
+  // callbacks).
+  const handleStop = () => {
+    if (!task.session_id) return
+    setStopping(true)
+    api
+      .cancelSession(task.session_id)
+      .then(() => messageApi.success(t('card.stopped', { title: task.title })))
+      .catch((err: unknown) =>
+        messageApi.error(
+          err instanceof Error
+            ? t('card.stopErrorDetail', { message: err.message })
+            : t('card.stopError')
+        )
+      )
+      .finally(() => setStopping(false))
   }
 
   const handleArchiveToggle = (event: React.MouseEvent) => {
@@ -276,6 +313,32 @@ export function TaskCard({
                 loading={archiveMutation.isPending}
                 icon={<UnarchiveIcon />}
               />
+            )}
+            {canStop && (
+              <Popconfirm
+                title={t('card.stopConfirm')}
+                okText={t('common:actions.stop')}
+                cancelText={t('common:actions.cancel')}
+                okButtonProps={{ danger: true }}
+                onConfirm={(event) => {
+                  // Same portal caveat as the move menu: confirm must not also
+                  // open the session.
+                  event?.stopPropagation()
+                  handleStop()
+                }}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  danger
+                  className={styles.iconButton}
+                  aria-label={t('card.stopAria', { title: task.title })}
+                  title={t('card.stopButton')}
+                  onClick={(event) => event.stopPropagation()}
+                  loading={stopping}
+                  icon={<StopIcon />}
+                />
+              </Popconfirm>
             )}
             {transitions.length > 0 && (
               <Dropdown

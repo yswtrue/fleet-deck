@@ -105,6 +105,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -266,6 +267,21 @@ type Adapter struct {
 	accMu sync.Mutex
 	acc   strings.Builder
 
+	// msgMu guards the latest assistant message's id and text. Some agents
+	// (omp) deliver a model transport failure as a normal assistant message
+	// and then answer the turn with end_turn; the turn-end check uses this to
+	// report a failure instead of a fake completion.
+	msgMu   sync.Mutex
+	msgID   string
+	msgText strings.Builder
+
+	// steerMu guards steer. steer is non-nil while InterruptTurn waits for the
+	// interrupted turn to settle; handlePromptResult hands it the text and
+	// suppresses the terminal report (the session continues with the new
+	// prompt).
+	steerMu sync.Mutex
+	steer   *steerWaiter
+
 	// replayAsm, when set before Start, routes replayed session/update chunks
 	// to the history assembler instead of the live event path (see replay.go).
 	// It is write-once per adapter instance, before the read loop starts.
@@ -297,6 +313,36 @@ type Adapter struct {
 }
 
 var _ adapters.Adapter = (*Adapter)(nil)
+var _ adapters.Steerer = (*Adapter)(nil)
+
+// steerWaiter is the handoff between InterruptTurn and handlePromptResult:
+// the turn's response handler fills text and closes done; the waiting caller
+// then prompts with the steering message.
+type steerWaiter struct {
+	done chan struct{}
+	text string
+}
+
+// transportFailureRe matches the assistant-message error an agent produces
+// when its own model request fails at the network layer (the case reported by
+// omp: a provider call reset mid-request, delivered as a normal assistant
+// message with stopReason end_turn). The match is deliberately whole-message:
+// a real answer that merely quotes such an error stays a completion.
+var transportFailureRe = regexp.MustCompile(`^(?:` +
+	`(?:read|write|dial) (?:tcp|udp) \S+: (?:read|write|connect|dial): ` +
+	`(?:connection reset by peer|broken pipe|connection refused|i/o timeout|network is unreachable|no route to host)` +
+	`|(?:Post|Get|Head|Put|Patch|Delete) "https?://[^"]+": ` +
+	`(?:EOF|.*(?:connection reset by peer|broken pipe|i/o timeout|network is unreachable))` +
+	`|net/http: (?:TLS handshake timeout|request canceled .*)` +
+	`|(?:unexpected )?EOF` +
+	`|context deadline exceeded` +
+	`)$`)
+
+// looksLikeTransportFailure reports whether the turn's final assistant message
+// is nothing but a network failure. See transportFailureRe.
+func looksLikeTransportFailure(text string) bool {
+	return transportFailureRe.MatchString(strings.TrimSpace(text))
+}
 
 // New returns an ACP Adapter for agentType. Unknown types yield a zero config;
 // Start then fails with a clear "no configuration" error rather than silently
@@ -504,8 +550,6 @@ func (a *Adapter) modelOrAgentType() string {
 	return a.agentType
 }
 
-// SendMessage either answers a pending permission or elicitation request
-// (when one is open) or starts a new turn with the user's text.
 // PendingAsk reports the outstanding user-input request, if any. The node
 // calls it after reconnecting: the ask may have been emitted while the link
 // was down, and without it the session waits for a reply the hub never saw.
@@ -515,6 +559,9 @@ func (a *Adapter) PendingAsk() (string, bool) {
 	return a.pendingAsk, a.pendingAsk != ""
 }
 
+// SendMessage either answers a pending permission or elicitation request
+// (when one is open) or starts a new turn with the user's text. A running turn
+// must be settled with InterruptTurn first.
 func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message string) error {
 	a.mu.Lock()
 	if !a.started || a.sessionID != sessionID {
@@ -549,6 +596,13 @@ func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message str
 		}
 	}
 
+	// ACP has no concurrent prompts: the node calls InterruptTurn first when
+	// the user redirects a running session. Reaching this with a turn still in
+	// flight would interleave two session/prompt requests.
+	if a.turnPending.Load() {
+		return errors.New("acp: a turn is still running; interrupt it before sending another prompt")
+	}
+
 	a.setStatus(protocol.SessionRunning)
 	if sink != nil {
 		sink.StateChange(ctx, sessionID, protocol.SessionRunning)
@@ -556,9 +610,136 @@ func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message str
 	return a.promptTurn(ctx, sink, message)
 }
 
+// InterruptTurn ends the in-flight turn without ending the session, so the
+// node can prompt again with the user's redirect. It sends session/cancel (not
+// the terminal Cancel path) and waits for the agent to settle the turn; the
+// text produced so far is returned rather than emitted, because it belongs
+// before the steering message and only the node knows where that boundary is.
+func (a *Adapter) InterruptTurn(ctx context.Context, sessionID string) (adapters.SteerResult, error) {
+	a.mu.Lock()
+	if !a.started || a.sessionID != sessionID {
+		a.mu.Unlock()
+		return adapters.SteerResult{}, fmt.Errorf("acp: unknown session %q", sessionID)
+	}
+	proc := a.proc
+	external := a.externalID
+	a.mu.Unlock()
+
+	if !a.turnPending.Load() {
+		// Between turns: nothing to interrupt, SendMessage starts the next one.
+		return adapters.SteerResult{}, nil
+	}
+	if proc == nil {
+		return adapters.SteerResult{Active: true}, errors.New("acp: no agent process")
+	}
+
+	w := &steerWaiter{done: make(chan struct{})}
+	a.steerMu.Lock()
+	if a.steer != nil {
+		a.steerMu.Unlock()
+		return adapters.SteerResult{}, errors.New("acp: another steering turn is already in flight")
+	}
+	a.steer = w
+	a.steerMu.Unlock()
+	defer func() {
+		a.steerMu.Lock()
+		if a.steer == w {
+			a.steer = nil
+		}
+		a.steerMu.Unlock()
+	}()
+
+	if err := proc.writeLine(rpcNotification{
+		JSONRPC: "2.0",
+		Method:  "session/cancel",
+		Params:  cancelParams{SessionID: external},
+	}); err != nil {
+		return adapters.SteerResult{Active: true}, err
+	}
+
+	grace := a.CancelGrace
+	if grace <= 0 {
+		grace = defaultCancelGrace
+	}
+	timer := time.NewTimer(grace + 2*time.Second)
+	defer timer.Stop()
+	select {
+	case <-w.done:
+		return adapters.SteerResult{Active: true, Text: w.text}, nil
+	case <-a.cancelCh:
+		return adapters.SteerResult{Active: true}, context.Canceled
+	case <-ctx.Done():
+		return adapters.SteerResult{Active: true}, ctx.Err()
+	case <-proc.done:
+		// The agent died instead of settling the turn; the exit watcher
+		// reports the terminal failure and the text it did produce is kept.
+		return adapters.SteerResult{Active: true, Text: a.takeAssistantText()}, nil
+	case <-timer.C:
+		a.log.Warn("acp: steering cancel did not settle the turn; killing the agent",
+			"session_id", sessionID)
+		a.killProc()
+		return adapters.SteerResult{Active: true, Text: a.takeAssistantText()},
+			errors.New("acp: agent did not stop for the steering message")
+	}
+}
+
+// takeSteer removes and returns the waiting steer, if any. handlePromptResult
+// calls it once per turn result.
+func (a *Adapter) takeSteer() *steerWaiter {
+	a.steerMu.Lock()
+	defer a.steerMu.Unlock()
+	w := a.steer
+	a.steer = nil
+	return w
+}
+
+// takeAssistantText removes and returns the text accumulated since the last
+// flush, without emitting it (see InterruptTurn).
+func (a *Adapter) takeAssistantText() string {
+	a.accMu.Lock()
+	text := a.acc.String()
+	a.acc.Reset()
+	a.accMu.Unlock()
+	return text
+}
+
+// trackAssistantText remembers the latest assistant message id and text so the
+// turn-end check can tell a model transport failure delivered as an ordinary
+// message from a real answer.
+func (a *Adapter) trackAssistantText(id, text string) {
+	a.msgMu.Lock()
+	defer a.msgMu.Unlock()
+	if id != a.msgID {
+		a.msgID = id
+		a.msgText.Reset()
+	}
+	a.msgText.WriteString(text)
+}
+
+// resetAssistantTracking starts a fresh turn's message tracking.
+func (a *Adapter) resetAssistantTracking() {
+	a.msgMu.Lock()
+	a.msgID = ""
+	a.msgText.Reset()
+	a.msgMu.Unlock()
+}
+
+// transportFailure reports the turn's final assistant message when it is
+// nothing but a network failure.
+func (a *Adapter) transportFailure() (string, bool) {
+	a.msgMu.Lock()
+	defer a.msgMu.Unlock()
+	text := strings.TrimSpace(a.msgText.String())
+	if text == "" || !looksLikeTransportFailure(text) {
+		return "", false
+	}
+	return text, true
+}
+
 // Cancel asks the agent to cancel the current turn, then hard-kills it after a
-// grace period. It returns once the process has exited (or ctx is done). Done
-// is emitted by the exit watcher.
+// grace period. It returns once the process has exited (or ctx is done). The
+// exit watcher reports Error with ErrStoppedByUser: the operator stopped the
+// task, which is not a completed one.
 func (a *Adapter) Cancel(ctx context.Context, sessionID string) error {
 	a.mu.Lock()
 	if !a.started || a.sessionID != sessionID {
@@ -799,6 +980,7 @@ func (a *Adapter) promptTurn(ctx context.Context, sink adapters.EventSink, text 
 	// starts empty so a silent turn can be detected at the end.
 	a.turnPending.Store(true)
 	a.turnActivity.Store(false)
+	a.resetAssistantTracking()
 
 	// The pending entry must outlive this call: it is removed by the goroutine
 	// once the turn's response (or a terminal condition) arrives.
@@ -848,13 +1030,13 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 	if sink == nil {
 		return
 	}
-	if resp.err != nil {
-		a.terminate(ctx, sink, fmt.Errorf("acp: prompt failed: %w", resp.err))
-		return
-	}
 
 	var res promptResult
-	_ = json.Unmarshal(resp.result, &res)
+	if resp.err == nil {
+		_ = json.Unmarshal(resp.result, &res)
+	}
+	// Usage is reported for a turn that ran the model, including one a steer
+	// interrupted: the tokens were spent either way.
 	if res.Usage != nil {
 		sink.Usage(ctx, a.currentSessionID(), adapters.Usage{
 			Model:             a.modelOrAgentType(),
@@ -865,6 +1047,21 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 			CachedWriteTokens: res.Usage.CachedWriteTokens,
 		})
 	}
+
+	// A steered turn is not terminal: hand its text to InterruptTurn (the node
+	// commits it before the steering message) and let the next prompt run.
+	// Reporting Done here would end the session and forget the adapter.
+	if w := a.takeSteer(); w != nil {
+		w.text = a.takeAssistantText()
+		close(w.done)
+		return
+	}
+
+	if resp.err != nil {
+		a.terminate(ctx, sink, fmt.Errorf("acp: prompt failed: %w", resp.err))
+		return
+	}
+
 	switch res.StopReason {
 	case "end_turn", "":
 		// A turn that reported usage did run the model even when it produced
@@ -875,10 +1072,18 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 			a.terminate(ctx, sink, errors.New("acp: agent finished the turn without producing any output"))
 			return
 		}
+		// Some agents report a model transport failure as a normal assistant
+		// message and answer end_turn (omp does this on provider resets). Such
+		// a turn did not answer the task: keep the error text in the
+		// transcript and fail the session instead of marking it complete.
+		if text, failed := a.transportFailure(); failed {
+			a.terminate(ctx, sink, fmt.Errorf("acp: model request failed: %s", text))
+			return
+		}
 		a.finishTurn(ctx, sink)
 	case "cancelled":
 		a.flushAssistantText(ctx, sink)
-		a.terminate(ctx, sink, nil)
+		a.terminate(ctx, sink, adapters.ErrStoppedByUser)
 	case "refusal", "max_tokens", "max_turn_requests":
 		a.flushAssistantText(ctx, sink)
 		a.terminate(ctx, sink, fmt.Errorf("acp: prompt stopped: %s", res.StopReason))
@@ -1041,6 +1246,7 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 				return
 			}
 			a.appendText(text)
+			a.trackAssistantText(p.Update.MessageID, text)
 			if sink != nil {
 				sink.TextDelta(ctx, sessionID, text)
 			}
@@ -1136,7 +1342,7 @@ func (a *Adapter) exitWatcher(ctx context.Context, sessionID string, sink adapte
 
 	select {
 	case <-a.cancelCh:
-		a.terminate(ctx, sink, nil)
+		a.terminate(ctx, sink, adapters.ErrStoppedByUser)
 		return
 	default:
 	}

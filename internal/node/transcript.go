@@ -85,16 +85,17 @@ func (s *transcriptStore) beginRun(sessionID string) {
 
 // addUser appends a user prompt/reply. The hub supplies an id and timestamp so
 // its live broadcast and the node transcript agree; a missing id is minted
-// here for older hubs.
-func (s *transcriptStore) addUser(sessionID string, msg protocol.Message) {
+// here for older hubs. It returns the stored row so a caller that must echo it
+// to the hub uses the same id the transcript holds.
+func (s *transcriptStore) addUser(sessionID string, msg protocol.Message) protocol.Message {
 	if s == nil {
-		return
+		return msg
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := s.getLocked(sessionID, time.Now())
 	if msg.Content == "" {
-		return
+		return msg
 	}
 	msg.SessionID = sessionID
 	msg.Role = protocol.RoleUser
@@ -105,6 +106,7 @@ func (s *transcriptStore) addUser(sessionID string, msg protocol.Message) {
 		msg.CreatedAt = time.Now().UTC()
 	}
 	s.appendLocked(t, msg)
+	return msg
 }
 
 // addMessage appends a complete assistant message and clears the streaming

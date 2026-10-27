@@ -200,13 +200,21 @@ type TaskStartCommand struct {
 	UserMessage *Message `json:"user_message,omitempty"`
 }
 
-// SendMessageCommand resumes an awaiting_user session with the user's reply.
+// SendMessageCommand resumes an awaiting_user session with the user's reply,
+// or redirects a running one (Steer).
 type SendMessageCommand struct {
 	SessionID string `json:"session_id"`
 	Message   string `json:"message"`
 	// UserMessage is the hub's recorded copy of the reply; the node appends it
 	// to the live transcript under the same id the hub broadcast.
 	UserMessage *Message `json:"user_message,omitempty"`
+	// Steer marks a message to a *running* session: the node interrupts the
+	// in-flight turn, commits the text it had produced, and then prompts with
+	// Message. The hub deliberately does not buffer or broadcast the message
+	// itself: only the node knows where the interrupted turn ends, and the row
+	// must appear after that text. The node echoes UserMessage (or the row it
+	// minted) as a session.message once the interruption has settled.
+	Steer bool `json:"steer,omitempty"`
 }
 
 // SessionStarted reports the agent-side session id an adapter obtained when it

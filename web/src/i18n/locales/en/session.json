@@ -59,9 +59,16 @@
     "placeholder": "Reply to the agent… (Enter to send, Shift+Enter for a new line)",
     "waiting": "Waiting for the agent to ask a question…",
     "continuePlaceholder": "Continue the conversation… (Enter to send, Shift+Enter for a new line)",
+    "steerPlaceholder": "Steer the agent… (sending interrupts the current turn)",
+    "steerHint": "Sending interrupts the agent's current turn and passes this as the new instruction.",
     "send": "Send",
     "sendError": "Reply not sent",
     "sendErrorDetail": "Reply not sent: {{message}}"
+  },
+  "stop": {
+    "confirm": "Stop this task? The agent's current turn is cancelled.",
+    "error": "Task not stopped",
+    "errorDetail": "Task not stopped: {{message}}"
   },
   "panel": {
     "task": "Task",

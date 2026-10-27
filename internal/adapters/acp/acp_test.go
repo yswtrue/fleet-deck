@@ -875,7 +875,79 @@ func TestCancel(t *testing.T) {
 	if err := a.Cancel(context.Background(), "sess-1"); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
+	// A user stop is an interrupted task, not a completed one: the terminal
+	// report is Error carrying the documented sentinel.
+	errText := rec.waitError(t)
+	if !strings.Contains(errText, adapters.ErrStoppedByUser.Error()) {
+		t.Fatalf("error = %q, want %q", errText, adapters.ErrStoppedByUser)
+	}
+}
+
+// A steering message cancels the in-flight turn without ending the session:
+// the interrupted turn's text is handed back (not emitted), and the redirect
+// runs as the next turn on the same agent process.
+func TestSteeringInterruptsTurn(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "steer", grace: 500 * time.Millisecond})
+	rec.waitTextContaining(t, "first ")
+
+	res, err := a.InterruptTurn(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatalf("InterruptTurn: %v", err)
+	}
+	if !res.Active || res.Text != "first answer" {
+		t.Fatalf("steer result = %+v, want active with %q", res, "first answer")
+	}
+
+	if err := a.SendMessage(context.Background(), "sess-1", "change direction"); err != nil {
+		t.Fatalf("SendMessage after steer: %v", err)
+	}
 	rec.waitDone(t)
+
+	// The interrupted text must not be emitted by the adapter: the node commits
+	// it ahead of the steering message. Only the redirect's answer is a message.
+	if got := rec.messages(); len(got) != 1 || got[0] != "redirected answer" {
+		t.Fatalf("emitted messages = %v, want only the redirect's answer", got)
+	}
+	select {
+	case e := <-rec.errCh:
+		t.Fatalf("unexpected terminal error: %q", e)
+	default:
+	}
+}
+
+// A model transport failure delivered as an ordinary assistant message (the
+// shape omp produces on provider resets) must fail the turn instead of
+// completing the task.
+func TestTransportFailureIsTurnError(t *testing.T) {
+	_, rec := startTestAdapter(t, adapterOpts{scenario: "transport-error"})
+	errText := rec.waitError(t)
+	if !strings.Contains(errText, "connection reset by peer") {
+		t.Fatalf("error = %q, want the transport failure text", errText)
+	}
+	if !strings.Contains(errText, "model request failed") {
+		t.Fatalf("error = %q, want the model-request prefix", errText)
+	}
+}
+
+func TestLooksLikeTransportFailure(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{"read tcp 172.19.0.2:44034->104.21.49.202:443: read: connection reset by peer", true},
+		{"dial tcp 10.0.0.1:443: connect: connection refused", true},
+		{`Post "https://api.example.com/v1/chat": EOF`, true},
+		{"unexpected EOF", true},
+		{"context deadline exceeded", true},
+		{"I fixed the connection reset by peer bug in the client.", false},
+		{"The log said: read tcp 1.2.3.4:1->5.6.7.8:443: read: connection reset by peer", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := looksLikeTransportFailure(c.text); got != c.want {
+			t.Fatalf("looksLikeTransportFailure(%q) = %v, want %v", c.text, got, c.want)
+		}
+	}
 }
 
 func TestAgentCrash(t *testing.T) {
@@ -1242,8 +1314,40 @@ func runFakeAgent(scenario string) {
 	}
 }
 
+// fakePromptTurns counts session/prompt calls in the scripted agent process so
+// the steering scenario can tell the interrupted turn from the redirect. The
+// fake agent is a fresh subprocess per test, so a package variable is safe.
+var fakePromptTurns int
+
 func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenario string, params json.RawMessage) {
 	switch scenario {
+	case "steer":
+		// First turn: stream part of an answer and hold the turn open until the
+		// adapter sends session/cancel, then answer cancelled (the text is
+		// handed back instead of emitted). The second prompt is the redirect.
+		fakePromptTurns++
+		if fakePromptTurns == 1 {
+			fakeNotify(enc, "session/update", fakeChunk("m1", "first "))
+			fakeNotify(enc, "session/update", fakeChunk("m1", "answer"))
+			for {
+				var msg fakeRPC
+				if err := dec.Decode(&msg); err != nil {
+					os.Exit(1)
+				}
+				if msg.Method == "session/cancel" {
+					fakeResult(enc, id, map[string]any{"stopReason": "cancelled"})
+					return
+				}
+			}
+		}
+		fakeNotify(enc, "session/update", fakeChunk("m2", "redirected answer"))
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+	case "transport-error":
+		// omp's shape for a provider reset: the Go error arrives as a normal
+		// assistant message and the turn still reports end_turn.
+		fakeNotify(enc, "session/update", fakeChunk("m1",
+			"read tcp 172.19.0.2:44034->104.21.49.202:443: read: connection reset by peer"))
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
 	case "title-request":
 		// The first turn answers normally; the adapter's internal title turn
 		// answers the `/rename` command with a generated title.

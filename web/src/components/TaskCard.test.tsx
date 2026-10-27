@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { message } from 'antd'
 import { TaskCard } from './TaskCard.tsx'
@@ -30,11 +30,17 @@ afterEach(() => {
   fetchMock.mockReset()
 })
 
+/** Records the route so action clicks can assert they did not open the session. */
+function LocationProbe() {
+  return <span data-testid="route">{useLocation().pathname}</span>
+}
+
 function renderCard(cardTask: Task = task) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
+        <LocationProbe />
         <TaskCard task={cardTask} />
       </MemoryRouter>
     </QueryClientProvider>
@@ -80,6 +86,33 @@ describe('TaskCard', () => {
     expect(screen.queryByRole('button', { name: 'Change status of Fix the flaky test' })).toBeNull()
   })
 
+  it('stops a live session from the card after confirmation', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+    renderCard({ ...task, status: 'running' })
+    fireEvent.click(screen.getByRole('button', { name: 'Stop Fix the flaky test' }))
+
+    const confirm = await waitFor(() => {
+      const pop = document.querySelector('.ant-popconfirm')
+      if (!pop) throw new Error('confirm popover did not open')
+      return pop as HTMLElement
+    })
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Stop' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/sessions/s-1/cancel')
+    expect(init).toMatchObject({ method: 'POST' })
+    expect(await screen.findByText('“Fix the flaky test” stopped')).toBeTruthy()
+    // The popconfirm lives in a portal but is still a React child of the card:
+    // its click must not also open the session.
+    expect(screen.getByTestId('route').textContent).toBe('/')
+  })
+
   it('PATCHes {status} and confirms with a success toast', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ ...task, status: 'done' }), {
@@ -99,6 +132,7 @@ describe('TaskCard', () => {
     // The toast is the user-visible confirmation; it must actually mount
     // (the antd static message API renders nothing under React 19).
     await waitFor(() => expect(document.body.textContent).toContain('moved to Done'))
+    expect(screen.getByTestId('route').textContent).toBe('/')
   })
 
   it('surfaces a hub 409 as an error toast', async () => {

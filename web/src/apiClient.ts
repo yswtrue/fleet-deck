@@ -576,6 +576,10 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify({ message }),
     }),
+
+  /** Stop a live session; the node cancels the agent turn and reports failed. */
+  cancelSession: (sessionId: string) =>
+    fetchJson<void>(`/api/sessions/${sessionId}/cancel`, { method: 'POST' }),
 }
 
 export type HubApi = typeof apiClient

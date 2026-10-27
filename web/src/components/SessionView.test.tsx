@@ -2,14 +2,14 @@
  * SessionView composer gating per session status.
  *
  * SessionView mixes a react-query session snapshot, react-query messages and
- * the app WebSocketContext. This test drives the composer through two
- * finished states:
+ * the app WebSocketContext. This test drives the composer through the states:
  * - `done`: the composer is enabled with the "continue the conversation" copy
  *   and sending the same send API lets the hub reopen the session;
- * - `running`: the composer stays disabled with the "waiting for the agent" copy.
+ * - `running`: the composer steers the live turn (the node interrupts it) and
+ *   a confirmed Stop calls the cancel API.
  */
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SessionView } from './SessionView.tsx'
@@ -67,6 +67,7 @@ function renderView(
   opts: {
     pending?: string
     send?: () => Promise<Response>
+    cancel?: () => Promise<Response>
     connected?: boolean
     messages?: unknown
     partial?: string
@@ -88,6 +89,8 @@ function renderView(
     if (url.startsWith('/api/tasks/t-1/subtasks'))
       return Promise.resolve(json({ subtasks: opts.subtasks ?? [] }))
     if (url === '/api/sessions/s-1/send') return (opts.send ?? (() => Promise.resolve(json({}))))()
+    if (url === '/api/sessions/s-1/cancel')
+      return (opts.cancel ?? (() => Promise.resolve(json({}))))()
     throw new Error(`unexpected fetch: ${url}`)
   })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -151,7 +154,7 @@ describe('SessionView failure reason', () => {
     await waitFor(() => expect(subscribers.length).toBeGreaterThan(0))
     // Let the snapshot land first: the gap-fill sync (running) must not clobber
     // the live failure this test then emits.
-    await screen.findByPlaceholderText('Waiting for the agent to ask a question…')
+    await screen.findByPlaceholderText('Steer the agent… (sending interrupts the current turn)')
 
     subscribers.forEach((h) =>
       h({
@@ -256,12 +259,61 @@ describe('SessionView reasoning trace', () => {
 })
 
 describe('SessionView running session', () => {
-  it('keeps the composer disabled with the waiting copy', async () => {
+  it('enables the composer to steer the live turn', async () => {
     renderView('running')
-    const box = await screen.findByPlaceholderText('Waiting for the agent to ask a question…')
-    expect((box as HTMLTextAreaElement).disabled).toBe(true)
-    expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(false)
+    const box = await screen.findByPlaceholderText(
+      'Steer the agent… (sending interrupts the current turn)'
+    )
+    expect((box as HTMLTextAreaElement).disabled).toBe(false)
+    expect(
+      screen.getByText(
+        "Sending interrupts the agent's current turn and passes this as the new instruction."
+      )
+    ).toBeTruthy()
+
+    fireEvent.change(box, { target: { value: 'Actually, use the other API' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(true)
+    )
+    const sendCall = fetchMock.mock.calls.find(([url]) => url === '/api/sessions/s-1/send')
+    expect(JSON.parse(String(sendCall?.[1]?.body))).toEqual({
+      message: 'Actually, use the other API',
+    })
+  })
+
+  it('stops the live turn after confirmation', async () => {
+    renderView('running')
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }))
+
+    const confirm = await waitFor(() => {
+      const pop = document.querySelector('.ant-popconfirm')
+      if (!pop) throw new Error('confirm popover did not open')
+      return pop as HTMLElement
+    })
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Stop' }))
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/cancel')).toBe(true)
+    )
+    expect(
+      fetchMock.mock.calls.find(([url]) => url === '/api/sessions/s-1/cancel')?.[1]
+    ).toMatchObject({ method: 'POST' })
+  })
+
+  it('surfaces a stop failure instead of pretending the task ended', async () => {
+    renderView('running', {
+      cancel: () => Promise.resolve(json({ error: 'node offline' }, 503)),
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }))
+    const confirm = await waitFor(() => {
+      const pop = document.querySelector('.ant-popconfirm')
+      if (!pop) throw new Error('confirm popover did not open')
+      return pop as HTMLElement
+    })
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Stop' }))
+
+    expect(await screen.findByText(/Task not stopped/)).toBeTruthy()
   })
 
   it('restores the in-progress stream from the snapshot after a reload', async () => {

@@ -113,15 +113,22 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 	return adapters.StartResult{ExternalSessionID: "fake-" + req.SessionID}, nil
 }
 
-// SendMessage resumes an awaiting_user session with the user's reply. It
-// returns ErrNotAwaitingUser when the session is not paused.
+// SendMessage resumes an awaiting_user session with the user's reply, or
+// accepts a steering message while the canned scenario runs (there is nothing
+// to interrupt: the fake has no model). ErrNotAwaitingUser is returned once the
+// run is finishing.
 func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message string) error {
 	a.mu.Lock()
 	if !a.started || a.sessionID != sessionID {
 		a.mu.Unlock()
 		return fmt.Errorf("fake: unknown session %q", sessionID)
 	}
-	if a.status != protocol.SessionAwaitingUser {
+	switch a.status {
+	case protocol.SessionRunning:
+		a.mu.Unlock()
+		return nil
+	case protocol.SessionAwaitingUser:
+	default:
 		a.mu.Unlock()
 		return ErrNotAwaitingUser
 	}
@@ -146,15 +153,28 @@ func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message str
 	return nil
 }
 
-// Cancel stops the session and waits for it to report done. The session ends
-// with Done (rather than "failed", which is reserved for real errors).
+// InterruptTurn implements adapters.Steerer. The fake has no in-flight model
+// turn to interrupt, so it reports none and the node continues with the
+// steering message.
+func (a *Adapter) InterruptTurn(ctx context.Context, sessionID string) (adapters.SteerResult, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.started || a.sessionID != sessionID {
+		return adapters.SteerResult{}, fmt.Errorf("fake: unknown session %q", sessionID)
+	}
+	return adapters.SteerResult{}, nil
+}
+
+// Cancel stops the session and waits for it to report the terminal state. The
+// run ends with Error(ErrStoppedByUser): a user stop is an interrupted task,
+// not a completed one.
 func (a *Adapter) Cancel(ctx context.Context, sessionID string) error {
 	a.mu.Lock()
 	if !a.started || a.sessionID != sessionID {
 		a.mu.Unlock()
 		return fmt.Errorf("fake: unknown session %q", sessionID)
 	}
-	alreadyDone := a.status == protocol.SessionDone
+	alreadyDone := a.status == protocol.SessionDone || a.status == protocol.SessionFailed
 	a.mu.Unlock()
 	if alreadyDone {
 		return nil
@@ -282,10 +302,24 @@ func (a *Adapter) finish(ctx context.Context, sessionID string, sink adapters.Ev
 			CompletionTokens: 80,
 			TotalTokens:      200,
 		})
+		stopped := false
+		select {
+		case <-a.cancelCh:
+			stopped = true
+		default:
+		}
 		a.mu.Lock()
-		a.status = protocol.SessionDone
+		if stopped {
+			a.status = protocol.SessionFailed
+		} else {
+			a.status = protocol.SessionDone
+		}
 		a.mu.Unlock()
-		sink.Done(ctx, sessionID)
+		if stopped {
+			sink.Error(ctx, sessionID, adapters.ErrStoppedByUser)
+		} else {
+			sink.Done(ctx, sessionID)
+		}
 		close(a.cancelAck)
 	})
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Input, Typography, message } from 'antd'
+import { Alert, Button, Input, Popconfirm, Typography, message } from 'antd'
 import { MessageBubble } from './MessageBubble.tsx'
 import { Markdown } from './Markdown.tsx'
 import { SessionUsage } from './SessionUsage.tsx'
@@ -56,6 +56,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     pendingElicitation,
     thought,
     send,
+    cancel,
   } = useSession(sessionId)
   // The static antd message API renders nothing under React 19; the hook-based
   // API is the one that actually mounts toasts.
@@ -73,6 +74,9 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   const restoreFromBottomRef = useRef<number | null>(null)
   // One reply in flight at a time: a double click must not send two answers.
   const [sending, setSending] = useState(false)
+  // stopping holds the stop button in its loading state until the node's
+  // terminal report arrives (the button disappears with the state change).
+  const [stopping, setStopping] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const navigate = useNavigate()
@@ -95,18 +99,23 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   const session = snapshot?.session
 
   // Gate the composer on the session's own state: `awaiting_user` (reply to
-  // the agent's question) and `done`/`failed` (continue the conversation —
-  // the hub reopens the session and surfaces the new state over WS). The task
-  // status is only a fallback for the first paint, before the snapshot/WS
-  // state is known (it can lag a resumed session).
+  // the agent's question), `running` (steer: the node interrupts the turn and
+  // prompts again) and `done`/`failed` (continue the conversation — the hub
+  // reopens the session and surfaces the new state over WS). The task status is
+  // only a fallback for the first paint, before the snapshot/WS state is known
+  // (it can lag a resumed session).
   const sessionState = sessionStatus ?? session?.status
   const isAwaiting = sessionState
     ? sessionState === 'awaiting_user'
     : resolvedTask?.status === 'awaiting_user'
+  const isRunning = sessionState ? sessionState === 'running' : resolvedTask?.status === 'running'
   const isContinuable = sessionState
     ? sessionState === 'done' || sessionState === 'failed'
     : resolvedTask?.status === 'done'
-  const canSend = isAwaiting || isContinuable
+  const canSend = isAwaiting || isRunning || isContinuable
+  // Stopping is meaningful while the agent holds a turn (or is paused on a
+  // question); finished sessions are continued, not stopped.
+  const canStop = isAwaiting || isRunning
 
   // Sidebar data: the task's mirrored todos (subtasks), kept fresh over WS.
   const taskId = resolvedTask?.id ?? ''
@@ -245,6 +254,20 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     setReply('')
   }
 
+  const handleStop = async () => {
+    setStopping(true)
+    try {
+      await cancel()
+    } catch (err) {
+      messageApi.warning(
+        err instanceof Error ? t('stop.errorDetail', { message: err.message }) : t('stop.error')
+      )
+      setStopping(false)
+    }
+    // On success the button stays busy until the session's failed state event
+    // unmounts it; clearing here would flash an enabled Stop on a dead session.
+  }
+
   const goBack = () => {
     if (resolvedTask) {
       navigate(`/workspaces/${resolvedTask.workspace_id}`)
@@ -279,6 +302,19 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
           <Typography.Title level={4} style={{ margin: 0 }}>
             {t('sessionTitle', { id: sessionId.slice(0, 8) })}
           </Typography.Title>
+        )}
+        {canStop && (
+          <Popconfirm
+            title={t('stop.confirm')}
+            okText={t('common:actions.stop')}
+            cancelText={t('common:actions.cancel')}
+            okButtonProps={{ danger: true }}
+            onConfirm={() => void handleStop()}
+          >
+            <Button danger loading={stopping}>
+              {t('common:actions.stop')}
+            </Button>
+          </Popconfirm>
         )}
         {connectionState !== 'open' && (
           <span className={styles.reconnect} data-state={connectionState} role="status">
@@ -378,32 +414,41 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                 }}
               />
             ) : (
-              <form className={styles.replyForm} onSubmit={handleSend}>
-                <Input.TextArea
-                  ref={inputRef}
-                  value={reply}
-                  onChange={(e) => setReply(e.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                      event.preventDefault()
-                      void handleSend()
+              <>
+                <form className={styles.replyForm} onSubmit={handleSend}>
+                  <Input.TextArea
+                    ref={inputRef}
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault()
+                        void handleSend()
+                      }
+                    }}
+                    placeholder={
+                      isAwaiting
+                        ? t('composer.placeholder')
+                        : isRunning
+                          ? t('composer.steerPlaceholder')
+                          : isContinuable
+                            ? t('composer.continuePlaceholder')
+                            : t('composer.waiting')
                     }
-                  }}
-                  placeholder={
-                    isAwaiting
-                      ? t('composer.placeholder')
-                      : isContinuable
-                        ? t('composer.continuePlaceholder')
-                        : t('composer.waiting')
-                  }
-                  disabled={!canSend}
-                  rows={3}
-                  className={styles.replyInput}
-                />
-                <Button type="primary" htmlType="submit" disabled={!canSend || !reply.trim()}>
-                  {t('composer.send')}
-                </Button>
-              </form>
+                    disabled={!canSend || stopping}
+                    rows={3}
+                    className={styles.replyInput}
+                  />
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    disabled={!canSend || stopping || !reply.trim()}
+                  >
+                    {t('composer.send')}
+                  </Button>
+                </form>
+                {isRunning && <p className={styles.composerHint}>{t('composer.steerHint')}</p>}
+              </>
             )}
           </div>
         </section>

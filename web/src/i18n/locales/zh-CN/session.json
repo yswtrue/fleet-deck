@@ -59,9 +59,16 @@
     "placeholder": "回复智能体…（Enter 发送，Shift+Enter 换行）",
     "waiting": "等待智能体提问…",
     "continuePlaceholder": "继续对话…（Enter 发送，Shift+Enter 换行）",
+    "steerPlaceholder": "调整方向…（发送会中断当前回合）",
+    "steerHint": "发送会中断智能体当前的回合，并把这段内容作为新的指令。",
     "send": "发送",
     "sendError": "回复未发送",
     "sendErrorDetail": "回复未发送：{{message}}"
+  },
+  "stop": {
+    "confirm": "停止这个任务？智能体当前回合会被取消。",
+    "error": "任务未停止",
+    "errorDetail": "任务未停止：{{message}}"
   },
   "panel": {
     "task": "任务",

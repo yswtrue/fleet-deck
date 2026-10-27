@@ -21,7 +21,7 @@ func NewServer(hub *HubClient) *mcp.Server {
 		Name:    ServerName,
 		Version: ServerVersion,
 	}, &mcp.ServerOptions{
-		Instructions: "Inspect and resume FleetDeck agent sessions. All tools are read-only except fleetdeck_session_send_message.",
+		Instructions: "Inspect, steer, and resume FleetDeck agent sessions. All tools are read-only except fleetdeck_session_send_message.",
 	})
 
 	registerToolset(s, hub)

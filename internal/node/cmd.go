@@ -34,16 +34,31 @@ func (n *Node) handle(ctx context.Context, env protocol.Envelope) {
 			n.log.Warn("send_message for unknown session", "session_id", cmd.SessionID)
 			return
 		}
-		// Record the reply before the adapter can produce its answer, so the
+		// A steering message must land after the text the interrupted turn had
+		// already produced, and the adapter hands that text back instead of
+		// emitting it: commit it before the user's row.
+		if cmd.Steer {
+			n.interruptSession(ctx, adapter, cmd.SessionID)
+		}
+		// Record the message before the adapter can produce its answer, so the
 		// transcript order is prompt then answer even on a late browser attach.
+		var userMsg protocol.Message
 		if cmd.UserMessage != nil {
-			n.transcripts.addUser(cmd.SessionID, *cmd.UserMessage)
+			userMsg = n.transcripts.addUser(cmd.SessionID, *cmd.UserMessage)
 		} else {
-			n.transcripts.addUser(cmd.SessionID, protocol.Message{
+			userMsg = n.transcripts.addUser(cmd.SessionID, protocol.Message{
 				SessionID: cmd.SessionID,
 				Role:      protocol.RoleUser,
 				Content:   cmd.Message,
 			})
+		}
+		// The hub leaves a steering row to the node (see SendMessageCommand.
+		// Steer), so this echo is what the web renders.
+		if cmd.Steer && userMsg.Content != "" {
+			n.enqueue(protocol.NewEnvelope(protocol.MsgSessionEvent, protocol.SessionMessage{
+				SessionID: cmd.SessionID,
+				Message:   userMsg,
+			}))
 		}
 		// The reply answers the outstanding ask.
 		n.transcripts.setPending(cmd.SessionID, "")
@@ -68,6 +83,10 @@ func (n *Node) handle(ctx context.Context, env protocol.Envelope) {
 		adapter := n.session(cmd.SessionID)
 		if adapter == nil {
 			n.log.Warn("cancel for unknown session", "session_id", cmd.SessionID)
+			// The hub still believes the session is live; leaving it running
+			// forever would make the stop request look ignored.
+			(&connSink{n: n}).Error(ctx, cmd.SessionID,
+				errors.New("session is not running on this node"))
 			return
 		}
 		if err := adapter.Cancel(ctx, cmd.SessionID); err != nil {
@@ -105,6 +124,35 @@ func (n *Node) handle(ctx context.Context, env protocol.Envelope) {
 	default:
 		n.log.Debug("ignoring unknown hub message", "type", env.Type)
 	}
+}
+
+// interruptSession stops the turn an adapter still has in flight so a steering
+// message starts a fresh one. The text the interrupted turn produced is
+// committed here, ahead of the user's row: the adapter hands it back instead of
+// emitting it, and this is the only point that knows where the boundary is.
+// Adapters without steering support simply continue their current turn (the
+// node still records the message, so it is not lost).
+func (n *Node) interruptSession(ctx context.Context, adapter adapters.Adapter, sessionID string) {
+	steerer, ok := adapter.(adapters.Steerer)
+	if !ok {
+		return
+	}
+	res, err := steerer.InterruptTurn(ctx, sessionID)
+	if err != nil {
+		n.log.Warn("steering interrupt failed", "session_id", sessionID, "err", err)
+	}
+	if strings.TrimSpace(res.Text) == "" {
+		return
+	}
+	msg := n.transcripts.addMessage(sessionID, protocol.Message{
+		SessionID: sessionID,
+		Role:      protocol.RoleAssistant,
+		Content:   res.Text,
+	})
+	n.enqueue(protocol.NewEnvelope(protocol.MsgSessionEvent, protocol.SessionMessage{
+		SessionID: sessionID,
+		Message:   msg,
+	}))
 }
 
 // startSession resolves the adapter for the command's agent type, records it so

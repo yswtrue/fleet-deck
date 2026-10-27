@@ -3,6 +3,7 @@ package fake
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -266,13 +267,24 @@ func TestAsksInput(t *testing.T) {
 	}
 }
 
-func TestSendMessageNotAwaitingUser(t *testing.T) {
+// A message to a running scenario is accepted as a steering instruction: the
+// fake has no model turn to interrupt, so the canned run simply continues.
+func TestSendMessageSteersWhileRunning(t *testing.T) {
 	a, _ := newStarted(t, ScenarioHappyPath, time.Hour)
-	defer func() {
-		if err := a.Cancel(context.Background(), "sess-1"); err != nil {
-			t.Errorf("Cancel cleanup: %v", err)
-		}
-	}()
+
+	if err := a.SendMessage(context.Background(), "sess-1", "hello"); err != nil {
+		t.Fatalf("SendMessage while running = %v, want it accepted", err)
+	}
+	if err := a.Cancel(context.Background(), "sess-1"); err != nil {
+		t.Errorf("Cancel cleanup: %v", err)
+	}
+}
+
+// Once the run is finished there is nothing to steer, and a reply is not
+// awaiting input either.
+func TestSendMessageAfterRunFinished(t *testing.T) {
+	a, rec := newStarted(t, ScenarioHappyPath, time.Millisecond)
+	rec.waitDone(t)
 
 	err := a.SendMessage(context.Background(), "sess-1", "hello")
 	if !errors.Is(err, ErrNotAwaitingUser) {
@@ -296,18 +308,20 @@ func TestCancel(t *testing.T) {
 	if err := a.Cancel(context.Background(), "sess-1"); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
-	rec.waitDone(t)
 
 	assertKinds(t, rec.kinds(), []string{
 		kindStateChange, // running
 		kindTodoUpdate,  // snapshot(0) emitted before first pause
 		kindUsage,       // deterministic synthetic usage, once per run
-		kindDone,        // terminal; Done carries the final state (no paired StateChange)
+		kindError,       // a user stop is an interrupted task, not a completed one
 	})
 
 	events := rec.snapshot()
-	if events[3].kind != kindDone {
-		t.Errorf("terminal event kind = %q, want %q", events[3].kind, kindDone)
+	if events[3].kind != kindError {
+		t.Errorf("terminal event kind = %q, want %q", events[3].kind, kindError)
+	}
+	if !strings.Contains(events[3].text, adapters.ErrStoppedByUser.Error()) {
+		t.Errorf("terminal error = %q, want %q", events[3].text, adapters.ErrStoppedByUser)
 	}
 }
 

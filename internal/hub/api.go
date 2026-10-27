@@ -66,6 +66,7 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions/{id}/messages", h.requireAuth(h.handleListMessages))
 	mux.HandleFunc("GET /api/sessions/{id}/events", h.requireAuth(h.handleListEvents))
 	mux.HandleFunc("POST /api/sessions/{id}/send", h.requireAuth(h.handleSendMessage))
+	mux.HandleFunc("POST /api/sessions/{id}/cancel", h.requireAuth(h.handleCancelSession))
 
 	mux.HandleFunc("GET /api/stats/tokens", h.requireAuth(h.handleStatsTokens))
 	mux.HandleFunc("GET /api/stats/tasks", h.requireAuth(h.handleStatsTasks))
@@ -811,13 +812,18 @@ type sendMessageRequest struct {
 	Message string `json:"message"`
 }
 
-// handleSendMessage chats with a session that is paused or finished:
-// awaiting_user sessions take the normal reply path (session.send_message to
-// the node), while done/failed sessions are revived (session.resume: the node
-// reattaches to the agent-side session and prompts with the new message). A
-// running session is rejected with 409. Both accepting paths record the
-// message, flip the session to running, move the parent task in lock-step,
-// and broadcast; a node that is offline yields 202, never an error.
+// handleSendMessage chats with a live or finished session:
+//   - awaiting_user takes the reply path (session.send_message to the node);
+//   - running is steered: the node interrupts the current turn and prompts
+//     with the new text (see steerRunningSession);
+//   - done/failed is revived (session.resume: the node reattaches to the
+//     agent-side session and prompts with the message).
+//
+// The first and third paths record the message, flip the session to running,
+// move the parent task in lock-step, and broadcast; a node that is offline
+// yields 202, never an error. The steer path leaves the row to the node and
+// returns 503 when the node is offline. Only a session that has not started
+// (waiting) is rejected with 409.
 func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -843,16 +849,80 @@ func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		h.resumeAwaitingSession(w, r, ctx, session, msgText)
 	case protocol.SessionDone, protocol.SessionFailed:
 		h.resumeFinishedSession(w, r, ctx, session, msgText)
+	case protocol.SessionRunning:
+		h.steerRunningSession(w, session, msgText)
 	default:
-		// Surface a rejected reply: a stale "awaiting" card in the browser is
-		// otherwise indistinguishable from a lost click.
-		h.log.Warn("send rejected: session is not awaiting input",
+		// Surface a rejected reply: a stale card in the browser is otherwise
+		// indistinguishable from a lost click.
+		h.log.Warn("send rejected: session is not live",
 			"session_id", id, "status", session.Status)
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error":  "session is running",
+			"error":  "session is not live",
 			"status": string(session.Status),
 		})
 	}
+}
+
+// steerRunningSession redirects a session that is already working: the node
+// interrupts the current turn and prompts again with the user's text. The hub
+// deliberately neither buffers nor broadcasts the message — the node echoes it
+// (with the interrupted turn's text ahead of it) once the interruption settled,
+// and only the node knows that boundary. An offline node cannot be steered
+// because the command is not queued, so it is a 503 rather than the awaiting
+// path's 202.
+func (h *Hub) steerRunningSession(w http.ResponseWriter, session protocol.Session, msgText string) {
+	msg := normalizeMessage(session.ID, protocol.Message{
+		SessionID: session.ID,
+		Role:      protocol.RoleUser,
+		Content:   msgText,
+	}, time.Now().UTC())
+	env := protocol.NewEnvelope(protocol.MsgSendMessage, protocol.SendMessageCommand{
+		SessionID:   session.ID,
+		Message:     msgText,
+		UserMessage: &msg,
+		Steer:       true,
+	})
+	if !h.sendToNode(session.NodeID, env) {
+		h.log.Warn("could not deliver steering message to node",
+			"session_id", session.ID, "node_id", session.NodeID)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "node offline; cannot steer the running session",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": msg})
+}
+
+// handleCancelSession stops a live session (running or paused on a question).
+// The node cancels the agent turn; its terminal report — a failure carrying
+// "session stopped by user" — is what moves the session and task to failed. The
+// hub does not guess the outcome: a node that cannot take the command yields
+// 503 instead of leaving the UI showing a stop that never happened.
+func (h *Hub) handleCancelSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	ctx := r.Context()
+	session, err := h.sessionVisibleTo(ctx, userOf(r), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if session.Status != protocol.SessionRunning && session.Status != protocol.SessionAwaitingUser {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error":  "session is not running",
+			"status": string(session.Status),
+		})
+		return
+	}
+	env := protocol.NewEnvelope(protocol.MsgCancel, protocol.CancelCommand{SessionID: id})
+	if !h.sendToNode(session.NodeID, env) {
+		h.log.Warn("could not deliver session.cancel to node",
+			"session_id", id, "node_id", session.NodeID)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "node offline; cannot stop the session",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // resumeAwaitingSession is the original /send path: buffer the user reply as a

@@ -212,8 +212,10 @@ func (c *HubClient) ListEvents(ctx context.Context, sessionID string, afterSeq i
 	return events, nil
 }
 
-// SendMessage records a user reply on an awaiting_user session and resumes it.
-// It is the only mutating call the MCP server exposes.
+// SendMessage delivers a user message to a session: a reply on an awaiting_user
+// session, a redirect (interrupting the current turn) on a running one, or a
+// follow-up that resumes a finished one. It is the only mutating call the MCP
+// server exposes.
 func (c *HubClient) SendMessage(ctx context.Context, sessionID, message string) (SendResult, error) {
 	payload, err := json.Marshal(map[string]string{"message": message})
 	if err != nil {

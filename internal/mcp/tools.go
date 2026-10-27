@@ -306,7 +306,7 @@ type SendMessageOutput struct {
 func registerSendMessage(s *mcp.Server, hub *HubClient) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "fleetdeck_session_send_message",
-		Description: "Send a free-text reply to resume a FleetDeck session that is awaiting user input (the only mutating tool).",
+		Description: "Send free-text to a FleetDeck session: reply to an awaiting_user session, steer a running one (the current turn is interrupted), or resume a finished one. The only mutating tool.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in SendMessageInput) (*mcp.CallToolResult, SendMessageOutput, error) {
 		if strings.TrimSpace(in.SessionID) == "" {
 			return nil, SendMessageOutput{}, errors.New("session_id is required")

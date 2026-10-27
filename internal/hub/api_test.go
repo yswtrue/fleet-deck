@@ -175,35 +175,49 @@ func TestSendMessageSuccess(t *testing.T) {
 	}
 }
 
-// TestSendMessageRefusesWhenNotAwaiting asserts a running session is rejected
-// with 409 and left untouched.
-func TestSendMessageRefusesWhenNotAwaiting(t *testing.T) {
+// TestSendMessageSteersRunningSession asserts a running session accepts a
+// message as a redirect: the hub forwards it with Steer=true, does not buffer
+// the row itself (the node echoes it after the interrupted turn's text), and
+// leaves the session running.
+func TestSendMessageSteersRunningSession(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")
 	}
 
 	h, st, ts, auth := newTestHub(t)
-	c, nodeID := dialNode(t, ts, st, uniqueName("noawait-node"))
+	c, nodeID := dialNode(t, ts, st, uniqueName("steer-node"))
 	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
 
 	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
 	if task.SessionID == "" {
 		t.Fatalf("task has no session: %+v", task)
 	}
 
-	resp, raw := postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/send", map[string]string{"message": "hello"})
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("send status = %d, want 409; body=%s", resp.StatusCode, raw)
+	const prompt = "use the other API instead"
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/send", map[string]string{"message": prompt})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("send status = %d, want 200; body=%s", resp.StatusCode, raw)
 	}
 	var body struct {
-		Error  string `json:"error"`
-		Status string `json:"status"`
+		OK      bool             `json:"ok"`
+		Message protocol.Message `json:"message"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		t.Fatalf("decode 409 body: %v (%s)", err, raw)
+		t.Fatalf("decode send response: %v (%s)", err, raw)
 	}
-	if body.Error != "session is running" || body.Status != string(protocol.SessionRunning) {
-		t.Fatalf("409 body = %+v, want error=session is running status=running", body)
+	if !body.OK || body.Message.ID == "" || body.Message.Content != prompt {
+		t.Fatalf("send response = %s, want ok with the steering message", raw)
+	}
+
+	env := waitEnvelope(t, envelopes, protocol.MsgSendMessage)
+	var cmd protocol.SendMessageCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode send_message command: %v", err)
+	}
+	if !cmd.Steer || cmd.Message != prompt || cmd.UserMessage == nil ||
+		cmd.UserMessage.ID != body.Message.ID {
+		t.Fatalf("node command = %+v, want a steer carrying the hub's message", cmd)
 	}
 
 	ctx := context.Background()
@@ -211,12 +225,54 @@ func TestSendMessageRefusesWhenNotAwaiting(t *testing.T) {
 	if err != nil || sess.Status != protocol.SessionRunning {
 		t.Fatalf("session status = %q (err %v), want running", sess.Status, err)
 	}
-	// The dispatch prompt is the first transcript line; the rejected reply must
-	// not be buffered.
+	// The row must arrive from the node (ordered after the interrupted text),
+	// so the hub holds no copy of it yet.
 	for _, m := range h.textBuffer(ctx, task.SessionID).Messages {
-		if m.Role == protocol.RoleUser && m.Content != "do the thing" {
-			t.Fatalf("unexpected buffered user message: %+v", m)
+		if m.Role == protocol.RoleUser && m.Content == prompt {
+			t.Fatalf("steering message was buffered by the hub: %+v", m)
 		}
+	}
+}
+
+// TestCancelSession forwards a stop to the owning node and refuses a session
+// that already finished.
+func TestCancelSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("cancel-node"))
+	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/cancel", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("cancel status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	env := waitEnvelope(t, envelopes, protocol.MsgCancel)
+	var cmd protocol.CancelCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode cancel command: %v", err)
+	}
+	if cmd.SessionID != task.SessionID {
+		t.Fatalf("cancel command = %+v, want session %q", cmd, task.SessionID)
+	}
+
+	// The node's failed report is what ends the session; a second stop after
+	// that is a conflict, not another command.
+	ctx := context.Background()
+	if err := st.Queries().UpdateSessionStatus(ctx, task.SessionID, protocol.SessionFailed, nil); err != nil {
+		t.Fatalf("mark failed: %v", err)
+	}
+	resp, raw = postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/cancel", nil)
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("cancel of a finished session = %d, want 409; body=%s", resp.StatusCode, raw)
 	}
 }
 
