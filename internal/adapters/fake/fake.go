@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fleetdeck/internal/adapters"
@@ -52,6 +53,7 @@ type Adapter struct {
 
 	mu         sync.Mutex
 	started    bool
+	done       bool
 	status     protocol.SessionStatus
 	sessionID  string
 	replyCh    chan string
@@ -59,7 +61,17 @@ type Adapter struct {
 	cancelAck  chan struct{}
 	cancelOnce sync.Once
 	finishOnce sync.Once
+
+	// Queued prompts requested through adapters.Queueing. They run one per
+	// turn after the active scenario ends, in arrival order.
+	queued    []protocol.Message
+	scenario  Scenario
+	interval  time.Duration
+	nextMsgID atomic.Int64
 }
+
+// maxQueuedPrompts bounds one session's pending-prompt queue.
+const maxQueuedPrompts = 16
 
 // New returns a fake Adapter with default settings. Tests use this (or
 // Adapter{}) directly instead of relying on the package init() registration.
@@ -96,6 +108,9 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 	a.replyCh = make(chan string, 1)
 	a.cancelCh = make(chan struct{})
 	a.cancelAck = make(chan struct{})
+	a.done = false
+	a.queued = nil
+	a.nextMsgID.Store(0)
 	scenario := a.Scenario
 	if scenario == "" {
 		scenario = ScenarioHappyPath
@@ -104,6 +119,8 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 	if interval <= 0 {
 		interval = DefaultTickInterval
 	}
+	a.scenario = scenario
+	a.interval = interval
 	a.mu.Unlock()
 
 	sink.StateChange(ctx, req.SessionID, protocol.SessionRunning)
@@ -165,6 +182,44 @@ func (a *Adapter) InterruptTurn(ctx context.Context, sessionID string) (adapters
 	return adapters.SteerResult{}, nil
 }
 
+// QueueMessage implements adapters.Queueing: the prompt runs after the active
+// scenario ends. The user row is emitted by endTurn when the prompt actually
+// starts, never on receipt.
+func (a *Adapter) QueueMessage(ctx context.Context, sessionID string, msg protocol.Message) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.started || a.sessionID != sessionID {
+		return fmt.Errorf("fake: unknown session %q", sessionID)
+	}
+	if a.done {
+		return errors.New("fake: session is finished")
+	}
+	if len(a.queued) >= maxQueuedPrompts {
+		return errors.New("fake: prompt queue is full")
+	}
+	a.queued = append(a.queued, msg)
+	return nil
+}
+
+// endTurn either starts the next queued prompt on a fresh scenario run or
+// finishes the session. The user row is emitted before the queued run starts so
+// the transcript order matches the wire.
+func (a *Adapter) endTurn(ctx context.Context, sessionID string, sink adapters.EventSink) {
+	a.mu.Lock()
+	if len(a.queued) > 0 {
+		msg := a.queued[0]
+		a.queued = a.queued[1:]
+		scenario, interval := a.scenario, a.interval
+		a.mu.Unlock()
+		sink.Message(ctx, sessionID, msg)
+		go a.run(ctx, sessionID, scenario, interval, sink)
+		return
+	}
+	a.done = true
+	a.mu.Unlock()
+	a.finish(ctx, sessionID, sink)
+}
+
 // Cancel stops the session and waits for it to report the terminal state. The
 // run ends with Error(ErrStoppedByUser): a user stop is an interrupted task,
 // not a completed one.
@@ -193,11 +248,10 @@ func (a *Adapter) Cancel(ctx context.Context, sessionID string) error {
 // run plays the selected scenario, emitting events until completion or
 // cancellation.
 func (a *Adapter) run(ctx context.Context, sessionID string, scenario Scenario, interval time.Duration, sink adapters.EventSink) {
-	msgSeq := 0
 	emitMessage := func(content string) {
-		msgSeq++
+		n := a.nextMsgID.Add(1)
 		msg := protocol.Message{
-			ID:        fmt.Sprintf("%s-msg-%d", sessionID, msgSeq),
+			ID:        fmt.Sprintf("%s-msg-%d", sessionID, n),
 			SessionID: sessionID,
 			Role:      protocol.RoleAssistant,
 			Content:   content,
@@ -210,7 +264,7 @@ func (a *Adapter) run(ctx context.Context, sessionID string, scenario Scenario, 
 	sink.TodoUpdate(ctx, sessionID, snapshot(0))
 
 	if !a.pause(ctx, interval) {
-		a.finish(ctx, sessionID, sink)
+		a.endTurn(ctx, sessionID, sink)
 		return
 	}
 
@@ -223,22 +277,22 @@ func (a *Adapter) run(ctx context.Context, sessionID string, scenario Scenario, 
 		a.mu.Unlock()
 		sink.UserInputRequested(ctx, sessionID, "Should I proceed?")
 		if !a.waitReply(ctx) {
-			a.finish(ctx, sessionID, sink)
+			a.endTurn(ctx, sessionID, sink)
 			return
 		}
 		sink.TextDelta(ctx, sessionID, "Thanks, proceeding as requested.")
 		emitMessage("Thanks, proceeding as requested.")
 		if !a.pause(ctx, interval) {
-			a.finish(ctx, sessionID, sink)
+			a.endTurn(ctx, sessionID, sink)
 			return
 		}
 		sink.TodoUpdate(ctx, sessionID, snapshot(2))
 		if !a.pause(ctx, interval) {
-			a.finish(ctx, sessionID, sink)
+			a.endTurn(ctx, sessionID, sink)
 			return
 		}
 		sink.TodoUpdate(ctx, sessionID, snapshot(3))
-		a.finish(ctx, sessionID, sink)
+		a.endTurn(ctx, sessionID, sink)
 		return
 	}
 
@@ -247,18 +301,18 @@ func (a *Adapter) run(ctx context.Context, sessionID string, scenario Scenario, 
 	sink.TextDelta(ctx, sessionID, "Implementing the change.")
 	emitMessage("Research is done. Now planning the next steps. Implementing the change.")
 	if !a.pause(ctx, interval) {
-		a.finish(ctx, sessionID, sink)
+		a.endTurn(ctx, sessionID, sink)
 		return
 	}
 
 	sink.TodoUpdate(ctx, sessionID, snapshot(2))
 	if !a.pause(ctx, interval) {
-		a.finish(ctx, sessionID, sink)
+		a.endTurn(ctx, sessionID, sink)
 		return
 	}
 
 	sink.TodoUpdate(ctx, sessionID, snapshot(3))
-	a.finish(ctx, sessionID, sink)
+	a.endTurn(ctx, sessionID, sink)
 }
 
 // pause sleeps for d, returning false if the context is done or the session

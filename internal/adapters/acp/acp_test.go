@@ -915,6 +915,39 @@ func TestSteeringInterruptsTurn(t *testing.T) {
 	}
 }
 
+// A queued prompt waits for the in-flight turn, then runs as the next turn on
+// the same process. The user row is emitted at the boundary, so the transcript
+// reads: current answer -> queued message -> next answer.
+func TestQueuedPromptRunsAfterTurn(t *testing.T) {
+	a, rec := startTestAdapter(t, adapterOpts{scenario: "queue"})
+
+	msg := protocol.Message{
+		ID:        "hub-user-1",
+		SessionID: "sess-1",
+		Role:      protocol.RoleUser,
+		Content:   "then do the next thing",
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := a.QueueMessage(context.Background(), "sess-1", msg); err != nil {
+		t.Fatalf("QueueMessage: %v", err)
+	}
+	rec.waitDone(t)
+
+	got := rec.messages()
+	want := []string{"first answer", "then do the next thing", "second answer"}
+	if len(got) != len(want) {
+		t.Fatalf("emitted messages = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("message %d = %q, want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+	if rec.hasEvent("error") {
+		t.Fatal("queued turn ended with an error")
+	}
+}
+
 // A model transport failure delivered as an ordinary assistant message (the
 // shape omp produces on provider resets) must fail the turn instead of
 // completing the task.
@@ -1321,6 +1354,18 @@ var fakePromptTurns int
 
 func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenario string, params json.RawMessage) {
 	switch scenario {
+	case "queue":
+		// First turn: hold it open briefly so the test can enqueue a prompt,
+		// then answer. The second prompt is the queued message.
+		fakePromptTurns++
+		if fakePromptTurns == 1 {
+			time.Sleep(300 * time.Millisecond)
+			fakeNotify(enc, "session/update", fakeChunk("m1", "first answer"))
+			fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+			return
+		}
+		fakeNotify(enc, "session/update", fakeChunk("m2", "second answer"))
+		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
 	case "steer":
 		// First turn: stream part of an answer and hold the turn open until the
 		// adapter sends session/cancel, then answer cancelled (the text is

@@ -61,6 +61,10 @@
     "continuePlaceholder": "Continue the conversation… (Enter to send, Shift+Enter for a new line)",
     "steerPlaceholder": "Steer the agent… (sending interrupts the current turn)",
     "steerHint": "Sending interrupts the agent's current turn and passes this as the new instruction.",
+    "queueToggle": "Queue after current turn",
+    "queuePlaceholder": "Queue a message… (runs after the current turn)",
+    "queueHint": "The message waits until the current turn finishes, then runs as the next prompt without interrupting the agent.",
+    "queuedToast": "Message queued for after the current turn",
     "send": "Send",
     "sendError": "Reply not sent",
     "sendErrorDetail": "Reply not sent: {{message}}"

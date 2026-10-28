@@ -399,3 +399,48 @@ func TestDefaultRegistryHasFake(t *testing.T) {
 		t.Fatal("adapters.Default has no fake adapter registered via init()")
 	}
 }
+
+// A queued prompt waits for the active scenario, emits its user row at that
+// boundary, then runs another scenario on the same adapter.
+func TestQueuedPromptRunsAfterTurn(t *testing.T) {
+	a, rec := newStarted(t, ScenarioHappyPath, 30*time.Millisecond)
+	msg := protocol.Message{
+		ID:        "u-queued",
+		SessionID: "sess-1",
+		Role:      protocol.RoleUser,
+		Content:   "second turn",
+	}
+	if err := a.QueueMessage(context.Background(), "sess-1", msg); err != nil {
+		t.Fatalf("QueueMessage: %v", err)
+	}
+	rec.waitDone(t)
+
+	events := rec.snapshot()
+	firstAssistant, queuedRow, assistantAfterQueued := -1, -1, 0
+	for i, e := range events {
+		if e.kind != kindMessage {
+			continue
+		}
+		if e.msg.Role == protocol.RoleUser {
+			if queuedRow == -1 {
+				queuedRow = i
+			}
+			continue
+		}
+		if firstAssistant == -1 {
+			firstAssistant = i
+		}
+		if queuedRow != -1 {
+			assistantAfterQueued++
+		}
+	}
+	if firstAssistant == -1 || queuedRow == -1 || queuedRow < firstAssistant {
+		t.Fatalf("message order = first assistant %d, queued row %d (events %v)", firstAssistant, queuedRow, rec.kinds())
+	}
+	if assistantAfterQueued == 0 {
+		t.Fatal("queued prompt did not run a second scenario")
+	}
+	if n := countKind(events, kindDone); n != 1 {
+		t.Fatalf("Done events = %d, want exactly 1 terminal report", n)
+	}
+}

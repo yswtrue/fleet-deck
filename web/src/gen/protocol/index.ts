@@ -101,6 +101,7 @@ export interface SendMessageCommand {
   message: string;
   user_message?: Message;
   steer?: boolean;
+  queue?: boolean;
 }
 export interface Session {
   id: string;

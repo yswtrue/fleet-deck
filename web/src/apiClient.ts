@@ -571,10 +571,10 @@ export const apiClient = {
     return fetchJson<StatsTasks>(`/api/stats/tasks${query ? `?${query}` : ''}`)
   },
 
-  sendMessage: (sessionId: string, message: string) =>
+  sendMessage: (sessionId: string, message: string, opts?: { queue?: boolean }) =>
     fetchJson<void>(`/api/sessions/${sessionId}/send`, {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify(opts?.queue ? { message, queue: true } : { message }),
     }),
 
   /** Stop a live session; the node cancels the agent turn and reports failed. */

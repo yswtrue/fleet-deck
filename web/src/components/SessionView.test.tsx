@@ -282,6 +282,31 @@ describe('SessionView running session', () => {
     })
   })
 
+  it('queues the message instead of steering when the toggle is on', async () => {
+    renderView('running')
+    const toggle = await screen.findByRole('checkbox', { name: 'Queue after current turn' })
+    fireEvent.click(toggle)
+
+    const box = await screen.findByPlaceholderText('Queue a message… (runs after the current turn)')
+    expect(
+      screen.getByText(
+        'The message waits until the current turn finishes, then runs as the next prompt without interrupting the agent.'
+      )
+    ).toBeTruthy()
+    fireEvent.change(box, { target: { value: 'After this, run the tests' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(true)
+    )
+    const sendCall = fetchMock.mock.calls.find(([url]) => url === '/api/sessions/s-1/send')
+    expect(JSON.parse(String(sendCall?.[1]?.body))).toEqual({
+      message: 'After this, run the tests',
+      queue: true,
+    })
+    expect(await screen.findByText('Message queued for after the current turn')).toBeTruthy()
+  })
+
   it('stops the live turn after confirmation', async () => {
     renderView('running')
     fireEvent.click(await screen.findByRole('button', { name: 'Stop' }))

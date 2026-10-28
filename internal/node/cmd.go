@@ -34,6 +34,33 @@ func (n *Node) handle(ctx context.Context, env protocol.Envelope) {
 			n.log.Warn("send_message for unknown session", "session_id", cmd.SessionID)
 			return
 		}
+		// Queue mode hands the prompt to the adapter, which holds it until the
+		// in-flight turn ends and emits the user row at that boundary. The node
+		// neither records nor echoes it here: doing so would place the row
+		// before the current turn's remaining answer.
+		if cmd.Queue {
+			queueing, ok := adapter.(adapters.Queueing)
+			if !ok {
+				n.log.Warn("queue_message unsupported by adapter",
+					"session_id", cmd.SessionID, "type", fmt.Sprintf("%T", adapter))
+				return
+			}
+			var userMsg protocol.Message
+			if cmd.UserMessage != nil {
+				userMsg = *cmd.UserMessage
+			} else {
+				userMsg = protocol.Message{
+					SessionID: cmd.SessionID,
+					Role:      protocol.RoleUser,
+					Content:   cmd.Message,
+					CreatedAt: time.Now().UTC(),
+				}
+			}
+			if err := queueing.QueueMessage(ctx, cmd.SessionID, userMsg); err != nil {
+				n.log.Warn("queue_message failed", "session_id", cmd.SessionID, "err", err)
+			}
+			return
+		}
 		// A steering message must land after the text the interrupted turn had
 		// already produced, and the adapter hands that text back instead of
 		// emitting it: commit it before the user's row.

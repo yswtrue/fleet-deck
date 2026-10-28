@@ -226,6 +226,12 @@ type SendMessageCommand struct {
 	// must appear after that text. The node echoes UserMessage (or the row it
 	// minted) as a session.message once the interruption has settled.
 	Steer bool `json:"steer,omitempty"`
+	// Queue asks a *running* session to run Message after the in-flight turn
+	// finishes, without interrupting it. The adapter holds the prompt and emits
+	// UserMessage when that boundary arrives, so the transcript order is the
+	// current turn's answer, then the queued user row, then the next answer.
+	// Queue and Steer are mutually exclusive.
+	Queue bool `json:"queue,omitempty"`
 }
 
 // SessionStarted reports the agent-side session id an adapter obtained when it

@@ -301,6 +301,9 @@
         },
         "steer": {
           "type": "boolean"
+        },
+        "queue": {
+          "type": "boolean"
         }
       },
       "additionalProperties": false,

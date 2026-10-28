@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Input, Popconfirm, Typography, message } from 'antd'
+import { Alert, Button, Checkbox, Input, Popconfirm, Typography, message } from 'antd'
 import { MessageBubble } from './MessageBubble.tsx'
 import { Markdown } from './Markdown.tsx'
 import { SessionUsage } from './SessionUsage.tsx'
@@ -74,6 +74,9 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   const restoreFromBottomRef = useRef<number | null>(null)
   // One reply in flight at a time: a double click must not send two answers.
   const [sending, setSending] = useState(false)
+  // While a turn is running, the operator can either steer (interrupt it) or
+  // queue the message for after it finishes.
+  const [queueAfterTurn, setQueueAfterTurn] = useState(false)
   // stopping holds the stop button in its loading state until the node's
   // terminal report arrives (the button disappears with the state change).
   const [stopping, setStopping] = useState(false)
@@ -241,8 +244,9 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   const handleSend = async (event?: React.FormEvent) => {
     event?.preventDefault()
     if (!reply.trim() || !canSend) return
+    const queued = isRunning && queueAfterTurn
     try {
-      await send(reply)
+      await send(reply, queued ? { queue: true } : undefined)
     } catch (err) {
       messageApi.warning(
         err instanceof Error
@@ -252,6 +256,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
       return
     }
     setReply('')
+    if (queued) messageApi.success(t('composer.queuedToast'))
   }
 
   const handleStop = async () => {
@@ -430,7 +435,9 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                       isAwaiting
                         ? t('composer.placeholder')
                         : isRunning
-                          ? t('composer.steerPlaceholder')
+                          ? queueAfterTurn
+                            ? t('composer.queuePlaceholder')
+                            : t('composer.steerPlaceholder')
                           : isContinuable
                             ? t('composer.continuePlaceholder')
                             : t('composer.waiting')
@@ -447,7 +454,19 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
                     {t('composer.send')}
                   </Button>
                 </form>
-                {isRunning && <p className={styles.composerHint}>{t('composer.steerHint')}</p>}
+                {isRunning && (
+                  <div className={styles.queueRow}>
+                    <Checkbox
+                      checked={queueAfterTurn}
+                      onChange={(event) => setQueueAfterTurn(event.target.checked)}
+                    >
+                      {t('composer.queueToggle')}
+                    </Checkbox>
+                    <p className={styles.composerHint}>
+                      {queueAfterTurn ? t('composer.queueHint') : t('composer.steerHint')}
+                    </p>
+                  </div>
+                )}
               </>
             )}
           </div>

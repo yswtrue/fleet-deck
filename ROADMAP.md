@@ -77,6 +77,11 @@ that would move them forward.
   reopens and continues via `session/load`, falling back to a fresh run),
   and a completion gate (turns ending with unfinished todos park in
   `awaiting_user` for review)
+- **Queued follow-up prompts** — `/send {queue:true}` on a running session
+  holds the message until the current turn ends, then runs it as the next
+  prompt on the same agent process without interrupting; the composer exposes
+  it as an opt-in toggle, and the transcript keeps the order answer → queued
+  message → next answer.
 - **Workspace task queue** — a workspace runs one task at a time: tasks
   created (or explicitly started) while another task is running/awaiting the
   operator queue in `queued_at` order and start automatically on the next

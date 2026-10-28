@@ -817,20 +817,25 @@ func (h *Hub) handleListEvents(w http.ResponseWriter, r *http.Request) {
 // sendMessageRequest is the JSON body of POST /api/sessions/{id}/send.
 type sendMessageRequest struct {
 	Message string `json:"message"`
+	// Queue asks a running session to run Message after the current turn
+	// finishes instead of steering (interrupting) it.
+	Queue bool `json:"queue"`
 }
 
 // handleSendMessage chats with a live or finished session:
 //   - awaiting_user takes the reply path (session.send_message to the node);
-//   - running is steered: the node interrupts the current turn and prompts
-//     with the new text (see steerRunningSession);
+//   - running is steered by default: the node interrupts the current turn and
+//     prompts with the new text; with `queue:true` the node holds the prompt
+//     until that turn ends and then runs it (see steerRunningSession and
+//     queueRunningSession);
 //   - done/failed is revived (session.resume: the node reattaches to the
 //     agent-side session and prompts with the message).
 //
 // The first and third paths record the message, flip the session to running,
 // move the parent task in lock-step, and broadcast; a node that is offline
-// yields 202, never an error. The steer path leaves the row to the node and
-// returns 503 when the node is offline. Only a session that has not started
-// (waiting) is rejected with 409.
+// yields 202, never an error. The steer and queue paths leave the row to the
+// node (it emits it at the turn boundary) and return 503 when the node is
+// offline. Only a session that has not started (waiting) is rejected with 409.
 func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
@@ -857,6 +862,10 @@ func (h *Hub) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	case protocol.SessionDone, protocol.SessionFailed:
 		h.resumeFinishedSession(w, r, ctx, session, msgText)
 	case protocol.SessionRunning:
+		if req.Queue {
+			h.queueRunningSession(w, session, msgText)
+			return
+		}
 		h.steerRunningSession(w, session, msgText)
 	default:
 		// Surface a rejected reply: a stale card in the browser is otherwise
@@ -898,6 +907,34 @@ func (h *Hub) steerRunningSession(w http.ResponseWriter, session protocol.Sessio
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "message": msg})
+}
+
+// queueRunningSession asks the owning adapter to run the message after the
+// in-flight turn, without interrupting it. Like the steer path the hub does not
+// buffer or broadcast the row: the adapter emits it at the turn boundary, which
+// only it knows. An offline node cannot accept the prompt (it is not persisted
+// hub-side), so it is a 503.
+func (h *Hub) queueRunningSession(w http.ResponseWriter, session protocol.Session, msgText string) {
+	msg := normalizeMessage(session.ID, protocol.Message{
+		SessionID: session.ID,
+		Role:      protocol.RoleUser,
+		Content:   msgText,
+	}, time.Now().UTC())
+	env := protocol.NewEnvelope(protocol.MsgSendMessage, protocol.SendMessageCommand{
+		SessionID:   session.ID,
+		Message:     msgText,
+		UserMessage: &msg,
+		Queue:       true,
+	})
+	if !h.sendToNode(session.NodeID, env) {
+		h.log.Warn("could not deliver queued message to node",
+			"session_id", session.ID, "node_id", session.NodeID)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "node offline; cannot queue the message",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "queued": true, "message": msg})
 }
 
 // handleCancelSession stops a live session (running or paused on a question).

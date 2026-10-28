@@ -209,6 +209,7 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 
 - **续跑**:对 `done`/`failed` 会话发消息(`POST /api/sessions/{id}/send`)即重开——会话→`running`、任务经 `moveTaskTo` 重开 `running`(手动 PATCH 表保持 `done` 终态不变),hub 下发 `MsgSessionResume`,node 以 `session/load` 重挂 agent 侧会话续跑;无法重挂(external id 缺失/未知会话)则**以该追问为 prompt 开新会话**兜底,保证用户消息必有回应。
 - **转向(running 时发消息)**:`/send` 对 `running` 会话是转向指令(`SendMessageCommand.steer`)。node 调用适配器的 `InterruptTurn`(`adapters.Steerer`,ACP 实现为发 `session/cancel` 并等待该轮结束、保留进程)取消当前回合,把该回合已产生的文本先写入 transcript 与 hub(适配器不再自行 emit),然后由同一 agent 进程提示新消息。hub 不缓存、不广播这条用户行——只有 node 知道中断文本的边界,行由 node 回传(`session.message`),因此顺序永远是"被中断的文本 → 用户新指令 → 新回合";节点离线时是 503(指令不排队)。
+- **消息排队(running 时发消息)**:`POST /api/sessions/{id}/send` 带 `queue:true` 时,`running` 会话不做转向,而是把消息交给适配器的 `adapters.Queueing`(`QueueMessage`),由它在**当前回合结束后**先把用户行 emit 到 transcript/hub,再以同一 agent 进程执行下一轮 prompt;顺序为"当前回合回答 → 排队的用户消息 → 新回答"。ACP 适配器用 `queueMu` 与回合收尾串行化,队列上限 16;fake 适配器同样实现。hub 不缓存、不广播这条行(与 steer 相同),节点离线返回 503;队列在会话终态时丢弃。
 - **停止**:`POST /api/sessions/{id}/cancel` 停止 `running`/`awaiting_user` 会话(终态 409,节点离线 503)。node 下发 `session.cancel`;适配器取消当前回合并上报 **failed**,原因 `session stopped by user`——用户停止的任务不是完成的任务,看板与失败横幅都据此显示;停下的会话仍可用 `/send` 续跑。
 - **传输失败不算完成**:部分 agent(如 omp)把模型请求的网络错误(如 `read tcp …: connection reset by peer`)当作普通 assistant 文本返回,并仍然回答 `end_turn`。ACP 适配器在该轮最后一条 assistant 消息整体匹配已知网络错误形态时上报 failed,而不是 done;正常回答里引用错误日志不会触发(要求整条消息匹配)。
 - **完成门**:会话自然结束(`end_turn`)时,若镜像子任务仍有未完成项,任务停靠 `awaiting_user` 而非 `done`(零子任务或全完成则照旧);`failed` 仍收敛 `done`。

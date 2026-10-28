@@ -282,6 +282,21 @@ type Adapter struct {
 	steerMu sync.Mutex
 	steer   *steerWaiter
 
+	// queueMu guards queued prompts. A queued prompt is a user message the
+	// operator asked to run after the in-flight turn, without interrupting it.
+	// handlePromptResult emits the user row and starts the next turn at the
+	// boundary, so the transcript order is current answer -> queued row ->
+	// next answer.
+	queueMu sync.Mutex
+	queue   []protocol.Message
+	// resultProcessing marks the window between a session/prompt result and
+	// the next-turn decision; QueueMessage appends during it instead of
+	// starting a second prompt.
+	resultProcessing atomic.Bool
+	// ending marks a terminal turn: queued prompts are refused once the
+	// session is being reported done/failed.
+	ending atomic.Bool
+
 	// replayAsm, when set before Start, routes replayed session/update chunks
 	// to the history assembler instead of the live event path (see replay.go).
 	// It is write-once per adapter instance, before the read loop starts.
@@ -393,6 +408,12 @@ func (a *Adapter) Start(ctx context.Context, req adapters.StartRequest, sink ada
 	a.titleCh = make(chan struct{}, 1)
 	a.wantTitle.Store(req.AutoTitle && a.cfg.titlePrompt != "")
 	a.mu.Unlock()
+
+	a.queueMu.Lock()
+	a.queue = nil
+	a.queueMu.Unlock()
+	a.resultProcessing.Store(false)
+	a.ending.Store(false)
 
 	command := a.cfg.command
 	if command == "" {
@@ -568,6 +589,10 @@ func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message str
 		a.mu.Unlock()
 		return fmt.Errorf("acp: unknown session %q", sessionID)
 	}
+	if a.ending.Load() {
+		a.mu.Unlock()
+		return errors.New("acp: session is ending")
+	}
 	perm := a.awaitingPerm
 	elicit := a.awaitingElicit
 	sink := a.sink
@@ -609,6 +634,39 @@ func (a *Adapter) SendMessage(ctx context.Context, sessionID string, message str
 	}
 	return a.promptTurn(ctx, sink, message)
 }
+
+// QueueMessage implements adapters.Queueing: while a turn is in flight the
+// prompt waits for that turn to settle; between turns it starts immediately.
+// The user row is emitted only when the prompt actually runs, never on receipt.
+func (a *Adapter) QueueMessage(ctx context.Context, sessionID string, msg protocol.Message) error {
+	if a.ending.Load() {
+		return errors.New("acp: session is ending")
+	}
+	a.queueMu.Lock()
+	defer a.queueMu.Unlock()
+	if !a.started || a.sessionID != sessionID {
+		return fmt.Errorf("acp: unknown session %q", sessionID)
+	}
+	if a.ending.Load() {
+		return errors.New("acp: session is ending")
+	}
+	if a.turnPending.Load() || a.resultProcessing.Load() {
+		if len(a.queue) >= maxQueuedPrompts {
+			return errors.New("acp: prompt queue is full")
+		}
+		a.queue = append(a.queue, msg)
+		return nil
+	}
+	if a.sink == nil {
+		return errors.New("acp: session has no event sink")
+	}
+	// Nothing to wait for: run it as the next turn on the same process.
+	a.sink.Message(ctx, sessionID, msg)
+	return a.promptTurn(ctx, a.sink, msg.Content)
+}
+
+// maxQueuedPrompts bounds one session's pending-prompt queue.
+const maxQueuedPrompts = 16
 
 // InterruptTurn ends the in-flight turn without ending the session, so the
 // node can prompt again with the user's redirect. It sends session/cancel (not
@@ -1026,6 +1084,8 @@ type usageReport struct {
 }
 
 func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSink, resp rpcResponse) {
+	a.resultProcessing.Store(true)
+	defer a.resultProcessing.Store(false)
 	a.turnPending.Store(false)
 	if sink == nil {
 		return
@@ -1080,6 +1140,27 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 			a.terminate(ctx, sink, fmt.Errorf("acp: model request failed: %s", text))
 			return
 		}
+		// A queued prompt is the next turn: emit its user row now (after this
+		// turn's answer) and prompt again on the same process. Only an empty
+		// queue ends the session.
+		a.queueMu.Lock()
+		if a.ending.Load() {
+			a.queueMu.Unlock()
+			return
+		}
+		if len(a.queue) > 0 {
+			next := a.queue[0]
+			a.queue = a.queue[1:]
+			sink.Message(ctx, a.currentSessionID(), next)
+			err := a.promptTurn(ctx, sink, next.Content)
+			a.queueMu.Unlock()
+			if err != nil {
+				a.terminate(ctx, sink, fmt.Errorf("acp: queued prompt failed: %w", err))
+			}
+			return
+		}
+		a.ending.Store(true)
+		a.queueMu.Unlock()
 		a.finishTurn(ctx, sink)
 	case "cancelled":
 		a.flushAssistantText(ctx, sink)
@@ -1367,6 +1448,7 @@ func (a *Adapter) exitWatcher(ctx context.Context, sessionID string, sink adapte
 // process, so a caller can keep the agent alive briefly to receive a trailing
 // session title.
 func (a *Adapter) finishSession(ctx context.Context, sink adapters.EventSink, err error) {
+	a.ending.Store(true)
 	if a.terminals != nil {
 		a.terminals.killAll()
 	}
@@ -1396,6 +1478,7 @@ func (a *Adapter) finishSession(ctx context.Context, sink adapters.EventSink, er
 // terminate reports the terminal outcome exactly once and reaps the process.
 // It is a no-op before Start commits.
 func (a *Adapter) terminate(ctx context.Context, sink adapters.EventSink, err error) {
+	a.ending.Store(true)
 	a.finishSession(ctx, sink, err)
 	a.killProc()
 }
@@ -1405,6 +1488,7 @@ func (a *Adapter) terminate(ctx context.Context, sink adapters.EventSink, err er
 // alive just long enough to collect the agent's own session title, and is
 // reaped.
 func (a *Adapter) finishTurn(ctx context.Context, sink adapters.EventSink) {
+	a.ending.Store(true)
 	a.finishSession(ctx, sink, nil)
 	a.collectTitle(ctx)
 	a.killProc()

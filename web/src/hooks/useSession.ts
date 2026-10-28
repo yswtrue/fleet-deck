@@ -319,34 +319,41 @@ export function useSession(sessionId: string) {
   }, [connectionState, sessionId, handleEvent, queryClient])
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, opts?: { queue?: boolean }) => {
       const trimmed = text.trim()
       if (!trimmed) return
       // The ask stays visible until the hub accepts the reply: clearing it here
       // would hide the picker on a 4xx and leave the operator with no feedback.
       // A successful send flips the session to `running`, whose state event
       // clears both panels.
-      const optimisticID = `local-${Date.now()}`
-      queryClient.setQueryData<Message[]>(['messages', sessionId], (prev) =>
-        mergeMessage(prev, {
-          id: optimisticID,
-          session_id: sessionId,
-          role: 'user',
-          content: trimmed,
-          created_at: new Date().toISOString(),
-        } as Message)
-      )
+      // A queued prompt is not in the transcript yet: the adapter emits its
+      // row at the turn boundary. Painting it now would place it before the
+      // current turn's remaining answer, so only the toast reports acceptance.
+      const optimisticID = opts?.queue ? '' : `local-${Date.now()}`
+      if (optimisticID) {
+        queryClient.setQueryData<Message[]>(['messages', sessionId], (prev) =>
+          mergeMessage(prev, {
+            id: optimisticID,
+            session_id: sessionId,
+            role: 'user',
+            content: trimmed,
+            created_at: new Date().toISOString(),
+          } as Message)
+        )
+      }
       // A reply to an awaiting_user pause resumes the same turn: keep the
       // pre-ask streamed text (the hub keeps its buffer copy too). A resumed
       // finished session starts with an empty delta (terminal state cleared it).
       try {
-        await api.sendMessage(sessionId, trimmed)
+        await api.sendMessage(sessionId, trimmed, opts)
       } catch (err) {
         // The optimistic row never reached the hub (e.g. 409 "session is not
         // awaiting user input"): roll it back and let the caller report why.
-        queryClient.setQueryData<Message[]>(['messages', sessionId], (prev) =>
-          (prev ?? []).filter((m) => m.id !== optimisticID)
-        )
+        if (optimisticID) {
+          queryClient.setQueryData<Message[]>(['messages', sessionId], (prev) =>
+            (prev ?? []).filter((m) => m.id !== optimisticID)
+          )
+        }
         throw err
       }
     },

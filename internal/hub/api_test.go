@@ -234,6 +234,69 @@ func TestSendMessageSteersRunningSession(t *testing.T) {
 	}
 }
 
+// TestSendMessageQueuesRunningSession asserts a running session accepts a
+// message as a queued prompt: the hub forwards it with Queue=true, does not
+// buffer or broadcast the row (the adapter emits it at the turn boundary), and
+// leaves the session running.
+func TestSendMessageQueuesRunningSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	h, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("queue-msg-node"))
+	defer func() { _ = c.Close() }()
+	envelopes := readEnvelopes(c)
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	if task.SessionID == "" {
+		t.Fatalf("task has no session: %+v", task)
+	}
+
+	const prompt = "do this after the current turn"
+	resp, raw := postRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID+"/send", map[string]any{
+		"message": prompt,
+		"queue":   true,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("queued send status = %d, want 200; body=%s", resp.StatusCode, raw)
+	}
+	var body struct {
+		OK      bool             `json:"ok"`
+		Queued  bool             `json:"queued"`
+		Message protocol.Message `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatalf("decode queued send response: %v (%s)", err, raw)
+	}
+	if !body.OK || !body.Queued || body.Message.ID == "" || body.Message.Content != prompt {
+		t.Fatalf("queued send response = %s, want ok+queued with the message", raw)
+	}
+
+	env := waitEnvelope(t, envelopes, protocol.MsgSendMessage)
+	var cmd protocol.SendMessageCommand
+	if err := env.Decode(&cmd); err != nil {
+		t.Fatalf("decode send_message command: %v", err)
+	}
+	if !cmd.Queue || cmd.Steer || cmd.Message != prompt || cmd.UserMessage == nil ||
+		cmd.UserMessage.ID != body.Message.ID {
+		t.Fatalf("node command = %+v, want a queued prompt carrying the hub's message", cmd)
+	}
+
+	ctx := context.Background()
+	sess, err := st.Queries().GetSession(ctx, task.SessionID)
+	if err != nil || sess.Status != protocol.SessionRunning {
+		t.Fatalf("session status = %q (err %v), want running", sess.Status, err)
+	}
+	// The row is emitted by the adapter at the turn boundary, so the hub holds
+	// no copy of it yet.
+	for _, m := range h.textBuffer(ctx, task.SessionID).Messages {
+		if m.Role == protocol.RoleUser && m.Content == prompt {
+			t.Fatalf("queued message was buffered by the hub: %+v", m)
+		}
+	}
+}
+
 // TestCancelSession forwards a stop to the owning node and refuses a session
 // that already finished.
 func TestCancelSession(t *testing.T) {

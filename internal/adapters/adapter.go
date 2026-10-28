@@ -109,6 +109,16 @@ type Steerer interface {
 	InterruptTurn(ctx context.Context, sessionID string) (SteerResult, error)
 }
 
+// Queueing is implemented by adapters that can hold a user prompt until the
+// in-flight turn ends and then run it as the next turn on the same agent
+// process, without interrupting. Message is the hub's normalized user row: the
+// adapter emits it through the sink at the turn boundary (never on receipt),
+// so the transcript order is the current answer, the queued row, then the next
+// answer. When no turn is running the message starts immediately.
+type Queueing interface {
+	QueueMessage(ctx context.Context, sessionID string, msg protocol.Message) error
+}
+
 // Resumable is implemented by adapters that can reattach to an earlier
 // agent-side session instead of starting a fresh one. The node probes for it
 // when handling a session.resume command: adapters that do not implement it
