@@ -387,7 +387,11 @@ describe('Board remount freshness', () => {
         within(screen.getByRole('region', { name: 'Done tasks' })).getByText('Long running task')
       ).toBeTruthy()
     )
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // Card subtasks are seeded separately; only the board's task-list read
+    // must be proven to re-run on remount.
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).includes('/api/tasks?workspace_id='))
+    ).toHaveLength(2)
     expect(
       within(screen.getByRole('region', { name: 'Running tasks' })).queryByText('Long running task')
     ).toBeNull()

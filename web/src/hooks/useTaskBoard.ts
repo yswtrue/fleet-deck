@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useWebSocket } from './useWebSocket.ts'
 import { useHubApi } from './useHubApi.ts'
 import { dispatchEvent } from './dispatchEvent.ts'
+import { applySubtaskUpdated, subtasksQueryKey } from './subtasks.ts'
 import type { Event as ProtocolEvent, Task, Subtask } from '../gen/protocol/index.ts'
 
 type SessionStatus = 'waiting' | 'running' | 'done' | 'failed' | 'awaiting_user'
@@ -35,7 +36,6 @@ function patchTaskInList(list: Task[], id: string, patch: Partial<Task>): Task[]
 export function useTaskBoard(workspaceId: string, q = '', archived = false) {
   const api = useHubApi()
   const queryClient = useQueryClient()
-  const [subtasksByTask, setSubtasksByTask] = useState<Record<string, Subtask[]>>({})
 
   // The unfiltered board keeps the canonical ['tasks', workspaceId] key (WS
   // handlers and task-creating code target it); an active search runs under an
@@ -64,6 +64,33 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
     // always re-read the REST truth, independent of any query staleTime.
     refetchOnMount: 'always',
   })
+
+  // A card's subtask dots mirror the agent's todo list, which arrives as
+  // transient `subtask.updated` frames — a board opened after a turn ran would
+  // otherwise show nothing. Seed every card that can own todos from REST and
+  // let the frames patch the same cache afterwards. A task that started while
+  // this board was open has only its status patched (no session id), so a
+  // non-waiting status counts as "has a session" too.
+  const subtaskTaskIds = useMemo(
+    () =>
+      (tasks ?? [])
+        .filter((task) => task.session_id || task.status !== 'waiting')
+        .map((task) => task.id),
+    [tasks]
+  )
+  const subtaskQueries = useQueries({
+    queries: subtaskTaskIds.map((taskId) => ({
+      queryKey: subtasksQueryKey(taskId),
+      queryFn: () => api.listSubtasks(taskId),
+    })),
+  })
+  const subtasksByTask = useMemo(() => {
+    const byTask: Record<string, Subtask[]> = {}
+    subtaskQueries.forEach((result, index) => {
+      if (result.data) byTask[subtaskTaskIds[index]] = result.data
+    })
+    return byTask
+  }, [subtaskQueries, subtaskTaskIds])
 
   const handleEvent = useCallback(
     (event: ProtocolEvent) => {
@@ -113,18 +140,7 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
           break
         }
         case 'subtask.updated': {
-          const { task_id, subtask, removed } = evt.data
-          setSubtasksByTask((prev) => {
-            const list = prev[task_id] || []
-            if (removed) {
-              return { ...prev, [task_id]: list.filter((s) => s.id !== subtask.id) }
-            }
-            const exists = list.some((s) => s.id === subtask.id)
-            const next = exists
-              ? list.map((s) => (s.id === subtask.id ? subtask : s))
-              : [...list, subtask]
-            return { ...prev, [task_id]: next }
-          })
+          applySubtaskUpdated(queryClient, evt.data)
           break
         }
         case 'session.state_changed': {
@@ -161,6 +177,7 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
     if (connectionState !== 'open') return
     if (hasConnectedRef.current) {
       void queryClient.invalidateQueries({ queryKey: ['tasks', workspaceId] })
+      void queryClient.invalidateQueries({ queryKey: ['subtasks'] })
       void queryClient.invalidateQueries({ queryKey: ['nodes'] })
     }
     hasConnectedRef.current = true

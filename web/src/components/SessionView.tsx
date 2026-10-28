@@ -11,6 +11,7 @@ import { useSession } from '../hooks/useSession.ts'
 import { useWebSocket } from '../hooks/useWebSocket.ts'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { dispatchEvent } from '../hooks/dispatchEvent.ts'
+import { applySubtaskUpdated, subtasksQueryKey } from '../hooks/subtasks.ts'
 import { LoadingSkeleton } from './LoadingSkeleton.tsx'
 import { ErrorState } from './ErrorState.tsx'
 import { EmptyState } from './EmptyState.tsx'
@@ -123,7 +124,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   // Sidebar data: the task's mirrored todos (subtasks), kept fresh over WS.
   const taskId = resolvedTask?.id ?? ''
   const subtasksQuery = useQuery({
-    queryKey: ['subtasks', taskId],
+    queryKey: subtasksQueryKey(taskId),
     queryFn: () => api.listSubtasks(taskId),
     enabled: !!taskId,
   })
@@ -132,29 +133,12 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
       const evt = dispatchEvent(event)
       if (!evt || !taskId) return
       if (evt.type === 'subtask.updated' && evt.data.task_id === taskId) {
-        // Apply the row instead of invalidating: todo snapshots arrive in
-        // bursts, and an invalidate that lands while a refetch is in flight is
-        // coalesced, leaving the last status unapplied until the next event.
-        const { subtask, removed } = evt.data
-        queryClient.setQueryData<Subtask[]>(['subtasks', taskId], (prev) => {
-          const list = prev ?? []
-          if (removed) return list.filter((s) => s.id !== subtask.id)
-          const idx = list.findIndex((s) => s.id === subtask.id)
-          const next = idx < 0 ? [...list, subtask] : list.map((s, i) => (i === idx ? subtask : s))
-          return next.sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id))
-        })
-        // A fetch that started before this frame can still resolve with the
-        // pre-update rows and overwrite them. Refetching (which cancels the
-        // in-flight request) keeps the list converging on the server's last
-        // write; when nothing is in flight the applied row is already exact.
-        if (queryClient.isFetching({ queryKey: ['subtasks', taskId] }) > 0) {
-          void queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
-        }
+        applySubtaskUpdated(queryClient, evt.data)
       }
       // Subtask frames are transient. A state transition is a cheap point to
       // re-read the mirrored list, healing a frame dropped under load.
       if (evt.type === 'session.state_changed' && evt.data.session_id === sessionId) {
-        void queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+        void queryClient.invalidateQueries({ queryKey: subtasksQueryKey(taskId) })
       }
       if (evt.type === 'task.title_changed' && evt.data.task_id === taskId) {
         // The session snapshot carries the owning task; refetch it so the
@@ -170,7 +154,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   // subscriber that falls behind), so re-read the list once the socket is back.
   useEffect(() => {
     if (connectionState === 'open' && taskId) {
-      void queryClient.invalidateQueries({ queryKey: ['subtasks', taskId] })
+      void queryClient.invalidateQueries({ queryKey: subtasksQueryKey(taskId) })
     }
   }, [connectionState, taskId, queryClient])
 
