@@ -11,6 +11,10 @@ import {
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
+// Token fixtures must stay in the future: getStoredToken treats an expired
+// value as absent, so a hardcoded date silently breaks once the clock passes it.
+const FUTURE = '2099-01-01T00:00:00Z'
+
 function mockFetch(impl: (url: string, init?: RequestInit) => Response | Promise<Response>) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
     Promise.resolve(impl(String(input), init))
@@ -24,10 +28,10 @@ describe('token store', () => {
   afterEach(() => localStorage.clear())
 
   it('round-trips the token and expiry through localStorage', () => {
-    storeToken('tok-1', '2026-10-28T00:00:00Z')
+    storeToken('tok-1', FUTURE)
     expect(getStoredToken()).toBe('tok-1')
     expect(localStorage.getItem('fleetdeck.token')).toBe('tok-1')
-    expect(localStorage.getItem('fleetdeck.expires_at')).toBe('2026-10-28T00:00:00Z')
+    expect(localStorage.getItem('fleetdeck.expires_at')).toBe(FUTURE)
 
     clearToken()
     expect(getStoredToken()).toBeNull()
@@ -44,7 +48,7 @@ describe('token store', () => {
   it('attaches the token to the WebSocket URL and drops it when signed out', () => {
     clearToken()
     expect(authenticatedWsUrl()).not.toContain('token=')
-    storeToken('tok/2', '2026-10-28T00:00:00Z')
+    storeToken('tok/2', FUTURE)
     expect(authenticatedWsUrl()).toContain('?token=tok%2F2')
   })
 })
@@ -70,7 +74,7 @@ describe('fetchJson auth behavior', () => {
   })
 
   it('sends the bearer token when one is stored', async () => {
-    storeToken('tok-3', '2026-10-28T00:00:00Z')
+    storeToken('tok-3', FUTURE)
     const fetchMock = mockFetch(() => jsonResponse({ id: 'u-1' }))
 
     await apiClient.me()
@@ -91,7 +95,7 @@ describe('fetchJson auth behavior', () => {
   })
 
   it('clears the token and surfaces the error body on 401', async () => {
-    storeToken('tok-stale', '2026-10-28T00:00:00Z')
+    storeToken('tok-stale', FUTURE)
     mockFetch(() => jsonResponse({ error: 'unauthorized' }, 401))
 
     await expect(apiClient.me()).rejects.toThrow('unauthorized')
@@ -105,7 +109,7 @@ describe('fetchJson auth behavior', () => {
   })
 
   it('resolves empty-body responses (204) without JSON parsing', async () => {
-    storeToken('tok-4', '2026-10-28T00:00:00Z')
+    storeToken('tok-4', FUTURE)
     mockFetch(() => new Response(null, { status: 204 }))
 
     await expect(apiClient.logout()).resolves.toBeUndefined()
