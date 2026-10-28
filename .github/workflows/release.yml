@@ -50,7 +50,6 @@ jobs:
           mkdir -p stage
           # Pure Go (no cgo): cross-compiling from the Linux runner is enough.
           go build -trimpath -ldflags="-s -w -X fleetdeck/internal/version.Version=${GITHUB_REF_NAME}" -o "stage/$bin" ./cmd/node
-          cp deploy/node.config.example.yaml stage/
           chmod +x "stage/$bin"
 
       - name: Package
@@ -61,9 +60,9 @@ jobs:
           set -euo pipefail
           name="fleetdeck-node_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
           if [ "$GOOS" = windows ]; then
-            (cd stage && zip -q -9 "../$name.zip" fleetdeck-node.exe node.config.example.yaml)
+            (cd stage && zip -q -9 "../$name.zip" fleetdeck-node.exe)
           else
-            tar -C stage -czf "$name.tar.gz" fleetdeck-node node.config.example.yaml
+            tar -C stage -czf "$name.tar.gz" fleetdeck-node
           fi
 
       - uses: actions/upload-artifact@v4
@@ -150,8 +149,8 @@ jobs:
             ```
 
             **Node daemons:** `fleetdeck-node_*_<os>_<arch>.tar.gz` (Linux, macOS)
-            and `.zip` (Windows), amd64 + arm64. Each archive holds the binary and
-            a `node.config.example.yaml` template; see docs/DEPLOYMENT.md.
-            Verify downloads with `SHA256SUMS`.
+            and `.zip` (Windows), amd64 + arm64. Each archive holds only the
+            binary — the daemon creates its config on first start; see
+            docs/DEPLOYMENT.md. Verify downloads with `SHA256SUMS`.
           files: dist/*
           fail_on_unmatched_files: true

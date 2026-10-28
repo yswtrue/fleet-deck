@@ -142,7 +142,7 @@ Push a tag (`v1.2.3`, or `v1.2.3-rc.1` for a pre-release) and
 | Artifact                | Where                                                                                                                               |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | hub image               | `ghcr.io/yswtrue/fleet-deck:v1.2.3` (also `1.2`, `1`, and `latest` for stable tags); `linux/amd64` + `linux/arm64`                  |
-| node daemons            | release assets `fleetdeck-node_v1.2.3_{linux,darwin,windows}_{amd64,arm64}.{tar.gz,zip}` — binary plus `node.config.example.yaml`   |
+| node daemons            | release assets `fleetdeck-node_v1.2.3_{linux,darwin,windows}_{amd64,arm64}.{tar.gz,zip}` — the binary only                          |
 | checksums + release log | `SHA256SUMS` and GitHub-generated release notes (categorised by `.github/release.yml` labels; add `skip-changelog` to omit an item) |
 
 The image is the same `runtime` stage as the local compose build (hub, node,
@@ -256,7 +256,8 @@ daemon creates the config (directory `0700`, file `0600`, `name` = hostname)
 when it is missing and logs the path; it never overwrites an existing file. An
 explicit `--config` path that does not exist is an error — a typo must not
 silently start a second, empty node. To customize the defaults, copy
-`deploy/node.config.example.yaml` there (or point `--config` at it).
+`deploy/node.config.example.yaml` from the repository there (or point
+`--config` at it); release archives ship only the binary.
 
 ### Choosing the agents
 
