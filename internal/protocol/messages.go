@@ -29,10 +29,7 @@ const (
 	EvTaskStatusChanged = "task.status_changed"
 	// EvTaskTitleChanged reports an agent-generated title replacing the
 	// provisional prompt-derived one (see task.title_auto).
-	EvTaskTitleChanged = "task.title_changed"
-	// EvTaskQueueChanged reports a task entering or leaving its workspace's
-	// queue (the workspace runs one task at a time; see task.queued_at).
-	EvTaskQueueChanged        = "task.queue_changed"
+	EvTaskTitleChanged        = "task.title_changed"
 	EvSubtaskUpdated          = "subtask.updated"
 	EvSessionDelta            = "session.delta"
 	EvSessionThought          = "session.thought"
@@ -68,14 +65,6 @@ type TaskStatusChanged struct {
 type TaskTitleChanged struct {
 	TaskID string `json:"task_id"`
 	Title  string `json:"title"`
-}
-
-// TaskQueueChanged reports a task entering its workspace's queue. Leaving the
-// queue happens when the task starts, which also arrives as
-// task.status_changed -> running.
-type TaskQueueChanged struct {
-	TaskID   string    `json:"task_id"`
-	QueuedAt time.Time `json:"queued_at"`
 }
 
 // SubtaskUpdated reports a subtask being created, updated, or removed. When

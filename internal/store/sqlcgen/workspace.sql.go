@@ -106,17 +106,6 @@ func (q *Queries) ListWorkspacesByNode(ctx context.Context, nodeID string) ([]Wo
 	return items, nil
 }
 
-const lockWorkspace = `-- name: LockWorkspace :one
-SELECT id FROM workspace WHERE id = $1 FOR UPDATE
-`
-
-func (q *Queries) LockWorkspace(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, lockWorkspace, id)
-	var id_2 string
-	err := row.Scan(&id_2)
-	return id_2, err
-}
-
 const updateWorkspaceAutoAllowScope = `-- name: UpdateWorkspaceAutoAllowScope :one
 UPDATE workspace SET auto_allow_scope = $2 WHERE id = $1 RETURNING id, node_id, name, path, created_at, auto_allow_scope
 `

@@ -35,13 +35,13 @@ function LocationProbe() {
   return <span data-testid="route">{useLocation().pathname}</span>
 }
 
-function renderCard(cardTask: Task = task, queuePosition?: number) {
+function renderCard(cardTask: Task = task) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <LocationProbe />
-        <TaskCard task={cardTask} queuePosition={queuePosition} />
+        <TaskCard task={cardTask} />
       </MemoryRouter>
     </QueryClientProvider>
   )
@@ -63,25 +63,6 @@ describe('TaskCard', () => {
     renderCard({ ...task, session_id: '' })
     expect(screen.queryByRole('button', { name: 'Change status of Fix the flaky test' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Start Fix the flaky test' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Archive Fix the flaky test' })).toBeTruthy()
-  })
-
-  it('renders a queued card with its position and no Start / session / backlog chips', () => {
-    renderCard(
-      {
-        ...task,
-        status: 'waiting',
-        session_id: '',
-        auto_start: false,
-        queued_at: '2026-09-28T00:00:01Z',
-      },
-      2
-    )
-    expect(screen.getByText('Queued #2')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Start Fix the flaky test' })).toBeNull()
-    expect(screen.queryByText('No session yet')).toBeNull()
-    expect(screen.queryByText('Backlog')).toBeNull()
-    // Queueing does not remove the shelve action.
     expect(screen.getByRole('button', { name: 'Archive Fix the flaky test' })).toBeTruthy()
   })
 

@@ -29,7 +29,7 @@ func TestTaskListCacheInvalidation(t *testing.T) {
 	ws := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
 		"node_id": nodeID, "name": uniqueName("cache-ws"), "path": "/tmp/cache-ws",
 	})
-	first := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+	postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
 		"workspace_id": ws.ID, "title": uniqueName("cache-t1"), "prompt": "p", "agent_type": "fake",
 	})
 
@@ -47,23 +47,10 @@ func TestTaskListCacheInvalidation(t *testing.T) {
 		t.Fatalf("after create: %d tasks, want 1", len(tasks))
 	}
 
-	// A second create must invalidate the cached list. Resolve the first task
-	// first: a workspace runs one task at a time, so the second would queue
-	// (and it must be running for the status change below to be legal).
-	if resp, raw := patchRaw(t, auth.token, ts.URL+"/api/tasks/"+first.ID, map[string]any{"status": "done"}); resp.StatusCode != http.StatusOK {
-		t.Fatalf("patch first status = %d, want 200; body=%s", resp.StatusCode, raw)
-	}
-	// The workspace slot is only free once the session is terminal too (the
-	// queue treats a still-live agent as occupied).
-	if err := st.Queries().UpdateSessionStatus(context.Background(), first.SessionID, protocol.SessionDone, nil); err != nil {
-		t.Fatalf("end first session: %v", err)
-	}
+	// A second create must invalidate the cached list.
 	second := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
 		"workspace_id": ws.ID, "title": uniqueName("cache-t2"), "prompt": "p", "agent_type": "fake",
 	})
-	if second.SessionID == "" {
-		t.Fatalf("second task was queued instead of dispatched: %+v", second)
-	}
 	if tasks := listTasks(); len(tasks) != 2 {
 		t.Fatalf("after second create: %d tasks (stale cache?), want 2", len(tasks))
 	}

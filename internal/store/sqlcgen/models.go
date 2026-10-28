@@ -113,7 +113,6 @@ type Task struct {
 	TitleAuto    bool
 	RetryCount   int32
 	RetryPending bool
-	QueuedAt     *time.Time
 }
 
 type TokenUsage struct {

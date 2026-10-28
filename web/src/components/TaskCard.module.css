@@ -90,17 +90,6 @@
   max-width: 9rem;
 }
 
-.queueChip {
-  font-size: 0.68rem;
-  font-weight: 600;
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--status-waiting-bg);
-  color: var(--status-waiting-text);
-  border: 1px solid var(--status-waiting-border);
-  white-space: nowrap;
-}
-
 .noSessionChip {
   font-size: 0.68rem;
   padding: 1px 7px;

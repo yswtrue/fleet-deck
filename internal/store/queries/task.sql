@@ -57,7 +57,6 @@ ORDER BY similarity(t.title, sqlc.arg('q')) DESC, t.updated_at DESC, t.created_a
 -- name: UpdateTaskStatus :one
 UPDATE task
 SET status = $2,
-    queued_at = CASE WHEN $2::text = 'running' THEN NULL ELSE queued_at END,
     updated_at = now()
 WHERE id = $1
 RETURNING *;
@@ -65,7 +64,6 @@ RETURNING *;
 -- name: UpdateTaskStatusManual :one
 UPDATE task
 SET status = $2,
-    queued_at = CASE WHEN $2::text = 'running' THEN NULL ELSE queued_at END,
     cancelled_at = CASE
         WHEN status IN ('running', 'awaiting_user') AND $2 = 'done'
         THEN COALESCE(cancelled_at, now())
@@ -74,42 +72,6 @@ SET status = $2,
     updated_at = now()
 WHERE id = $1
 RETURNING *;
-
--- name: GetTaskForUpdate :one
-SELECT * FROM task WHERE id = $1 FOR UPDATE;
-
--- name: CountActiveTasksByWorkspace :one
--- A task occupies the workspace while the board says it is running or waiting
--- for the operator, and also while any of its sessions is still live (a manual
--- running -> waiting move must not start a second agent in the same tree).
-SELECT count(*)::bigint FROM task t
-WHERE t.workspace_id = $1
-  AND (
-    t.status IN ('running', 'awaiting_user')
-    OR EXISTS (
-      SELECT 1 FROM session s
-      WHERE s.task_id = t.id AND s.status NOT IN ('done', 'failed')
-    )
-  );
-
--- name: MarkTaskQueued :one
-UPDATE task
-SET queued_at = COALESCE(queued_at, now()), updated_at = now()
-WHERE id = $1
-  AND archived_at IS NULL
-  AND session_id IS NULL
-  AND status = 'waiting'
-RETURNING *;
-
--- name: NextQueuedTaskByWorkspace :one
-SELECT * FROM task
-WHERE workspace_id = $1
-  AND queued_at IS NOT NULL
-  AND archived_at IS NULL
-  AND session_id IS NULL
-  AND status = 'waiting'
-ORDER BY queued_at, created_at, id
-LIMIT 1;
 
 -- name: UpdateTaskSessionID :exec
 UPDATE task
@@ -172,11 +134,6 @@ WHERE id = $1;
 -- name: UpdateTaskArchivedAt :one
 UPDATE task
 SET archived_at = sqlc.narg('archived_at'),
-    -- Archiving removes a queued task from its workspace's queue.
-    queued_at = CASE
-        WHEN sqlc.narg('archived_at')::timestamptz IS NULL THEN queued_at
-        ELSE NULL
-    END,
     updated_at = now()
 WHERE id = $1
 RETURNING *;

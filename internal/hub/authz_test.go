@@ -989,8 +989,8 @@ func TestWebWSBroadcastScopedByNodeBinding(t *testing.T) {
 	}
 
 	// A real mutation in A's subtree: task creation publishes task.created
-	// plus the dispatch state changes, all scoped to nodeA. Use a second
-	// workspace so the running task on wsA does not queue this one.
+	// plus the dispatch state changes, all scoped to nodeA. A second
+	// workspace keeps this dispatch independent of the running task on wsA.
 	wsA2 := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
 		"node_id": nodeA, "name": uniqueName("scope-ws-a2"), "path": "/tmp/scope-ws-a2",
 	})
@@ -1011,21 +1011,6 @@ func TestWebWSBroadcastScopedByNodeBinding(t *testing.T) {
 		t.Fatalf("A got session.message %+v (err %v), want the dispatch prompt", pm.Message, err)
 	}
 	waitEnvelope(t, adminEvents, protocol.EvSessionMessage)
-	expectSilent(t, bEvents)
-
-	// Queue transitions are scoped by the task's subtree too.
-	queued := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
-		"workspace_id": wsA2.ID, "title": uniqueName("scope-task-a3"), "prompt": "q", "agent_type": "fake",
-	})
-	if queued.QueuedAt == nil {
-		t.Fatalf("second task on wsA2 was not queued: %+v", queued)
-	}
-	queueEnv := waitEnvelope(t, aEvents, protocol.EvTaskQueueChanged)
-	var qc protocol.TaskQueueChanged
-	if err := queueEnv.Decode(&qc); err != nil || qc.TaskID != queued.ID {
-		t.Fatalf("A got task.queue_changed %+v (err %v), want task %s", qc, err, queued.ID)
-	}
-	waitEnvelope(t, adminEvents, protocol.EvTaskQueueChanged)
 	expectSilent(t, bEvents)
 
 	// A session event in the same subtree (arriving from the node) is scoped

@@ -559,11 +559,8 @@ func (h *Hub) handleStartTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if dispatched.Status != protocol.TaskRunning {
-		h.log.Info("task queued", "task_id", id, "queued_at", dispatched.QueuedAt)
-		writeJSON(w, http.StatusAccepted, map[string]any{
-			"task":    dispatched,
-			"warning": "task queued; it starts automatically when the workspace is free",
-		})
+		h.log.Warn("node offline; task stays waiting", "task_id", id)
+		writeJSON(w, http.StatusAccepted, map[string]any{"task": dispatched, "warning": "node offline; task stays waiting"})
 		return
 	}
 	writeJSON(w, http.StatusOK, dispatched)
@@ -625,10 +622,6 @@ func (h *Hub) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 				Type: protocol.EvTaskStatusChanged,
 				Data: protocol.TaskStatusChanged{TaskID: id, From: task.Status, To: updated.Status},
 			})
-		}
-		// Resolving the active task by hand frees the workspace slot.
-		if updated.Status == protocol.TaskDone || updated.Status == protocol.TaskFailed {
-			h.drainWorkspaceQueue(ctx, updated.WorkspaceID)
 		}
 		task = updated
 	}

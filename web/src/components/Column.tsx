@@ -31,15 +31,6 @@ export function Column({
   const { t } = useTranslation('board')
   const title = column.titleKey ? t(column.titleKey) : statusLabel(column.dot)
 
-  // Queued tasks render first, in queue order (queued_at ascending). The
-  // position is the index within that queue, so a waiting column that also
-  // holds backlog tasks still shows "Queued #1" for the next one to start.
-  const queued = tasks
-    .filter((task) => task.queued_at)
-    .sort((a, b) => Date.parse(a.queued_at!) - Date.parse(b.queued_at!))
-  const queuePositions = new Map(queued.map((task, index) => [task.id, index + 1]))
-  const ordered = [...queued, ...tasks.filter((task) => !task.queued_at)]
-
   return (
     <section
       className={styles.column}
@@ -54,15 +45,14 @@ export function Column({
         </span>
       </header>
       <div className={styles.list}>
-        {ordered.length === 0 ? (
+        {tasks.length === 0 ? (
           <p className={styles.empty}>{t('column.empty')}</p>
         ) : (
-          ordered.map((task) => (
+          tasks.map((task) => (
             <TaskCard
               key={task.id}
               task={task}
               subtasks={subtasksByTask[task.id] ?? []}
-              queuePosition={queuePositions.get(task.id)}
               messageApi={messageApi}
             />
           ))

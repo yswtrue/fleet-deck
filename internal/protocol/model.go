@@ -146,12 +146,8 @@ type Task struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
 	// CancelledAt records the first manual termination, retained across resumes.
 	CancelledAt *time.Time `json:"cancelled_at,omitempty"`
-	// QueuedAt marks a task waiting for its workspace's active task to finish.
-	// The workspace runs one task at a time; queued tasks start in QueuedAt
-	// order as slots free up. Nil means the task is not in the queue.
-	QueuedAt  *time.Time `json:"queued_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 	// TitleAuto marks a prompt-derived title the agent may replace with its
 	// own session title. Server-side only: the hub needs it when dispatching
 	// to decide whether to ask the agent for a name, but it is not part of the

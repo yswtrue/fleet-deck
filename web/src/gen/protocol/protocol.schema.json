@@ -1044,10 +1044,6 @@
           "type": "string",
           "format": "date-time"
         },
-        "queued_at": {
-          "type": "string",
-          "format": "date-time"
-        },
         "created_at": {
           "type": "string",
           "format": "date-time"
@@ -1118,10 +1114,6 @@
               "type": "string",
               "format": "date-time"
             },
-            "queued_at": {
-              "type": "string",
-              "format": "date-time"
-            },
             "created_at": {
               "type": "string",
               "format": "date-time"
@@ -1155,24 +1147,6 @@
       "type": "object",
       "required": [
         "task"
-      ]
-    },
-    "TaskQueueChanged": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "properties": {
-        "task_id": {
-          "type": "string"
-        },
-        "queued_at": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "additionalProperties": false,
-      "type": "object",
-      "required": [
-        "task_id",
-        "queued_at"
       ]
     },
     "TaskStartCommand": {

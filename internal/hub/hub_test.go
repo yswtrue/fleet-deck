@@ -1371,6 +1371,54 @@ func TestDispatchRecordsPromptInTranscript(t *testing.T) {
 	}
 }
 
+// A workspace no longer serializes its tasks: an auto-start task dispatches
+// immediately even while another task on the same workspace is still running.
+func TestWorkspaceRunsTasksConcurrently(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("hub-it-concurrent"))
+	defer func() { _ = c.Close() }()
+
+	ws := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": nodeID, "name": uniqueName("concurrent-ws"), "path": "/tmp/concurrent-ws",
+	})
+	first := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": ws.ID, "title": "first", "prompt": "A", "agent_type": "fake",
+	})
+	second := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
+		"workspace_id": ws.ID, "title": "second", "prompt": "B", "agent_type": "fake",
+	})
+	if first.Status != protocol.TaskRunning || first.SessionID == "" {
+		t.Fatalf("first task = %+v, want running", first)
+	}
+	if second.Status != protocol.TaskRunning || second.SessionID == "" {
+		t.Fatalf("second task = %+v, want running (not queued)", second)
+	}
+
+	got := map[string]bool{}
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for len(got) < 2 {
+		var env protocol.Envelope
+		if err := c.ReadJSON(&env); err != nil {
+			t.Fatalf("read task.start: %v (saw %v)", err, got)
+		}
+		if env.Type != protocol.MsgTaskStart {
+			continue
+		}
+		var cmd protocol.TaskStartCommand
+		if err := env.Decode(&cmd); err != nil {
+			t.Fatalf("decode task.start: %v", err)
+		}
+		got[cmd.Prompt] = true
+	}
+	if !got["A"] || !got["B"] {
+		t.Fatalf("task.start prompts = %v, want A and B", got)
+	}
+}
+
 // TestSessionTitleBackfillsProvisionalTask pins the title policy: a task
 // created without a title starts with the prompt's first line and is renamed
 // when the agent reports its session title; an operator-supplied title is
@@ -1491,165 +1539,5 @@ func TestSessionTitleBackfillsProvisionalTask(t *testing.T) {
 	}
 	if stored.Title != "Operator title" {
 		t.Fatalf("operator title = %q, want it preserved", stored.Title)
-	}
-}
-
-// nextTaskStart reads the next task.start command from a scripted node
-// connection, skipping pings and other command types.
-func nextTaskStart(t *testing.T, c *websocket.Conn) protocol.TaskStartCommand {
-	t.Helper()
-	c.SetReadDeadline(time.Now().Add(5 * time.Second))
-	for {
-		var env protocol.Envelope
-		if err := c.ReadJSON(&env); err != nil {
-			t.Fatalf("read task.start: %v", err)
-		}
-		if env.Type != protocol.MsgTaskStart {
-			continue
-		}
-		var cmd protocol.TaskStartCommand
-		if err := env.Decode(&cmd); err != nil {
-			t.Fatalf("decode task.start: %v", err)
-		}
-		return cmd
-	}
-}
-
-// TestWorkspaceTaskQueue pins the queue contract: a workspace runs one task at
-// a time, newly created and manually started tasks wait in queued_at order,
-// and finishing the active task starts the next one automatically.
-func TestWorkspaceTaskQueue(t *testing.T) {
-	if testing.Short() {
-		t.Skip("hub integration test needs a live Postgres; skipped under -short")
-	}
-
-	_, st, ts, auth := newTestHub(t)
-	c, nodeID := dialNode(t, ts, st, uniqueName("queue-node"))
-	defer func() { _ = c.Close() }()
-
-	ws := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
-		"node_id": nodeID, "name": uniqueName("queue-ws"), "path": "/tmp/queue-ws",
-	})
-
-	first := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
-		"workspace_id": ws.ID, "title": "first", "prompt": "A", "agent_type": "fake",
-	})
-	if first.Status != protocol.TaskRunning || first.SessionID == "" {
-		t.Fatalf("first task = %+v, want running", first)
-	}
-	if start := nextTaskStart(t, c); start.Prompt != "A" {
-		t.Fatalf("first task.start prompt = %q, want A", start.Prompt)
-	}
-
-	// A second auto-start task queues while the first runs.
-	second := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
-		"workspace_id": ws.ID, "title": "second", "prompt": "B", "agent_type": "fake",
-	})
-	if second.Status != protocol.TaskWaiting || second.SessionID != "" || second.QueuedAt == nil {
-		t.Fatalf("second task = %+v, want queued waiting", second)
-	}
-
-	// A backlog task stays out of the queue, but an explicit start puts it
-	// behind the already queued task.
-	backlog := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]any{
-		"workspace_id": ws.ID, "title": "backlog", "prompt": "C", "agent_type": "fake",
-		"auto_start": false,
-	})
-	if backlog.QueuedAt != nil {
-		t.Fatalf("backlog task queued_at = %v, want nil", backlog.QueuedAt)
-	}
-	resp, raw := postRaw(t, auth.token, ts.URL+"/api/tasks/"+backlog.ID+"/start", map[string]any{})
-	if resp.StatusCode != http.StatusAccepted {
-		t.Fatalf("start backlog while busy = %d, want 202; body=%s", resp.StatusCode, raw)
-	}
-	var queuedBody struct {
-		Task    protocol.Task `json:"task"`
-		Warning string        `json:"warning"`
-	}
-	if err := json.Unmarshal(raw, &queuedBody); err != nil {
-		t.Fatalf("decode start response: %v (%s)", err, raw)
-	}
-	if queuedBody.Task.QueuedAt == nil || queuedBody.Task.SessionID != "" || queuedBody.Warning == "" {
-		t.Fatalf("started backlog body = %+v, want queued task with warning", queuedBody)
-	}
-
-	// Finishing the active task starts the older queued task (B), not C.
-	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
-		Type: protocol.EvSessionStateChanged,
-		Data: protocol.SessionStateChanged{SessionID: first.SessionID, Status: protocol.SessionDone},
-		Ts:   time.Now().UTC(),
-	})); err != nil {
-		t.Fatalf("report first done: %v", err)
-	}
-	if start := nextTaskStart(t, c); start.Prompt != "B" {
-		t.Fatalf("second task.start prompt = %q, want B (FIFO)", start.Prompt)
-	}
-	runningSecond, err := st.Queries().GetTask(context.Background(), second.ID)
-	if err != nil || runningSecond.Status != protocol.TaskRunning || runningSecond.QueuedAt != nil {
-		t.Fatalf("second after drain = %+v (err %v), want running and dequeued", runningSecond, err)
-	}
-	stillQueued, err := st.Queries().GetTask(context.Background(), backlog.ID)
-	if err != nil || stillQueued.QueuedAt == nil || stillQueued.SessionID != "" {
-		t.Fatalf("backlog often drain = %+v (err %v), want still queued", stillQueued, err)
-	}
-
-	// Finishing the second task starts the backlog task that was queued by
-	// hand.
-	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
-		Type: protocol.EvSessionStateChanged,
-		Data: protocol.SessionStateChanged{SessionID: runningSecond.SessionID, Status: protocol.SessionDone},
-		Ts:   time.Now().UTC(),
-	})); err != nil {
-		t.Fatalf("report second done: %v", err)
-	}
-	if start := nextTaskStart(t, c); start.Prompt != "C" {
-		t.Fatalf("third task.start prompt = %q, want C", start.Prompt)
-	}
-	runningBacklog, err := st.Queries().GetTask(context.Background(), backlog.ID)
-	if err != nil || runningBacklog.Status != protocol.TaskRunning || runningBacklog.QueuedAt != nil {
-		t.Fatalf("backlog after drain = %+v (err %v), want running and dequeued", runningBacklog, err)
-	}
-}
-
-// TestQueuedTaskStartsOnNodeReconnect covers the offline half: a task created
-// while its node is down is queued, and the node's registration starts it.
-func TestQueuedTaskStartsOnNodeReconnect(t *testing.T) {
-	if testing.Short() {
-		t.Skip("hub integration test needs a live Postgres; skipped under -short")
-	}
-
-	h, st, ts, auth := newTestHub(t)
-	name := uniqueName("queue-reconnect-node")
-	c, reg := dialNodeAs(t, ts, st, name, "", testJoinToken)
-	nodeID := reg.NodeID
-
-	ws := postJSON[protocol.Workspace](t, auth.token, ts.URL+"/api/workspaces", map[string]string{
-		"node_id": nodeID, "name": uniqueName("queue-reconnect-ws"), "path": "/tmp/queue-reconnect-ws",
-	})
-
-	_ = c.Close()
-	deadline := time.Now().Add(3 * time.Second)
-	for h.nodeOnline(nodeID) {
-		if time.Now().After(deadline) {
-			t.Fatal("node still online after close")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	task := postJSON[protocol.Task](t, auth.token, ts.URL+"/api/tasks", map[string]string{
-		"workspace_id": ws.ID, "title": "offline", "prompt": "later", "agent_type": "fake",
-	})
-	if task.QueuedAt == nil || task.SessionID != "" || task.Status != protocol.TaskWaiting {
-		t.Fatalf("offline task = %+v, want queued waiting", task)
-	}
-
-	back, _ := dialNodeAs(t, ts, st, name, reg.Token, "")
-	defer func() { _ = back.Close() }()
-	if start := nextTaskStart(t, back); start.Prompt != "later" {
-		t.Fatalf("reconnect task.start prompt = %q, want later", start.Prompt)
-	}
-	started, err := st.Queries().GetTask(context.Background(), task.ID)
-	if err != nil || started.Status != protocol.TaskRunning || started.QueuedAt != nil {
-		t.Fatalf("task after reconnect = %+v (err %v), want running and dequeued", started, err)
 	}
 }

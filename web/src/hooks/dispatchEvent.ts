@@ -5,7 +5,6 @@ import type {
   TaskCreated,
   TaskStatusChanged,
   TaskTitleChanged,
-  TaskQueueChanged,
   SubtaskUpdated,
   SessionDelta,
   SessionMessage,
@@ -25,7 +24,6 @@ export type DispatchedEvent =
   | { type: 'task.created'; data: TaskCreated }
   | { type: 'task.status_changed'; data: TaskStatusChanged }
   | { type: 'task.title_changed'; data: TaskTitleChanged }
-  | { type: 'task.queue_changed'; data: TaskQueueChanged }
   | { type: 'subtask.updated'; data: SubtaskUpdated }
   | { type: 'session.delta'; data: SessionDelta }
   | { type: 'session.thought'; data: SessionThought }
@@ -80,12 +78,6 @@ export function dispatchEvent(evt: ProtocolEvent): DispatchedEvent | null {
     case 'task.title_changed':
       if (!hasString(data, 'task_id') || !hasString(data, 'title')) return malformed(evt.type)
       return { type: 'task.title_changed', data: data as unknown as TaskTitleChanged }
-
-    case 'task.queue_changed':
-      if (!hasString(data, 'task_id') || !hasString(data, 'queued_at')) {
-        return malformed(evt.type)
-      }
-      return { type: 'task.queue_changed', data: data as unknown as TaskQueueChanged }
 
     case 'subtask.updated':
       if (

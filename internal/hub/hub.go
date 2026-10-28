@@ -817,7 +817,7 @@ func (h *Hub) retryPendingTasks(ctx context.Context, nodeID string, live []strin
 			continue
 		}
 		if dispatched.Status != protocol.TaskRunning {
-			h.log.Warn("task retry skipped: workspace still busy", "task_id", task.ID)
+			h.log.Warn("task retry left waiting (node offline)", "task_id", task.ID)
 			continue
 		}
 		h.log.Info("task retried after node reconnect", "task_id", task.ID,
@@ -888,15 +888,7 @@ func (h *Hub) resumeRetry(ctx context.Context, task protocol.Task) bool {
 
 // dispatchTask opens a session for a freshly created task and tells the owning
 // node to start it. The hub owns the session row; the node only runs the
-// adapter.
-//
-// A workspace runs one task at a time. If another task is running or awaiting
-// the operator, the new task is parked in the workspace queue (queued_at) and
-// starts when the active task reaches a terminal state (see
-// drainWorkspaceQueue). A node that is offline also queues: its registration
-// drains the queue. The check, the queue write, and the session creation share
-// one transaction guarded by the workspace row lock, so concurrent dispatches
-// cannot both claim the free slot.
+// adapter. If the node is offline the task is left in waiting.
 func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Task, error) {
 	q := h.store.Queries()
 
@@ -905,15 +897,7 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 		return task, err
 	}
 	if !h.nodeOnline(workspace.NodeID) {
-		if queued, ok, err := q.MarkTaskQueued(ctx, task.ID); err != nil {
-			return task, err
-		} else if ok {
-			if task.QueuedAt == nil {
-				h.publishTaskQueued(ctx, queued)
-			}
-			task = queued
-		}
-		h.log.Warn("task queued; node offline",
+		h.log.Warn("task left waiting; node offline",
 			"task_id", task.ID, "node_id", workspace.NodeID)
 		return task, nil
 	}
@@ -923,74 +907,27 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 	// session that half-exists.
 	var session protocol.Session
 	var updated protocol.Task
-	var started bool
-	err = h.store.WithTx(ctx, func(tx *store.Queries) error {
-		if err := tx.LockWorkspace(ctx, workspace.ID); err != nil {
-			return err
-		}
-		current, err := tx.GetTaskForUpdate(ctx, task.ID)
-		if err != nil {
-			return err
-		}
-		task = current
-		// A concurrent start or a manual resolution may have won the race
-		// while this request waited for the workspace lock.
-		if current.ArchivedAt != nil || current.Status == protocol.TaskRunning ||
-			current.Status == protocol.TaskDone || current.Status == protocol.TaskAwaitingUser ||
-			(current.Status == protocol.TaskWaiting && current.SessionID != "") {
-			updated = current
-			return nil
-		}
-		active, err := tx.CountActiveTasksByWorkspace(ctx, workspace.ID)
-		if err != nil {
-			return err
-		}
-		if active > 0 {
-			queued, ok, err := tx.MarkTaskQueued(ctx, current.ID)
-			if err != nil {
-				return err
-			}
-			if ok {
-				updated = queued
-			} else {
-				updated = current
-			}
-			return nil
-		}
-
-		if current.Status != protocol.TaskWaiting && current.Status != protocol.TaskFailed {
-			updated = current
-			return nil
-		}
-		session, err = tx.CreateSession(ctx, store.CreateSessionParams{
-			TaskID:    current.ID,
+	err = h.store.WithTx(ctx, func(q *store.Queries) error {
+		var err error
+		session, err = q.CreateSession(ctx, store.CreateSessionParams{
+			TaskID:    task.ID,
 			NodeID:    workspace.NodeID,
-			AgentType: current.AgentType,
+			AgentType: task.AgentType,
 			Status:    protocol.SessionRunning,
 		})
 		if err != nil {
 			return err
 		}
-		if err := tx.UpdateTaskSessionID(ctx, current.ID, session.ID); err != nil {
+		if err := q.UpdateTaskSessionID(ctx, task.ID, session.ID); err != nil {
 			return err
 		}
-		updated, err = tx.UpdateTaskStatus(ctx, current.ID, protocol.TaskRunning)
-		if err != nil {
-			return err
-		}
-		started = true
-		return nil
+		updated, err = q.UpdateTaskStatus(ctx, task.ID, protocol.TaskRunning)
+		return err
 	})
 	if err != nil {
 		return task, err
 	}
 	h.invalidateTasks(ctx, task.WorkspaceID)
-	if !started {
-		if task.QueuedAt == nil && updated.QueuedAt != nil {
-			h.publishTaskQueued(ctx, updated)
-		}
-		return updated, nil
-	}
 
 	from := task.Status
 	h.bus.Publish(protocol.Event{
@@ -1029,62 +966,4 @@ func (h *Hub) dispatchTask(ctx context.Context, task protocol.Task) (protocol.Ta
 		h.log.Warn("could not deliver task.start to node", "task_id", updated.ID, "node_id", workspace.NodeID)
 	}
 	return updated, nil
-}
-
-// publishTaskQueued broadcasts a task entering its workspace queue. The board
-// patches queued_at in place instead of waiting for a refetch.
-func (h *Hub) publishTaskQueued(ctx context.Context, task protocol.Task) {
-	if task.QueuedAt == nil {
-		return
-	}
-	h.invalidateTasks(ctx, task.WorkspaceID)
-	h.bus.Publish(protocol.Event{
-		Type: protocol.EvTaskQueueChanged,
-		Data: protocol.TaskQueueChanged{TaskID: task.ID, QueuedAt: *task.QueuedAt},
-	})
-}
-
-// drainWorkspaceQueue starts the workspace's oldest queued task when no task
-// is active. It is a no-op while the workspace is busy or its node is offline
-// (the node's registration drains it then).
-func (h *Hub) drainWorkspaceQueue(ctx context.Context, workspaceID string) {
-	q := h.store.Queries()
-	workspace, err := q.GetWorkspace(ctx, workspaceID)
-	if err != nil {
-		h.log.Warn("drain queue: get workspace", "workspace_id", workspaceID, "err", err)
-		return
-	}
-	if !h.nodeOnline(workspace.NodeID) {
-		return
-	}
-	next, ok, err := q.NextQueuedTaskByWorkspace(ctx, workspaceID)
-	if err != nil {
-		h.log.Warn("drain queue: next task", "workspace_id", workspaceID, "err", err)
-		return
-	}
-	if !ok {
-		return
-	}
-	dispatched, err := h.dispatchTask(ctx, next)
-	if err != nil {
-		h.log.Warn("drain queue: dispatch", "workspace_id", workspaceID, "task_id", next.ID, "err", err)
-		return
-	}
-	if dispatched.Status == protocol.TaskRunning {
-		h.log.Info("queued task started", "workspace_id", workspaceID,
-			"task_id", dispatched.ID, "session_id", dispatched.SessionID)
-	}
-}
-
-// drainNodeQueues starts the first queued task of every workspace on a node
-// that has just come back online.
-func (h *Hub) drainNodeQueues(ctx context.Context, nodeID string) {
-	workspaces, err := h.store.Queries().ListWorkspacesByNode(ctx, nodeID)
-	if err != nil {
-		h.log.Warn("drain node queues: list workspaces", "node_id", nodeID, "err", err)
-		return
-	}
-	for _, workspace := range workspaces {
-		h.drainWorkspaceQueue(ctx, workspace.ID)
-	}
 }

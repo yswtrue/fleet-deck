@@ -4,7 +4,7 @@
 
 ## 当前状态速览
 
-**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 16 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi / omp)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、form elicitation、fs/terminal workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门、工作区任务排队,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、Go + web 测试套件。
+**已实现**(与 ROADMAP.md 的 Shipped 一致):协议单一真源 + schema/TS 生成、goose 迁移 16 版、hub(REST + 双 WS + node 认证 + 离线级联)、多用户认证(admin/user 角色 + bcrypt + Bearer 会话 + 用户↔节点绑定与子树继承,见 §3.6)、node daemon、node 离线事件缓冲(`FLEETDECK_EVENT_BUFFER_DIR`,WAL 落盘 + FIFO 重放,见 §3.7)、Redis 读缓存(`FLEETDECK_REDIS_URL`,token/任务列表,显式失效 + TTL 兜底,见 §3.8)、fake + ACP 共享 adapter(codex / claude / opencode / pi / omp)、4 状态看板 + todo 单向镜像、实时会话(流式/历史/断线补齐/直链)、权限结构化选择器、form elicitation、fs/terminal workspace 沙箱、任务标题模糊搜索(pg_trgm)、PATCH 状态机及取消审计(`cancelled_at`)、任务生命周期(待办/启动、归档、完成会话可续跑、完成门,见 §3.10)、MCP 自查询工具(6 个)、Token 统计(分模型/汇总)、移动端适配、任务通知(见 §3.11)、无障碍(键盘可达 + 双主题)、Web 多语言(en + zh-CN,见 §3.9)、Docker Compose 部署(含 Traefik)、Go + web 测试套件。
 
 **未实现**(详见 §5):子任务反向写回 agent;另:自定义 pi bridge 为**弃用方案**(由 `pi-acp` 取代,见 §3.4)。
 
@@ -215,7 +215,6 @@ Dockerfile / docker-compose.yml / README*.md / ROADMAP.md / AGENTS.md
 - **完成门**:会话自然结束(`end_turn`)时,若镜像子任务仍有未完成项,任务停靠 `awaiting_user` 而非 `done`(零子任务或全完成则照旧);`failed` 仍收敛 `done`。
 - **待办任务**:`POST /api/tasks` 带 `auto_start:false` 则不派发、停在 `waiting`(卡片带"待办"徽章);`POST /api/tasks/{id}/start` 手动派发(已启动/非 waiting → 409;节点离线 → 202 停 waiting)。任务必须有非空 `prompt`(创建和手动启动都校验,400):ACP 适配器在 prompt 为空时不发 `session/prompt`,会话会一直 running 且没有任何输出。`title` 可省略:缺省取 prompt 第一条非空行(截断到 80 个字符)作为**临时标题**(`task.title_auto`)。临时任务的 `task.start` / `session.resume` 带 `auto_title`,适配器取得 agent 自定标题(`session_info_update` → `MsgSessionTitle`)后由 hub 回填并广播 `task.title_changed`;用户填写了标题则永不覆盖、也不发起请求。各 launcher 的标题来源不同:codex-acp 在 `session/prompt` 响应之后用 fire-and-forget 的一轮生成标题,适配器在 reap 前多留 15s(否则更新被丢弃);opencode/pi 从不命名会话;omp 的 ACP 模式强制 `PI_NO_TITLE`(自动命名只在 TUI 生效),因此适配器在最终轮之后用 omp 内置的 `/rename` 请求生成标题——这一内部轮的输出被抑制、最长等 3 分钟,且在会话已上报 done 之后才进行。web 表单不再把 prompt 镜像到标题框。
 - **归档**:`PATCH {archived:true}` 仅限 `done` 任务(否则 409),列表默认排除、`?archived=1` 只看归档;取消归档随时可用。
-- **任务排队**:同一工作区同时只运行一个任务。迁移 `00028_task_queue.sql` 增加可空 `task.queued_at`:派发时 hub 在事务内锁住 workspace 行(`FOR UPDATE`),如果该工作区已有 `running` / `awaiting_user` 任务(或仍有非终态 session),新任务不创建 session,而是写入 `queued_at` 进入队列(卡片显示 `排队 #N`)。队列按 `queued_at`、`created_at` FIFO;`task.queue_changed` 广播入队,`task.status_changed → running` 清除标记。任务进入终态(`done` / `failed`,含手动结束)或节点重新注册时排空队列;任务在节点离线时创建也会入队,节点注册后自动开始。手动启动待办任务遇到忙碌工作区返回 202(带排队后的 task),`awaiting_user` 仍占用槽位(直到任务结束或被手动解决),归档会清除 `queued_at`。看板等待列把排队任务按队列顺序排在前面。
 
 ### 3.11 Token 统计 / 移动端 / 通知
 

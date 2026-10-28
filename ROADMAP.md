@@ -82,11 +82,6 @@ that would move them forward.
   prompt on the same agent process without interrupting; the composer exposes
   it as an opt-in toggle, and the transcript keeps the order answer → queued
   message → next answer.
-- **Workspace task queue** — a workspace runs one task at a time: tasks
-  created (or explicitly started) while another task is running/awaiting the
-  operator queue in `queued_at` order and start automatically on the next
-  terminal move; tasks created while their node is offline queue and start on
-  reconnect. The board marks queued cards with a `Queued #N` badge.
 - **Task transition state machine** — PATCH enforces the 4-state table
   (`done` terminal, idempotent writes, 409 on illegal moves)
 - **Cancellation audit** — nullable `task.cancelled_at` records the first manual
