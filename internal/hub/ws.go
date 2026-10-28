@@ -190,6 +190,9 @@ func (h *Hub) handleNodeWS(w http.ResponseWriter, r *http.Request) {
 	// lost sessions failed and schedules the retries) and after addNode
 	// (dispatchTask refuses to send to a node the registry does not hold).
 	h.retryPendingTasks(ctx, registered.ID, req.Sessions)
+	// Tasks queued while the node was offline (or while a workspace was busy)
+	// start now that commands can be delivered.
+	h.drainNodeQueues(ctx, registered.ID)
 
 	for {
 		var env protocol.Envelope
@@ -493,6 +496,12 @@ func (h *Hub) applyUsage(ctx context.Context, sessionID string, u protocol.Sessi
 // session-driven mapping and the user-reply resume.
 func (h *Hub) moveTaskTo(ctx context.Context, task protocol.Task, to protocol.TaskStatus) {
 	if task.Status == to {
+		// A late session report after the operator already resolved the task
+		// still marks the workspace slot free: drain, or the queue would wait
+		// for a terminal transition that never comes again.
+		if to == protocol.TaskDone || to == protocol.TaskFailed {
+			h.drainWorkspaceQueue(ctx, task.WorkspaceID)
+		}
 		return
 	}
 	updated, err := h.store.Queries().UpdateTaskStatus(ctx, task.ID, to)
@@ -505,6 +514,10 @@ func (h *Hub) moveTaskTo(ctx context.Context, task protocol.Task, to protocol.Ta
 		Type: protocol.EvTaskStatusChanged,
 		Data: protocol.TaskStatusChanged{TaskID: updated.ID, From: task.Status, To: updated.Status},
 	})
+	// A terminal task frees its workspace slot: start the next queued task.
+	if updated.Status == protocol.TaskDone || updated.Status == protocol.TaskFailed {
+		h.drainWorkspaceQueue(ctx, updated.WorkspaceID)
+	}
 }
 
 // syncTaskFromSession maps a session lifecycle status onto its owning task and
@@ -752,6 +765,11 @@ func (h *Hub) eventNodeID(evt protocol.Event) string {
 		}
 	case protocol.EvTaskTitleChanged:
 		var d protocol.TaskTitleChanged
+		if decodeEventPayload(evt.Data, &d) {
+			return h.taskNodeID(ctx, d.TaskID)
+		}
+	case protocol.EvTaskQueueChanged:
+		var d protocol.TaskQueueChanged
 		if decodeEventPayload(evt.Data, &d) {
 			return h.taskNodeID(ctx, d.TaskID)
 		}

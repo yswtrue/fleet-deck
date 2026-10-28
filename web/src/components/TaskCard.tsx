@@ -80,10 +80,13 @@ const StopIcon = () => (
 export function TaskCard({
   task,
   subtasks = [],
+  queuePosition,
   messageApi: externalMessageApi,
 }: {
   task: Task
   subtasks?: Subtask[]
+  /** 1-based position in the workspace queue; set only while task.queued_at is. */
+  queuePosition?: number
   /**
    * Board-scoped toast instance. A status move relocates the card to another
    * column, remounting it — a card-owned toast holder would unmount with the
@@ -106,12 +109,14 @@ export function TaskCard({
   // `done` is terminal: no move menu at all, and the hub would 409 anyway.
   // Archive/unarchive and backlog-start are separate actions below.
   const transitions = TASK_STATUS_TRANSITIONS[task.status]
-  const isBacklog = task.status === 'waiting' && !task.auto_start
+  const isQueued = !!task.queued_at
+  const isBacklog = task.status === 'waiting' && !task.auto_start && !isQueued
   const isArchived = !!task.archived_at
   const [editing, setEditing] = useState(false)
   // Waiting tasks act through Start (dispatch) and Archive (shelve); the hub
-  // rejects any manual status move from waiting.
-  const canStart = task.status === 'waiting' && !task.session_id
+  // rejects any manual status move from waiting. A queued task starts by
+  // itself when the workspace slot frees, so it exposes no Start button.
+  const canStart = task.status === 'waiting' && !task.session_id && !isQueued
   // The hub accepts content edits only before dispatch; a session means the
   // agent already holds the prompt.
   const canEdit = !task.session_id
@@ -252,7 +257,14 @@ export function TaskCard({
               {statusLabel(task.status)}
             </span>
             <span className={styles.agentChip}>{task.agent_type}</span>
-            {!task.session_id && !isBacklog && (
+            {isQueued && (
+              <span className={styles.queueChip} title={t('card.queuedHint')}>
+                {queuePosition
+                  ? t('card.queuedPosition', { position: queuePosition })
+                  : t('card.queued')}
+              </span>
+            )}
+            {!task.session_id && !isBacklog && !isQueued && (
               <span className={styles.noSessionChip} title={t('card.noSessionHint')}>
                 {t('card.noSession')}
               </span>

@@ -59,6 +59,16 @@ func (q *Queries) DeleteWorkspace(ctx context.Context, id string) error {
 	return nil
 }
 
+// LockWorkspace takes the workspace row lock for the current transaction.
+// Task dispatch uses it to serialize the active-task check with the session
+// creation that follows, so two concurrent dispatches cannot both start.
+func (q *Queries) LockWorkspace(ctx context.Context, id string) error {
+	if _, err := q.q.LockWorkspace(ctx, id); err != nil {
+		return fmt.Errorf("store: lock workspace: %w", err)
+	}
+	return nil
+}
+
 // CountActiveSessionsByWorkspace counts non-terminal sessions under the
 // workspace. Deleting a workspace with live adapters would orphan them on the
 // node, so the hub refuses until they finish.

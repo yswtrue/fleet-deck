@@ -29,6 +29,7 @@ export interface ProtocolSchema {
   SubtaskUpdated?: SubtaskUpdated;
   Task?: Task;
   TaskCreated?: TaskCreated;
+  TaskQueueChanged?: TaskQueueChanged;
   TaskStartCommand?: TaskStartCommand;
   TaskStats?: TaskStats;
   TaskStatsStatusCount?: TaskStatsStatusCount;
@@ -205,11 +206,16 @@ export interface Task {
   auto_start: boolean;
   archived_at?: string;
   cancelled_at?: string;
+  queued_at?: string;
   created_at: string;
   updated_at: string;
 }
 export interface TaskCreated {
   task: Task;
+}
+export interface TaskQueueChanged {
+  task_id: string;
+  queued_at: string;
 }
 export interface TaskStartCommand {
   task_id: string;

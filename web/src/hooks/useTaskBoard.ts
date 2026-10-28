@@ -84,11 +84,22 @@ export function useTaskBoard(workspaceId: string, q = '', archived = false) {
         }
         case 'task.status_changed': {
           const { task_id, to } = evt.data
+          // A task that starts leaves the queue; the patch also clears the
+          // queue marker so a stale queued badge cannot survive the move.
+          const patch: Partial<Task> =
+            to === 'running' ? { status: to, queued_at: undefined } : { status: to }
           // Patch every board cache under this workspace (canonical and
           // search-filtered): a filtered board renders its own query key, so
           // writing only the canonical entry would leave visible cards stale.
           queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev) =>
-            prev ? patchTaskInList(prev, task_id, { status: to }) : prev
+            prev ? patchTaskInList(prev, task_id, patch) : prev
+          )
+          break
+        }
+        case 'task.queue_changed': {
+          const { task_id, queued_at } = evt.data
+          queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', workspaceId] }, (prev) =>
+            prev ? patchTaskInList(prev, task_id, { queued_at }) : prev
           )
           break
         }

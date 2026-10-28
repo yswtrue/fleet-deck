@@ -120,7 +120,7 @@ SET retry_pending = false,
     retry_count = GREATEST(retry_count - 1, 0),
     updated_at = now()
 WHERE id = $1 AND retry_pending
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 func (q *Queries) CancelTaskRetry(ctx context.Context, id string) (Task, error) {
@@ -143,6 +143,7 @@ func (q *Queries) CancelTaskRetry(ctx context.Context, id string) (Task, error) 
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
@@ -151,7 +152,7 @@ const claimTaskRetry = `-- name: ClaimTaskRetry :one
 UPDATE task
 SET retry_pending = false, updated_at = now()
 WHERE id = $1 AND retry_pending
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 func (q *Queries) ClaimTaskRetry(ctx context.Context, id string) (Task, error) {
@@ -174,14 +175,37 @@ func (q *Queries) ClaimTaskRetry(ctx context.Context, id string) (Task, error) {
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
+}
+
+const countActiveTasksByWorkspace = `-- name: CountActiveTasksByWorkspace :one
+SELECT count(*)::bigint FROM task t
+WHERE t.workspace_id = $1
+  AND (
+    t.status IN ('running', 'awaiting_user')
+    OR EXISTS (
+      SELECT 1 FROM session s
+      WHERE s.task_id = t.id AND s.status NOT IN ('done', 'failed')
+    )
+  )
+`
+
+// A task occupies the workspace while the board says it is running or waiting
+// for the operator, and also while any of its sessions is still live (a manual
+// running -> waiting move must not start a second agent in the same tree).
+func (q *Queries) CountActiveTasksByWorkspace(ctx context.Context, workspaceID string) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveTasksByWorkspace, workspaceID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const createTask = `-- name: CreateTask :one
 INSERT INTO task (workspace_id, title, prompt, status, agent_type, sort_order, auto_start, title_auto)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 type CreateTaskParams struct {
@@ -224,12 +248,13 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task WHERE id = $1
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at FROM task WHERE id = $1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
@@ -252,12 +277,13 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
 
 const getTaskBySessionID = `-- name: GetTaskBySessionID :one
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task WHERE session_id = $1
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at FROM task WHERE session_id = $1
 `
 
 func (q *Queries) GetTaskBySessionID(ctx context.Context, sessionID *string) (Task, error) {
@@ -280,12 +306,42 @@ func (q *Queries) GetTaskBySessionID(ctx context.Context, sessionID *string) (Ta
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
+	)
+	return i, err
+}
+
+const getTaskForUpdate = `-- name: GetTaskForUpdate :one
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at FROM task WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetTaskForUpdate(ctx context.Context, id string) (Task, error) {
+	row := q.db.QueryRow(ctx, getTaskForUpdate, id)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Prompt,
+		&i.Status,
+		&i.AgentType,
+		&i.SessionID,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+		&i.AutoStart,
+		&i.CancelledAt,
+		&i.TitleAuto,
+		&i.RetryCount,
+		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
 
 const listArchivedTasksByNode = `-- name: ListArchivedTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending, t.queued_at FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.archived_at IS NOT NULL
 ORDER BY t.updated_at DESC, t.created_at DESC, t.id
@@ -317,6 +373,7 @@ func (q *Queries) ListArchivedTasksByNode(ctx context.Context, nodeID string) ([
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -329,7 +386,7 @@ func (q *Queries) ListArchivedTasksByNode(ctx context.Context, nodeID string) ([
 }
 
 const listArchivedTasksByWorkspace = `-- name: ListArchivedTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task WHERE workspace_id = $1 AND archived_at IS NOT NULL ORDER BY updated_at DESC, created_at DESC, id
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at FROM task WHERE workspace_id = $1 AND archived_at IS NOT NULL ORDER BY updated_at DESC, created_at DESC, id
 `
 
 func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID string) ([]Task, error) {
@@ -358,6 +415,7 @@ func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID 
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -370,7 +428,7 @@ func (q *Queries) ListArchivedTasksByWorkspace(ctx context.Context, workspaceID 
 }
 
 const listRetryPendingTasksByNode = `-- name: ListRetryPendingTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending, t.queued_at FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.retry_pending
 ORDER BY t.updated_at, t.id
@@ -402,6 +460,7 @@ func (q *Queries) ListRetryPendingTasksByNode(ctx context.Context, nodeID string
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -414,7 +473,7 @@ func (q *Queries) ListRetryPendingTasksByNode(ctx context.Context, nodeID string
 }
 
 const listTasksByNode = `-- name: ListTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending, t.queued_at FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1 AND t.archived_at IS NULL
 ORDER BY t.updated_at DESC, t.created_at DESC, t.id
@@ -446,6 +505,7 @@ func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]Task, e
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -458,7 +518,7 @@ func (q *Queries) ListTasksByNode(ctx context.Context, nodeID string) ([]Task, e
 }
 
 const listTasksByWorkspace = `-- name: ListTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY updated_at DESC, created_at DESC, id
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at FROM task WHERE workspace_id = $1 AND archived_at IS NULL ORDER BY updated_at DESC, created_at DESC, id
 `
 
 func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) ([]Task, error) {
@@ -487,6 +547,7 @@ func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) 
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -498,13 +559,84 @@ func (q *Queries) ListTasksByWorkspace(ctx context.Context, workspaceID string) 
 	return items, nil
 }
 
+const markTaskQueued = `-- name: MarkTaskQueued :one
+UPDATE task
+SET queued_at = COALESCE(queued_at, now()), updated_at = now()
+WHERE id = $1
+  AND archived_at IS NULL
+  AND session_id IS NULL
+  AND status = 'waiting'
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
+`
+
+func (q *Queries) MarkTaskQueued(ctx context.Context, id string) (Task, error) {
+	row := q.db.QueryRow(ctx, markTaskQueued, id)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Prompt,
+		&i.Status,
+		&i.AgentType,
+		&i.SessionID,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+		&i.AutoStart,
+		&i.CancelledAt,
+		&i.TitleAuto,
+		&i.RetryCount,
+		&i.RetryPending,
+		&i.QueuedAt,
+	)
+	return i, err
+}
+
+const nextQueuedTaskByWorkspace = `-- name: NextQueuedTaskByWorkspace :one
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at FROM task
+WHERE workspace_id = $1
+  AND queued_at IS NOT NULL
+  AND archived_at IS NULL
+  AND session_id IS NULL
+  AND status = 'waiting'
+ORDER BY queued_at, created_at, id
+LIMIT 1
+`
+
+func (q *Queries) NextQueuedTaskByWorkspace(ctx context.Context, workspaceID string) (Task, error) {
+	row := q.db.QueryRow(ctx, nextQueuedTaskByWorkspace, workspaceID)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Prompt,
+		&i.Status,
+		&i.AgentType,
+		&i.SessionID,
+		&i.SortOrder,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ArchivedAt,
+		&i.AutoStart,
+		&i.CancelledAt,
+		&i.TitleAuto,
+		&i.RetryCount,
+		&i.RetryPending,
+		&i.QueuedAt,
+	)
+	return i, err
+}
+
 const scheduleTaskRetry = `-- name: ScheduleTaskRetry :one
 UPDATE task
 SET retry_pending = true,
     retry_count = retry_count + 1,
     updated_at = now()
 WHERE id = $1 AND retry_count < $2
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 type ScheduleTaskRetryParams struct {
@@ -532,12 +664,13 @@ func (q *Queries) ScheduleTaskRetry(ctx context.Context, arg ScheduleTaskRetryPa
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
 
 const searchArchivedTasksByNode = `-- name: SearchArchivedTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending, t.queued_at FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1
   AND t.archived_at IS NOT NULL
@@ -576,6 +709,7 @@ func (q *Queries) SearchArchivedTasksByNode(ctx context.Context, arg SearchArchi
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -588,7 +722,7 @@ func (q *Queries) SearchArchivedTasksByNode(ctx context.Context, arg SearchArchi
 }
 
 const searchArchivedTasksByWorkspace = `-- name: SearchArchivedTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at FROM task
 WHERE workspace_id = $1
   AND archived_at IS NOT NULL
   AND (title ILIKE '%' || $2 || '%' OR title % $2)
@@ -626,6 +760,7 @@ func (q *Queries) SearchArchivedTasksByWorkspace(ctx context.Context, arg Search
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -638,7 +773,7 @@ func (q *Queries) SearchArchivedTasksByWorkspace(ctx context.Context, arg Search
 }
 
 const searchTasksByNode = `-- name: SearchTasksByNode :many
-SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending FROM task t
+SELECT t.id, t.workspace_id, t.title, t.prompt, t.status, t.agent_type, t.session_id, t.sort_order, t.created_at, t.updated_at, t.archived_at, t.auto_start, t.cancelled_at, t.title_auto, t.retry_count, t.retry_pending, t.queued_at FROM task t
 JOIN workspace w ON w.id = t.workspace_id
 WHERE w.node_id = $1
   AND t.archived_at IS NULL
@@ -677,6 +812,7 @@ func (q *Queries) SearchTasksByNode(ctx context.Context, arg SearchTasksByNodePa
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -689,7 +825,7 @@ func (q *Queries) SearchTasksByNode(ctx context.Context, arg SearchTasksByNodePa
 }
 
 const searchTasksByWorkspace = `-- name: SearchTasksByWorkspace :many
-SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending FROM task
+SELECT id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at FROM task
 WHERE workspace_id = $1
   AND archived_at IS NULL
   AND (title ILIKE '%' || $2 || '%' OR title % $2)
@@ -727,6 +863,7 @@ func (q *Queries) SearchTasksByWorkspace(ctx context.Context, arg SearchTasksByW
 			&i.TitleAuto,
 			&i.RetryCount,
 			&i.RetryPending,
+			&i.QueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -740,9 +877,15 @@ func (q *Queries) SearchTasksByWorkspace(ctx context.Context, arg SearchTasksByW
 
 const updateTaskArchivedAt = `-- name: UpdateTaskArchivedAt :one
 UPDATE task
-SET archived_at = $2, updated_at = now()
+SET archived_at = $2,
+    -- Archiving removes a queued task from its workspace's queue.
+    queued_at = CASE
+        WHEN $2::timestamptz IS NULL THEN queued_at
+        ELSE NULL
+    END,
+    updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 type UpdateTaskArchivedAtParams struct {
@@ -770,6 +913,7 @@ func (q *Queries) UpdateTaskArchivedAt(ctx context.Context, arg UpdateTaskArchiv
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
@@ -781,7 +925,7 @@ SET title = $2,
     title_auto = $4,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 type UpdateTaskContentParams struct {
@@ -816,6 +960,7 @@ func (q *Queries) UpdateTaskContent(ctx context.Context, arg UpdateTaskContentPa
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
@@ -854,9 +999,11 @@ func (q *Queries) UpdateTaskSortOrder(ctx context.Context, arg UpdateTaskSortOrd
 
 const updateTaskStatus = `-- name: UpdateTaskStatus :one
 UPDATE task
-SET status = $2, updated_at = now()
+SET status = $2,
+    queued_at = CASE WHEN $2::text = 'running' THEN NULL ELSE queued_at END,
+    updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 type UpdateTaskStatusParams struct {
@@ -884,6 +1031,7 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
@@ -891,6 +1039,7 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 const updateTaskStatusManual = `-- name: UpdateTaskStatusManual :one
 UPDATE task
 SET status = $2,
+    queued_at = CASE WHEN $2::text = 'running' THEN NULL ELSE queued_at END,
     cancelled_at = CASE
         WHEN status IN ('running', 'awaiting_user') AND $2 = 'done'
         THEN COALESCE(cancelled_at, now())
@@ -898,7 +1047,7 @@ SET status = $2,
     END,
     updated_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 type UpdateTaskStatusManualParams struct {
@@ -926,6 +1075,7 @@ func (q *Queries) UpdateTaskStatusManual(ctx context.Context, arg UpdateTaskStat
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }
@@ -936,7 +1086,7 @@ SET title = $2, updated_at = now()
 WHERE session_id = $1
   AND title_auto
   AND title IS DISTINCT FROM $2
-RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending
+RETURNING id, workspace_id, title, prompt, status, agent_type, session_id, sort_order, created_at, updated_at, archived_at, auto_start, cancelled_at, title_auto, retry_count, retry_pending, queued_at
 `
 
 type UpdateTaskTitleIfAutoParams struct {
@@ -964,6 +1114,7 @@ func (q *Queries) UpdateTaskTitleIfAuto(ctx context.Context, arg UpdateTaskTitle
 		&i.TitleAuto,
 		&i.RetryCount,
 		&i.RetryPending,
+		&i.QueuedAt,
 	)
 	return i, err
 }

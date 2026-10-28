@@ -179,6 +179,56 @@ func (q *Queries) UpdateTaskStatusManual(ctx context.Context, id string, status 
 	return taskFromRow(row), nil
 }
 
+// GetTaskForUpdate locks and returns a task row inside a transaction. Dispatch
+// uses it so two requests cannot start the same queued task.
+func (q *Queries) GetTaskForUpdate(ctx context.Context, id string) (protocol.Task, error) {
+	row, err := q.q.GetTaskForUpdate(ctx, id)
+	if err != nil {
+		return protocol.Task{}, fmt.Errorf("store: get task for update: %w", err)
+	}
+	return taskFromRow(row), nil
+}
+
+// CountActiveTasksByWorkspace counts the workspace's running and awaiting
+// tasks. A workspace runs one task at a time, so any positive count means a
+// newly dispatched task must queue.
+func (q *Queries) CountActiveTasksByWorkspace(ctx context.Context, workspaceID string) (int64, error) {
+	n, err := q.q.CountActiveTasksByWorkspace(ctx, workspaceID)
+	if err != nil {
+		return 0, fmt.Errorf("store: count active tasks by workspace: %w", err)
+	}
+	return n, nil
+}
+
+// MarkTaskQueued puts a waiting, unstarted task at the end of its workspace's
+// queue. The earliest queued_at is kept so a repeated dispatch cannot jump the
+// queue. It reports false when the task is no longer eligible (started,
+// archived, or otherwise resolved).
+func (q *Queries) MarkTaskQueued(ctx context.Context, id string) (protocol.Task, bool, error) {
+	row, err := q.q.MarkTaskQueued(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return protocol.Task{}, false, nil
+	}
+	if err != nil {
+		return protocol.Task{}, false, fmt.Errorf("store: mark task queued: %w", err)
+	}
+	return taskFromRow(row), true, nil
+}
+
+// NextQueuedTaskByWorkspace returns a workspace's oldest queued task without
+// claiming it. Dispatch re-checks the queue under the workspace lock, so a
+// stale read only costs a no-op.
+func (q *Queries) NextQueuedTaskByWorkspace(ctx context.Context, workspaceID string) (protocol.Task, bool, error) {
+	row, err := q.q.NextQueuedTaskByWorkspace(ctx, workspaceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return protocol.Task{}, false, nil
+	}
+	if err != nil {
+		return protocol.Task{}, false, fmt.Errorf("store: next queued task: %w", err)
+	}
+	return taskFromRow(row), true, nil
+}
+
 // UpdateTaskSessionID points a task at its active session. An empty sessionID
 // clears the forward pointer (stored as NULL).
 func (q *Queries) UpdateTaskSessionID(ctx context.Context, id, sessionID string) error {
