@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Checkbox, Input, Popconfirm, Typography, message } from 'antd'
+import { Alert, Button, Checkbox, Input, Popconfirm, Spin, Typography, message } from 'antd'
 import { MessageBubble } from './MessageBubble.tsx'
 import { Markdown } from './Markdown.tsx'
 import { SessionUsage } from './SessionUsage.tsx'
@@ -50,6 +50,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     messages,
     delta,
     isLoading,
+    isFetching,
     error,
     sessionStatus,
     failureReason,
@@ -330,7 +331,14 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
         <section className={styles.transcriptPane}>
           <div ref={scrollRef} tabIndex={-1} className={styles.transcript} onScroll={handleScroll}>
             {messages.length === 0 && !delta ? (
-              <EmptyState title={t('transcript.empty')} />
+              isFetching ? (
+                <div className={styles.transcriptLoading} role="status" aria-live="polite">
+                  <Spin size="small" />
+                  <span>{t('transcript.loading')}</span>
+                </div>
+              ) : (
+                <EmptyState title={t('transcript.empty')} />
+              )
             ) : (
               <>
                 {windowStart > 0 && (
@@ -358,6 +366,15 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
               </div>
             )}
           </div>
+          {/* A refetch replaces cached rows only when it lands; until then the
+              list looks settled. The chip reports the read in flight without
+              shifting rows (it overlays the pane). */}
+          {isFetching && (messages.length > 0 || !!delta) && (
+            <div className={styles.transcriptSyncing} role="status" aria-live="polite">
+              <Spin size="small" />
+              <span>{t('transcript.loading')}</span>
+            </div>
+          )}
           {!atBottom && (
             <div className={styles.jumpWrap}>
               <Button size="small" onClick={jumpToLatest}>

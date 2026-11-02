@@ -70,6 +70,8 @@ function renderView(
     cancel?: () => Promise<Response>
     connected?: boolean
     messages?: unknown
+    /** Overrides the messages response per call (deferred reads in tests). */
+    messagesFetch?: () => Promise<Response>
     partial?: string
     thought?: string
     subtasks?: unknown[]
@@ -83,7 +85,7 @@ function renderView(
     const url = String(input)
     if (url === '/api/sessions/s-1') return Promise.resolve(json(snapshot))
     if (url.startsWith('/api/sessions/s-1/messages'))
-      return Promise.resolve(json(opts.messages ?? []))
+      return opts.messagesFetch ? opts.messagesFetch() : Promise.resolve(json(opts.messages ?? []))
     if (url.startsWith('/api/sessions/s-1/events')) return Promise.resolve(json([]))
     if (url === '/api/nodes') return Promise.resolve(json([]))
     if (url.startsWith('/api/tasks/t-1/subtasks'))
@@ -94,13 +96,13 @@ function renderView(
     throw new Error(`unexpected fetch: ${url}`)
   })
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const tree = (connected: boolean) => (
     <QueryClientProvider client={client}>
       <MemoryRouter>
         <WebSocketContext.Provider
           value={{
-            connected: opts.connected ?? false,
-            connectionState: opts.connected ? 'open' : 'closed',
+            connected,
+            connectionState: connected ? 'open' : 'closed',
             error: null,
             subscribe: opts.subscribe ?? (() => () => {}),
           }}
@@ -110,6 +112,10 @@ function renderView(
       </MemoryRouter>
     </QueryClientProvider>
   )
+  const result = render(tree(opts.connected ?? false))
+  // `tree` lets a test rerender the same providers with a different socket
+  // state (e.g. a reconnect that refetches the transcript).
+  return { ...result, tree }
 }
 
 const json = (body: unknown, status = 200) =>
@@ -390,6 +396,37 @@ describe('SessionView subtasks', () => {
       fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/tasks/t-1/subtasks'))
         .length
     ).toBe(before)
+  })
+})
+
+describe('SessionView transcript loading', () => {
+  it('shows a reading indicator instead of an empty transcript while a refetch is in flight', async () => {
+    let resolveRead: ((response: Response) => void) | undefined
+    let reads = 0
+    const view = renderView('done', {
+      messagesFetch: () => {
+        reads += 1
+        if (reads === 1) return Promise.resolve(json([]))
+        // ES2023 (tsconfig lib) lacks Promise.withResolvers; hold the resolver
+        // to finish this read after the assertion.
+        return new Promise<Response>((resolve) => {
+          resolveRead = resolve
+        })
+      },
+    })
+
+    // A settled empty read is the agent genuinely saying nothing yet.
+    expect(await screen.findByText("The agent hasn't said anything yet.")).toBeTruthy()
+
+    // A reconnect re-reads the node transcript; until it lands the pane must
+    // not claim the session is silent.
+    view.rerender(view.tree(true))
+    expect(await screen.findByText('Loading messages…')).toBeTruthy()
+    expect(screen.queryByText("The agent hasn't said anything yet.")).toBeNull()
+
+    resolveRead?.(json([]))
+    await waitFor(() => expect(screen.queryByText('Loading messages…')).toBeNull())
+    expect(screen.getByText("The agent hasn't said anything yet.")).toBeTruthy()
   })
 })
 

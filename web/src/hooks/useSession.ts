@@ -50,6 +50,7 @@ export function useSession(sessionId: string) {
   const {
     data: messages,
     isLoading,
+    isFetching,
     error,
   } = useQuery({
     queryKey: ['messages', sessionId],
@@ -372,6 +373,9 @@ export function useSession(sessionId: string) {
     delta,
     thought,
     isLoading,
+    // A refetch (WS reconnect, gap-fill) keeps the cached rows on screen while
+    // the node reads the transcript; callers surface it as a loading state.
+    isFetching,
     error,
     sessionStatus,
     failureReason,
