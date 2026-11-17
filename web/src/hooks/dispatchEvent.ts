@@ -8,6 +8,7 @@ import type {
   SubtaskUpdated,
   SessionDelta,
   SessionMessage,
+  SessionCommands,
   SessionStateChanged,
   SessionThought,
   SessionUsage,
@@ -31,6 +32,7 @@ export type DispatchedEvent =
   | { type: 'session.state_changed'; data: SessionStateChanged }
   | { type: 'session.user_input_requested'; data: SessionUserInputRequested }
   | { type: 'session.usage'; data: SessionUsage }
+  | { type: 'session.commands'; data: SessionCommands }
 
 function hasString(obj: Record<string, unknown>, key: string): boolean {
   return typeof obj[key] === 'string'
@@ -123,6 +125,12 @@ export function dispatchEvent(evt: ProtocolEvent): DispatchedEvent | null {
         return malformed(evt.type)
       }
       return { type: 'session.usage', data: data as unknown as SessionUsage }
+
+    case 'session.commands':
+      if (!hasString(data, 'session_id') || !Array.isArray(data.commands)) {
+        return malformed(evt.type)
+      }
+      return { type: 'session.commands', data: data as unknown as SessionCommands }
 
     default:
       return null

@@ -30,6 +30,10 @@ type sessionText struct {
 	PartialOutput  []byte             `json:"partial_output,omitempty"`
 	PartialThought string             `json:"partial_thought,omitempty"`
 	PendingInput   string             `json:"pending_input,omitempty"`
+	// Commands is the slash-command list the agent last advertised. It is
+	// session metadata, not content: the composer uses it for discovery and
+	// completion, and an invocation is sent as ordinary prompt text.
+	Commands []protocol.SessionCommand `json:"commands,omitempty"`
 }
 
 // textBufferEntry is one TTL'd slot in the hub's text buffer.
@@ -176,6 +180,14 @@ func (h *Hub) appendThoughtText(sessionID, text string) {
 func (h *Hub) setPendingInput(ctx context.Context, sessionID, prompt string) {
 	h.updateTextBuffer(ctx, sessionID, func(st *sessionText) {
 		st.PendingInput = prompt
+	})
+}
+
+// setSessionCommands replaces the buffered slash-command list. The copy keeps
+// the buffer independent of the event payload the caller still broadcasts.
+func (h *Hub) setSessionCommands(ctx context.Context, sessionID string, commands []protocol.SessionCommand) {
+	h.updateTextBuffer(ctx, sessionID, func(st *sessionText) {
+		st.Commands = append([]protocol.SessionCommand(nil), commands...)
 	})
 }
 

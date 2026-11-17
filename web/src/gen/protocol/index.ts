@@ -14,6 +14,8 @@ export interface ProtocolSchema {
   RegisterResponse?: RegisterResponse;
   SendMessageCommand?: SendMessageCommand;
   Session?: Session;
+  SessionCommand?: SessionCommand;
+  SessionCommands?: SessionCommands;
   SessionDelta?: SessionDelta;
   SessionHistoryRequest?: SessionHistoryRequest;
   SessionHistoryResponse?: SessionHistoryResponse;
@@ -112,6 +114,15 @@ export interface Session {
   error?: string;
   created_at: string;
   ended_at?: string;
+}
+export interface SessionCommand {
+  name: string;
+  description: string;
+  input_hint?: string;
+}
+export interface SessionCommands {
+  session_id: string;
+  commands: SessionCommand[];
 }
 export interface SessionDelta {
   session_id: string;

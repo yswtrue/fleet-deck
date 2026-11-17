@@ -52,6 +52,9 @@ func (h *Hub) routes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/workspaces", h.requireAuth(h.handleListWorkspaces))
 	mux.HandleFunc("GET /api/workspaces/{id}", h.requireWorkspaceAccess(h.handleGetWorkspace))
+	// Last command list an agent type advertised in this workspace, used by
+	// the new-task prompt before its session exists.
+	mux.HandleFunc("GET /api/workspaces/{id}/commands", h.requireWorkspaceAccess(h.handleWorkspaceCommands))
 	mux.HandleFunc("POST /api/workspaces", h.requireAuth(h.handleCreateWorkspace))
 	mux.HandleFunc("PATCH /api/workspaces/{id}", h.requireWorkspaceAccess(h.handlePatchWorkspace))
 	mux.HandleFunc("DELETE /api/workspaces/{id}", h.requireWorkspaceAccess(h.handleDeleteWorkspace))
@@ -243,6 +246,36 @@ func (h *Hub) handleGetWorkspace(w http.ResponseWriter, r *http.Request, id stri
 		return
 	}
 	writeJSON(w, http.StatusOK, workspace)
+}
+
+// workspaceCommandsResponse is GET /api/workspaces/{id}/commands: the last
+// command list the requested agent type advertised in the workspace. An empty
+// list is a valid answer (no session of that type has run yet).
+type workspaceCommandsResponse struct {
+	Commands []protocol.SessionCommand `json:"commands"`
+}
+
+// handleWorkspaceCommands serves the new-task form's slash-command hints.
+// Commands are advertised per session, so a task that has not started has no
+// list of its own; the last list seen for the same workspace and agent type is
+// the best available prediction. It only drives completion — the prompt text
+// is still sent as-is and the agent decides what a command means.
+func (h *Hub) handleWorkspaceCommands(w http.ResponseWriter, r *http.Request, id string) {
+	agentType := strings.TrimSpace(r.URL.Query().Get("agent_type"))
+	if agentType == "" {
+		writeError(w, http.StatusBadRequest, "agent_type is required")
+		return
+	}
+	commands, ok, err := h.store.Queries().LatestSessionCommands(r.Context(), id, agentType)
+	if err != nil {
+		h.log.Warn("read workspace commands", "workspace_id", id, "agent_type", agentType, "err", err)
+		writeError(w, http.StatusInternalServerError, "could not read commands")
+		return
+	}
+	if !ok || commands == nil {
+		commands = []protocol.SessionCommand{}
+	}
+	writeJSON(w, http.StatusOK, workspaceCommandsResponse{Commands: commands})
 }
 
 // handlePatchWorkspace updates the workspace name and/or its permission
@@ -1098,6 +1131,10 @@ type sessionSnapshot struct {
 	PendingInput   string           `json:"pending_input"`
 	PartialOutput  string           `json:"partial_output"`
 	PartialThought string           `json:"partial_thought"`
+	// Commands is the agent-advertised slash-command list (empty when the
+	// agent advertises none). The composer offers them for discovery; the
+	// command is sent as ordinary prompt text.
+	Commands []protocol.SessionCommand `json:"commands"`
 }
 
 // snapshotNeedsNodeText reports whether the hub buffer has no live text for a
@@ -1144,11 +1181,16 @@ func (h *Hub) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	commands := buffered.Commands
+	if commands == nil {
+		commands = []protocol.SessionCommand{}
+	}
 	snapshot := sessionSnapshot{
 		Session:        session,
 		PendingInput:   pendingInput,
 		PartialOutput:  partial,
 		PartialThought: partialThought,
+		Commands:       commands,
 	}
 	// The parent task should always exist (session.task_id is a FK), but resolve
 	// defensively: an unresolvable task yields JSON null rather than an error.

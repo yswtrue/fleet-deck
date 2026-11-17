@@ -1,0 +1,4 @@
+/* Anchor for the slash-command completion list above the prompt field. */
+.promptWrap {
+  position: relative;
+}

@@ -66,6 +66,7 @@
     "queuePlaceholder": "Queue a message… (runs after the current turn)",
     "queueHint": "The message waits until the current turn finishes, then runs as the next prompt without interrupting the agent.",
     "queuedToast": "Message queued for after the current turn",
+    "commandMenu": "Slash commands",
     "send": "Send",
     "sendError": "Reply not sent",
     "sendErrorDetail": "Reply not sent: {{message}}"

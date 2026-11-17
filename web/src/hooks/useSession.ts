@@ -10,6 +10,7 @@ import type { ElicitationRequest } from '../elicitation.ts'
 import type {
   Event as ProtocolEvent,
   Message,
+  SessionCommand,
   SessionStateChanged,
   Task,
 } from '../gen/protocol/index.ts'
@@ -73,6 +74,10 @@ export function useSession(sessionId: string) {
   const [pendingPermission, setPendingPermission] = useState<PermissionRequest | null>(null)
   // pendingElicitation is the structured ACP form ask awaiting submit/decline.
   const [pendingElicitation, setPendingElicitation] = useState<ElicitationRequest | null>(null)
+  // commands is the slash-command list the agent advertises for this session.
+  // It is discovery metadata only: picking one inserts its text, and the send
+  // path carries it as an ordinary prompt.
+  const [commands, setCommands] = useState<SessionCommand[]>([])
   const flushRef = useRef<number | null>(null)
   const pendingRef = useRef('')
   const thoughtFlushRef = useRef<number | null>(null)
@@ -219,6 +224,12 @@ export function useSession(sessionId: string) {
           void queryClient.invalidateQueries({ queryKey: ['stats-tokens'] })
           break
         }
+        case 'session.commands': {
+          const { session_id, commands: next } = evt.data
+          if (session_id !== sessionId) return
+          setCommands(next)
+          break
+        }
         default:
           break
       }
@@ -301,6 +312,13 @@ export function useSession(sessionId: string) {
         const permission = pending ? parsePermissionRequest(pending) : null
         setPendingPermission(permission)
         setPendingElicitation(pending && !permission ? parseElicitationRequest(pending) : null)
+        // The agent's command list is session metadata buffered by the hub.
+        // Keep a live list that arrived during this read: the snapshot may
+        // predate it.
+        const snapshotCommands = snapshot.commands ?? []
+        if (snapshotCommands.length > 0) {
+          setCommands((current) => (current.length > 0 ? current : snapshotCommands))
+        }
         const task = snapshot.task
         if (!task) return
         queryClient.setQueryData<Task[]>(['tasks', task.workspace_id], (prev) => {
@@ -381,6 +399,7 @@ export function useSession(sessionId: string) {
     failureReason,
     pendingPermission,
     pendingElicitation,
+    commands,
     send,
     cancel,
   }

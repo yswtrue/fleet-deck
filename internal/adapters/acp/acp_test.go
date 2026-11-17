@@ -44,6 +44,7 @@ type recorder struct {
 	userCh    chan string
 	toolCh    chan adapters.ToolCall
 	stateCh   chan protocol.SessionStatus
+	commandCh chan []protocol.SessionCommand
 }
 
 func newRecorder() *recorder {
@@ -57,6 +58,7 @@ func newRecorder() *recorder {
 		userCh:    make(chan string, 4),
 		toolCh:    make(chan adapters.ToolCall, 8),
 		stateCh:   make(chan protocol.SessionStatus, 64),
+		commandCh: make(chan []protocol.SessionCommand, 8),
 	}
 }
 
@@ -109,6 +111,16 @@ func (r *recorder) ToolCall(_ context.Context, _ string, call adapters.ToolCall)
 	r.record(recEvent{kind: "tool_call", text: call.Title})
 	select {
 	case r.toolCh <- call:
+	default:
+	}
+}
+
+// Commands records the slash-command list the agent advertised (CommandSink).
+func (r *recorder) Commands(_ context.Context, _ string, commands []protocol.SessionCommand) {
+	cp := append([]protocol.SessionCommand(nil), commands...)
+	r.record(recEvent{kind: "commands"})
+	select {
+	case r.commandCh <- cp:
 	default:
 	}
 }
@@ -1822,6 +1834,92 @@ func TestSessionInfoTitleMapping(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("session title was not reported")
+	}
+}
+
+// available_commands_update advertises the session's slash commands. The list
+// is relayed verbatim (minus the leading slash some agents include); commands
+// run as ordinary prompts, so the adapter adds no invocation logic.
+func TestAvailableCommandsMapping(t *testing.T) {
+	a := New("fake")
+	rec := newRecorder()
+	params, _ := json.Marshal(map[string]any{
+		"sessionId": "sess-1",
+		"update": map[string]any{
+			"sessionUpdate": "available_commands_update",
+			"availableCommands": []map[string]any{
+				{"name": "compact", "description": "Compact the conversation"},
+				{"name": "/model", "description": "Switch model",
+					"input": map[string]any{"hint": "provider/model"}},
+				{"name": "", "description": "ignored"},
+			},
+		},
+	})
+	a.handleNotification(context.Background(), "sess-1", rec, inbound{
+		Method: "session/update",
+		Params: params,
+	})
+
+	select {
+	case got := <-rec.commandCh:
+		want := []protocol.SessionCommand{
+			{Name: "compact", Description: "Compact the conversation"},
+			{Name: "model", Description: "Switch model", InputHint: "provider/model"},
+		}
+		if len(got) != len(want) {
+			t.Fatalf("commands = %+v, want %+v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("command[%d] = %+v, want %+v", i, got[i], want[i])
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("advertised commands were not reported")
+	}
+}
+
+// An agent sends available_commands_update right after opening the session,
+// which on a resume is inside the session/load replay window. That window
+// suppresses live output, but the command list is metadata and must reach the
+// composer. A history replay run must still ignore it.
+func TestAvailableCommandsSurviveResumeReplayWindow(t *testing.T) {
+	a := New("fake")
+	rec := newRecorder()
+	a.loading.Store(true)
+	params, _ := json.Marshal(map[string]any{
+		"sessionId": "sess-1",
+		"update": map[string]any{
+			"sessionUpdate": "available_commands_update",
+			"availableCommands": []map[string]any{
+				{"name": "plan", "description": "Create a plan"},
+			},
+		},
+	})
+	a.handleNotification(context.Background(), "sess-1", rec, inbound{
+		Method: "session/update",
+		Params: params,
+	})
+	select {
+	case got := <-rec.commandCh:
+		if len(got) != 1 || got[0].Name != "plan" {
+			t.Fatalf("commands = %+v, want the resumed session's list", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("commands dropped during the session/load window")
+	}
+
+	// A standalone history replay must not pollute the live session's state.
+	asm := &replayAssembler{sessionID: "sess-1"}
+	a.replayAsm = asm
+	a.handleNotification(context.Background(), "sess-1", rec, inbound{
+		Method: "session/update",
+		Params: params,
+	})
+	select {
+	case got := <-rec.commandCh:
+		t.Fatalf("replay run reported commands: %+v", got)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

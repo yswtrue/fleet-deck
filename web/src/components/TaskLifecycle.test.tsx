@@ -181,6 +181,44 @@ describe('NewTaskForm agent type', () => {
   })
 })
 
+describe('NewTaskForm slash commands', () => {
+  it('offers the workspace’s last known commands before a session exists', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url === '/api/nodes/n-1') return Promise.resolve(json(node))
+      if (url === '/api/workspaces/w-1/commands?agent_type=codex') {
+        return Promise.resolve(
+          json({
+            commands: [
+              { name: 'compact', description: 'Compact the conversation' },
+              { name: 'model', description: 'Switch model', input_hint: 'provider/model' },
+            ],
+          })
+        )
+      }
+      return Promise.resolve(json(createdTask()))
+    })
+    renderWithProviders(<NewTaskForm workspaceId="w-1" nodeId="n-1" onClose={() => {}} />)
+    await waitForAgentDefault()
+
+    const prompt = screen.getByPlaceholderText('Describe the task in detail…')
+    fireEvent.change(prompt, { target: { value: '/co' } })
+    const menu = await screen.findByRole('listbox', { name: 'Slash commands' })
+    expect(within(menu).getByText('/compact')).toBeTruthy()
+    expect(within(menu).queryByText('/model')).toBeNull()
+
+    // Enter picks the highlighted command instead of leaving the field.
+    fireEvent.keyDown(prompt, { key: 'Enter' })
+    expect((prompt as HTMLTextAreaElement).value).toBe('/compact ')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(taskPost()).toBeTruthy())
+    // The picker inserts `/name ` (room for arguments); the form sends the
+    // field as typed, so the trailing space is part of the prompt.
+    expect(JSON.parse(String(taskPost()?.[1]?.body))).toMatchObject({ prompt: '/compact ' })
+  })
+})
+
 describe('NewTaskForm title', () => {
   it('leaves the title empty and omits it from the create body', async () => {
     mockFormFetch()

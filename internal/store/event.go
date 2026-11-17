@@ -2,8 +2,13 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
+	"fleetdeck/internal/protocol"
 	"fleetdeck/internal/store/sqlcgen"
 )
 
@@ -35,6 +40,29 @@ func (q *Queries) ListEventsBySession(ctx context.Context, sessionID string, aft
 		return nil, fmt.Errorf("store: list events by session: %w", err)
 	}
 	return eventsFromRows(rows), nil
+}
+
+// LatestSessionCommands returns the slash-command list the agent type most
+// recently advertised in a workspace. Commands are session-scoped metadata
+// persisted as ordinary events; the task form reads the last known list as
+// completion hints before the new session has advertised its own. ok is false
+// when no session of that agent type has reported a list in the workspace.
+func (q *Queries) LatestSessionCommands(ctx context.Context, workspaceID, agentType string) (commands []protocol.SessionCommand, ok bool, err error) {
+	payload, err := q.q.LatestWorkspaceCommands(ctx, sqlcgen.LatestWorkspaceCommandsParams{
+		WorkspaceID: workspaceID,
+		AgentType:   agentType,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("store: latest session commands: %w", err)
+	}
+	var stored protocol.SessionCommands
+	if err := json.Unmarshal(payload, &stored); err != nil {
+		return nil, false, fmt.Errorf("store: decode session commands: %w", err)
+	}
+	return stored.Commands, true, nil
 }
 
 // MaxEventSeq returns the highest sequence number in a session's stream, or 0

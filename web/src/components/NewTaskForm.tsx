@@ -2,8 +2,11 @@ import { useEffect, useMemo } from 'react'
 import { Modal, Form, Input, Button, Select, Switch } from 'antd'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm } from '@refinedev/antd'
+import { SlashCommandMenu } from './SlashCommandMenu.tsx'
 import { useHubApi } from '../hooks/useHubApi.ts'
+import { useSlashCommands } from '../hooks/useSlashCommands.ts'
 import { useTranslation } from '../i18n/index.ts'
+import styles from './NewTaskForm.module.css'
 
 interface NewTaskFormProps {
   workspaceId: string
@@ -45,6 +48,23 @@ export function NewTaskForm({ workspaceId, nodeId, onClose }: NewTaskFormProps) 
       queryClient.invalidateQueries({ queryKey: ['tasks-by-workspace'] })
       onClose()
     },
+  })
+  const promptValue = Form.useWatch<string>('prompt', form)
+  const agentType = Form.useWatch<string>('agent_type', form)
+  // The task's own session does not exist yet, so it cannot advertise
+  // commands. The hub serves the last list the same agent type advertised in
+  // this workspace as completion hints; an empty list means none has run yet.
+  const { data: workspaceCommands } = useQuery({
+    queryKey: ['workspace-commands', workspaceId, agentType],
+    queryFn: () => api.getWorkspaceCommands(workspaceId, agentType as string),
+    enabled: !!agentType,
+    staleTime: 5 * 60 * 1000,
+  })
+  const slash = useSlashCommands({
+    value: promptValue ?? '',
+    commands: workspaceCommands ?? [],
+    enabled: true,
+    onPick: (text) => form.setFieldValue('prompt', text),
   })
 
   // Seed the default agent once the node's registered list arrives. antd only
@@ -97,13 +117,30 @@ export function NewTaskForm({ workspaceId, nodeId, onClose }: NewTaskFormProps) 
         </Form.Item>
         {/* Required: a task without an instruction opens an agent session that
             never receives a prompt, so it would sit in "running" forever. */}
-        <Form.Item
-          label={t('form.promptLabel')}
-          name="prompt"
-          rules={[{ required: true, whitespace: true, message: t('form.promptRequired') }]}
-        >
-          <Input.TextArea rows={5} placeholder={t('form.promptPlaceholder')} />
-        </Form.Item>
+        <div className={styles.promptWrap}>
+          <Form.Item
+            label={t('form.promptLabel')}
+            name="prompt"
+            rules={[{ required: true, whitespace: true, message: t('form.promptRequired') }]}
+          >
+            <Input.TextArea
+              rows={5}
+              placeholder={t('form.promptPlaceholder')}
+              onKeyDown={(event) => {
+                slash.handleKeyDown(event)
+              }}
+            />
+          </Form.Item>
+          {slash.open && (
+            <SlashCommandMenu
+              commands={slash.matches}
+              activeIndex={slash.activeIndex}
+              label={t('form.commandMenu')}
+              onPick={slash.pick}
+              onHover={slash.setActiveIndex}
+            />
+          )}
+        </div>
         <Form.Item
           label={t('form.agentLabel')}
           name="agent_type"

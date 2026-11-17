@@ -146,6 +146,15 @@ type TitleSink interface {
 	Title(ctx context.Context, sessionID, title string)
 }
 
+// CommandSink is implemented by event sinks that can carry the slash commands
+// an agent advertises for its session (ACP `available_commands_update`). It is
+// optional: sinks that do not implement it lose the command list, and the
+// operator can still type a command as plain prompt text. Each call carries
+// the full list; the agent may update it at any time.
+type CommandSink interface {
+	Commands(ctx context.Context, sessionID string, commands []protocol.SessionCommand)
+}
+
 // ToolCall is one tool invocation reported by an agent. ID is stable across
 // the call's lifecycle updates (ACP toolCallId); Title/Kind/Status may arrive
 // progressively, and an update with an empty field leaves the prior value

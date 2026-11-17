@@ -91,6 +91,8 @@ func schemaCmd(args []string) {
 		"SessionStateChanged":       protocol.SessionStateChanged{},
 		"SessionUserInputRequested": protocol.SessionUserInputRequested{},
 		"SessionUsage":              protocol.SessionUsage{},
+		"SessionCommand":            protocol.SessionCommand{},
+		"SessionCommands":           protocol.SessionCommands{},
 		"TokenUsageStats":           protocol.TokenUsageStats{},
 		"TokenUsageTotals":          protocol.TokenUsageTotals{},
 		"TokenUsageByModel":         protocol.TokenUsageByModel{},

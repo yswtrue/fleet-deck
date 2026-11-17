@@ -86,6 +86,7 @@
     "autoStartLabel": "Start immediately",
     "autoStartHelp": "Off creates a backlog task: it waits until you start it.",
     "promptRequired": "Please describe what the agent should do",
+    "commandMenu": "Slash commands",
     "titleHelp": "Leave empty and the agent names the task; the first prompt line is shown until then."
   },
   "subtask": {

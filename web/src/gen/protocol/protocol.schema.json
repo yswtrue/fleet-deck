@@ -364,6 +364,67 @@
         "created_at"
       ]
     },
+    "SessionCommand": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input_hint": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "description"
+      ]
+    },
+    "SessionCommands": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$defs": {
+        "SessionCommand": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "input_hint": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "name",
+            "description"
+          ]
+        }
+      },
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/SessionCommand"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "session_id",
+        "commands"
+      ]
+    },
     "SessionDelta": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {

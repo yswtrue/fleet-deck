@@ -395,6 +395,11 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 			if json.Unmarshal(we.Data, &u) == nil {
 				h.applyUsage(ctx, sessionID, u)
 			}
+		case protocol.EvSessionCommands:
+			var c protocol.SessionCommands
+			if json.Unmarshal(we.Data, &c) == nil {
+				h.setSessionCommands(ctx, sessionID, c.Commands)
+			}
 		}
 		if persistEvent(we.Type) {
 			payload := we.Data
@@ -420,7 +425,8 @@ func (h *Hub) applyEvent(ctx context.Context, we wireEvent) {
 // events — session.delta, session.message — are deliberately excluded.
 func persistEvent(eventType string) bool {
 	switch eventType {
-	case protocol.EvSessionStateChanged, protocol.EvSessionUserInputRequest, protocol.EvSessionUsage:
+	case protocol.EvSessionStateChanged, protocol.EvSessionUserInputRequest, protocol.EvSessionUsage,
+		protocol.EvSessionCommands:
 		return true
 	}
 	return false
@@ -712,6 +718,10 @@ func sessionIDOf(we wireEvent) string {
 		var u protocol.SessionUsage
 		_ = json.Unmarshal(we.Data, &u)
 		return u.SessionID
+	case protocol.EvSessionCommands:
+		var c protocol.SessionCommands
+		_ = json.Unmarshal(we.Data, &c)
+		return c.SessionID
 	default:
 		return ""
 	}
@@ -762,7 +772,7 @@ func (h *Hub) eventNodeID(evt protocol.Event) string {
 		}
 	case protocol.EvSessionDelta, protocol.EvSessionMessage,
 		protocol.EvSessionStateChanged, protocol.EvSessionUserInputRequest,
-		protocol.EvSessionUsage:
+		protocol.EvSessionUsage, protocol.EvSessionCommands:
 		var d struct {
 			SessionID string `json:"session_id"`
 		}

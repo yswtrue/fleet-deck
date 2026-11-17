@@ -37,6 +37,11 @@ const (
 	EvSessionStateChanged     = "session.state_changed"
 	EvSessionUserInputRequest = "session.user_input_requested"
 	EvSessionUsage            = "session.usage"
+	// EvSessionCommands reports the slash commands the agent advertises for a
+	// session (ACP available_commands_update). Commands are invoked by sending
+	// their text as a normal prompt; the list only drives discovery in the
+	// composer.
+	EvSessionCommands = "session.commands"
 )
 
 // ---- Hub -> Web event payloads -------------------------------------------
@@ -127,6 +132,24 @@ type SessionUsage struct {
 	TotalTokens       int64  `json:"total_tokens"`
 	CachedReadTokens  *int64 `json:"cached_read_tokens,omitempty"`
 	CachedWriteTokens *int64 `json:"cached_write_tokens,omitempty"`
+}
+
+// SessionCommand is one slash command an agent advertises for a session
+// (ACP `available_commands_update`). Name is the command without its leading
+// slash; InputHint is the agent's hint for the argument, empty when the
+// command takes none.
+type SessionCommand struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	InputHint   string `json:"input_hint,omitempty"`
+}
+
+// SessionCommands carries the session's full command list. Each update
+// replaces the previous list: the agent may add, remove, or reword commands
+// during a session.
+type SessionCommands struct {
+	SessionID string           `json:"session_id"`
+	Commands  []SessionCommand `json:"commands"`
 }
 
 // ---- Hub <-> Node messages ------------------------------------------------

@@ -15,6 +15,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SessionView } from './SessionView.tsx'
 import { WebSocketContext } from '../hooks/WebSocketContext.ts'
 import type { SessionSnapshot } from '../apiClient.ts'
+import type { SessionCommand } from '../gen/protocol/index.ts'
 
 const fetchMock = vi.fn()
 vi.stubGlobal('fetch', fetchMock)
@@ -59,6 +60,7 @@ function snapshotWith(
     pending_input: '',
     partial_output: partial,
     partial_thought: thought,
+    commands: [],
   } as unknown as SessionSnapshot
 }
 
@@ -76,11 +78,13 @@ function renderView(
     thought?: string
     subtasks?: unknown[]
     failure?: string
+    commands?: SessionCommand[]
     subscribe?: (handler: (event: never) => void) => () => void
   } = {}
 ) {
   const snapshot = snapshotWith(sessionStatus, opts.partial, opts.thought, opts.failure)
   if (opts.pending) snapshot.pending_input = opts.pending
+  if (opts.commands) snapshot.commands = opts.commands
   fetchMock.mockImplementation((input: unknown) => {
     const url = String(input)
     if (url === '/api/sessions/s-1') return Promise.resolve(json(snapshot))
@@ -137,6 +141,60 @@ describe.each(['done', 'failed'] as const)('SessionView finished session (%s)', 
     expect(sendCall?.[1]).toMatchObject({
       method: 'POST',
       body: JSON.stringify({ message: 'one more thing' }),
+    })
+  })
+})
+
+describe('SessionView slash commands', () => {
+  it('offers advertised commands and sends the picked one as a prompt', async () => {
+    renderView('done', {
+      connected: true,
+      commands: [
+        { name: 'compact', description: 'Compact the conversation' },
+        { name: 'model', description: 'Switch model', input_hint: 'provider/model' },
+      ],
+    })
+    const box = await screen.findByPlaceholderText(
+      'Continue the conversation… (Enter to send, Shift+Enter for a new line)'
+    )
+    fireEvent.change(box, { target: { value: '/co' } })
+
+    const menu = await screen.findByRole('listbox', { name: 'Slash commands' })
+    expect(within(menu).getByText('/compact')).toBeTruthy()
+    expect(within(menu).queryByText('/model')).toBeNull()
+
+    // Enter picks the highlighted command instead of sending the prefix.
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect((box as HTMLTextAreaElement).value).toBe('/compact ')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(true)
+    )
+    const sendCall = fetchMock.mock.calls.find(([url]) => url === '/api/sessions/s-1/send')
+    expect(sendCall?.[1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ message: '/compact' }),
+    })
+  })
+
+  it('leaves ordinary text unslashed and sendable', async () => {
+    renderView('done', {
+      connected: true,
+      commands: [{ name: 'compact', description: 'Compact the conversation' }],
+    })
+    const box = await screen.findByPlaceholderText(
+      'Continue the conversation… (Enter to send, Shift+Enter for a new line)'
+    )
+    fireEvent.change(box, { target: { value: 'plain instruction' } })
+    expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull()
+    fireEvent.keyDown(box, { key: 'Enter' })
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => url === '/api/sessions/s-1/send')).toBe(true)
+    )
+    const sendCall = fetchMock.mock.calls.find(([url]) => url === '/api/sessions/s-1/send')
+    expect(sendCall?.[1]).toMatchObject({
+      body: JSON.stringify({ message: 'plain instruction' }),
     })
   })
 })

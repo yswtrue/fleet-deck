@@ -741,6 +741,121 @@ func TestEvSessionThoughtSurvivesReload(t *testing.T) {
 	}
 }
 
+// TestEvSessionCommandsSurviveReload pins slash-command discovery across a
+// reload: the agent's advertised command list is buffered for the snapshot and
+// persisted so the page's event replay restores it after a hub restart.
+func TestEvSessionCommandsSurviveReload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("commands-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	want := []protocol.SessionCommand{
+		{Name: "compact", Description: "Compact the conversation"},
+		{Name: "model", Description: "Switch model", InputHint: "provider/model"},
+	}
+	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+		Type: protocol.EvSessionCommands,
+		Data: protocol.SessionCommands{SessionID: task.SessionID, Commands: want},
+		Ts:   time.Now().UTC(),
+	})); err != nil {
+		t.Fatalf("send commands: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		resp, raw := getRaw(t, auth.token, ts.URL+"/api/sessions/"+task.SessionID)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("snapshot status = %d; body=%s", resp.StatusCode, raw)
+		}
+		var snap sessionSnapshot
+		if err := json.Unmarshal(raw, &snap); err != nil {
+			t.Fatalf("decode snapshot: %v (%s)", err, raw)
+		}
+		if len(snap.Commands) == len(want) {
+			for i := range want {
+				if snap.Commands[i] != want[i] {
+					t.Fatalf("command[%d] = %+v, want %+v", i, snap.Commands[i], want[i])
+				}
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("commands never reached the session snapshot (got %+v)", snap.Commands)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestWorkspaceCommandsEndpoint serves the new-task form: a task that has not
+// started has no session, so the last list the selected agent type advertised
+// in the workspace is the completion source. An unseen agent type is an empty
+// list, not an error.
+func TestWorkspaceCommandsEndpoint(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, auth := newTestHub(t)
+	c, nodeID := dialNode(t, ts, st, uniqueName("ws-commands-node"))
+	defer func() { _ = c.Close() }()
+
+	task := createWorkspaceAndTask(t, auth.token, ts, nodeID)
+	want := []protocol.SessionCommand{
+		{Name: "compact", Description: "Compact the conversation"},
+		{Name: "model", Description: "Switch model", InputHint: "provider/model"},
+	}
+	if err := c.WriteJSON(protocol.NewEnvelope(protocol.MsgEvent, protocol.Event{
+		Type: protocol.EvSessionCommands,
+		Data: protocol.SessionCommands{SessionID: task.SessionID, Commands: want},
+		Ts:   time.Now().UTC(),
+	})); err != nil {
+		t.Fatalf("send commands: %v", err)
+	}
+
+	url := ts.URL + "/api/workspaces/" + task.WorkspaceID + "/commands?agent_type=fake"
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		resp, raw := getRaw(t, auth.token, url)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("commands status = %d; body=%s", resp.StatusCode, raw)
+		}
+		got := decodeOK[workspaceCommandsResponse](t, "GET /api/workspaces/{id}/commands", resp, raw)
+		if len(got.Commands) == len(want) {
+			for i := range want {
+				if got.Commands[i] != want[i] {
+					t.Fatalf("command[%d] = %+v, want %+v", i, got.Commands[i], want[i])
+				}
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("commands never reached the workspace endpoint (got %+v)", got.Commands)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Another agent type has advertised nothing in this workspace.
+	resp, raw := getRaw(t, auth.token, ts.URL+"/api/workspaces/"+task.WorkspaceID+"/commands?agent_type=omp")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("empty commands status = %d; body=%s", resp.StatusCode, raw)
+	}
+	empty := decodeOK[workspaceCommandsResponse](t, "GET /api/workspaces/{id}/commands", resp, raw)
+	if len(empty.Commands) != 0 {
+		t.Fatalf("commands for an unseen agent type = %+v, want empty", empty.Commands)
+	}
+
+	// The agent type selects the cache key; it is required.
+	resp, raw = getRaw(t, auth.token, ts.URL+"/api/workspaces/"+task.WorkspaceID+"/commands")
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing agent_type status = %d, want 400; body=%s", resp.StatusCode, raw)
+	}
+}
+
 func postJSON[T any](t *testing.T, token, url string, body any) T {
 	t.Helper()
 	resp, raw := postRaw(t, token, url, body)

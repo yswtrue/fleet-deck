@@ -41,6 +41,33 @@ func (q *Queries) AppendEvent(ctx context.Context, arg AppendEventParams) (Event
 	return i, err
 }
 
+const latestWorkspaceCommands = `-- name: LatestWorkspaceCommands :one
+SELECT e.payload_json
+FROM event e
+JOIN session s ON s.id = e.session_id
+JOIN task t ON t.id = s.task_id
+WHERE t.workspace_id = $1
+  AND s.agent_type = $2
+  AND e.type = 'session.commands'
+ORDER BY e.ts DESC
+LIMIT 1
+`
+
+type LatestWorkspaceCommandsParams struct {
+	WorkspaceID string
+	AgentType   string
+}
+
+// The most recent command list advertised by one agent type in a workspace.
+// Command lists are session-scoped; the task form uses the last known list as
+// completion hints before the new session has advertised its own.
+func (q *Queries) LatestWorkspaceCommands(ctx context.Context, arg LatestWorkspaceCommandsParams) ([]byte, error) {
+	row := q.db.QueryRow(ctx, latestWorkspaceCommands, arg.WorkspaceID, arg.AgentType)
+	var payload_json []byte
+	err := row.Scan(&payload_json)
+	return payload_json, err
+}
+
 const listEventsBySession = `-- name: ListEventsBySession :many
 SELECT id, session_id, type, payload_json, seq, ts FROM event
 WHERE session_id = $1 AND seq > $2

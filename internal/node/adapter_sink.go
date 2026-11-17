@@ -23,6 +23,20 @@ type connSink struct {
 var _ adapters.EventSink = (*connSink)(nil)
 var _ adapters.TitleSink = (*connSink)(nil)
 var _ adapters.ToolCallSink = (*connSink)(nil)
+var _ adapters.CommandSink = (*connSink)(nil)
+
+// Commands reports the slash commands the agent advertises for its session.
+// The hub buffers and broadcasts the list so the composer can offer it; the
+// command itself still travels as ordinary prompt text.
+func (s *connSink) Commands(_ context.Context, sessionID string, commands []protocol.SessionCommand) {
+	if commands == nil {
+		commands = []protocol.SessionCommand{}
+	}
+	s.emit(protocol.EvSessionCommands, protocol.SessionCommands{
+		SessionID: sessionID,
+		Commands:  commands,
+	})
+}
 
 // Title reports the title the agent assigned to its session. It travels as a
 // dedicated node message so the hub can map it onto the owning task.

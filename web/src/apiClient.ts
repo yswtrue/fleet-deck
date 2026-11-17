@@ -1,4 +1,12 @@
-import type { Message, Node, Session, Subtask, Task, Workspace } from './gen/protocol/index.ts'
+import type {
+  Message,
+  Node,
+  Session,
+  SessionCommand,
+  Subtask,
+  Task,
+  Workspace,
+} from './gen/protocol/index.ts'
 
 /**
  * StoredEvent mirrors the hub's /api/sessions/{id}/events DTO: the persisted
@@ -29,6 +37,8 @@ export interface SessionSnapshot {
   partial_output: string
   /** In-progress reasoning trace (bounded; "" when none). */
   partial_thought: string
+  /** Slash commands the agent advertises for this session (possibly empty). */
+  commands: SessionCommand[]
 }
 
 /** POST /api/nodes/join-tokens response: the plaintext token is shown once. */
@@ -476,6 +486,19 @@ export const apiClient = {
    * files on the node are untouched. */
   deleteWorkspace: (id: string) =>
     fetchJson<void>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /**
+   * GET /api/workspaces/{id}/commands returns the slash-command list the agent
+   * type last advertised in this workspace. Used by the new-task form before
+   * the task's own session exists; an empty list means no session of that type
+   * has run there yet.
+   */
+  getWorkspaceCommands: async (workspaceId: string, agentType: string): Promise<SessionCommand[]> =>
+    (
+      await fetchJson<{ commands: SessionCommand[] }>(
+        `/api/workspaces/${encodeURIComponent(workspaceId)}/commands?agent_type=${encodeURIComponent(agentType)}`
+      )
+    ).commands,
 
   /** PATCH /api/workspaces/{id} sets the workspace's permission auto-allow
    * range (applies to sessions started or resumed afterwards). */

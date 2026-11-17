@@ -66,6 +66,7 @@
     "queuePlaceholder": "排队一条消息……（当前回合结束后执行）",
     "queueHint": "消息会等待当前回合结束，然后作为下一轮 prompt 执行，不会打断智能体。",
     "queuedToast": "消息已排队，将在当前回合结束后执行",
+    "commandMenu": "斜杠指令",
     "send": "发送",
     "sendError": "回复未发送",
     "sendErrorDetail": "回复未发送：{{message}}"

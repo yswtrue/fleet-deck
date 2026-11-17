@@ -30,6 +30,7 @@ const valid: Array<[string, unknown, string]> = [
     { session_id: 'sess-1', model: 'm', prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
     'session_id',
   ],
+  ['session.commands', { session_id: 'sess-1', commands: [] }, 'session_id'],
 ]
 
 describe('dispatchEvent', () => {
@@ -57,6 +58,8 @@ describe('dispatchEvent', () => {
     ['session.user_input_requested', { session_id: 'sess-1' }],
     ['session.usage', { session_id: 'sess-1', prompt_tokens: 1 }],
     ['session.usage', { session_id: 1, model: 'm' }],
+    ['session.commands', { session_id: 'sess-1' }],
+    ['session.commands', { session_id: 'sess-1', commands: 'compact' }],
   ]
 
   it.each(malformed)('drops %s payloads missing required fields', (type, data) => {

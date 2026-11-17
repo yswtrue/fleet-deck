@@ -4,10 +4,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Checkbox, Input, Popconfirm, Spin, Typography, message } from 'antd'
 import { MessageBubble } from './MessageBubble.tsx'
 import { Markdown } from './Markdown.tsx'
+import { SlashCommandMenu } from './SlashCommandMenu.tsx'
 import { SessionUsage } from './SessionUsage.tsx'
 import { PermissionPicker } from './PermissionPicker.tsx'
 import { ElicitationForm } from './ElicitationForm.tsx'
 import { useSession } from '../hooks/useSession.ts'
+import { useSlashCommands } from '../hooks/useSlashCommands.ts'
 import { useWebSocket } from '../hooks/useWebSocket.ts'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { dispatchEvent } from '../hooks/dispatchEvent.ts'
@@ -57,6 +59,7 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
     pendingPermission,
     pendingElicitation,
     thought,
+    commands,
     send,
     cancel,
   } = useSession(sessionId)
@@ -121,6 +124,28 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
   // Stopping is meaningful while the agent holds a turn (or is paused on a
   // question); finished sessions are continued, not stopped.
   const canStop = isAwaiting || isRunning
+
+  // While the agent is paused on a question (awaiting_user) the composer is
+  // answering that ask, not starting a new turn: offering command completion
+  // there would invite a reply the agent would read as the answer.
+  const slashEnabled = isRunning || isContinuable
+  const slash = useSlashCommands({
+    value: reply,
+    commands,
+    enabled: slashEnabled && !stopping,
+    onPick: (text) => {
+      setReply(text)
+      inputRef.current?.focus()
+    },
+  })
+
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (slash.handleKeyDown(event)) return
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      void handleSend()
+    }
+  }
 
   // Sidebar data: the task's mirrored todos (subtasks), kept fresh over WS.
   const taskId = resolvedTask?.id ?? ''
@@ -421,40 +446,46 @@ export function SessionView({ sessionId, task }: SessionViewProps) {
               />
             ) : (
               <>
-                <form className={styles.replyForm} onSubmit={handleSend}>
-                  <Input.TextArea
-                    ref={inputRef}
-                    value={reply}
-                    onChange={(e) => setReply(e.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault()
-                        void handleSend()
+                <div className={styles.replyWrap}>
+                  {slash.open && (
+                    <SlashCommandMenu
+                      commands={slash.matches}
+                      activeIndex={slash.activeIndex}
+                      label={t('composer.commandMenu')}
+                      onPick={slash.pick}
+                      onHover={slash.setActiveIndex}
+                    />
+                  )}
+                  <form className={styles.replyForm} onSubmit={handleSend}>
+                    <Input.TextArea
+                      ref={inputRef}
+                      value={reply}
+                      onChange={(e) => setReply(e.target.value)}
+                      onKeyDown={handleComposerKeyDown}
+                      placeholder={
+                        isAwaiting
+                          ? t('composer.placeholder')
+                          : isRunning
+                            ? queueAfterTurn
+                              ? t('composer.queuePlaceholder')
+                              : t('composer.steerPlaceholder')
+                            : isContinuable
+                              ? t('composer.continuePlaceholder')
+                              : t('composer.waiting')
                       }
-                    }}
-                    placeholder={
-                      isAwaiting
-                        ? t('composer.placeholder')
-                        : isRunning
-                          ? queueAfterTurn
-                            ? t('composer.queuePlaceholder')
-                            : t('composer.steerPlaceholder')
-                          : isContinuable
-                            ? t('composer.continuePlaceholder')
-                            : t('composer.waiting')
-                    }
-                    disabled={!canSend || stopping}
-                    rows={3}
-                    className={styles.replyInput}
-                  />
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    disabled={!canSend || stopping || !reply.trim()}
-                  >
-                    {t('composer.send')}
-                  </Button>
-                </form>
+                      disabled={!canSend || stopping}
+                      rows={3}
+                      className={styles.replyInput}
+                    />
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      disabled={!canSend || stopping || !reply.trim()}
+                    >
+                      {t('composer.send')}
+                    </Button>
+                  </form>
+                </div>
                 {isRunning && (
                   <div className={styles.queueRow}>
                     <Checkbox

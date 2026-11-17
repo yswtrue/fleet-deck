@@ -154,6 +154,10 @@
   background: var(--surface);
 }
 
+.replyWrap {
+  position: relative;
+}
+
 .replyForm {
   display: flex;
   gap: 12px;

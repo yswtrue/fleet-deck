@@ -14,7 +14,8 @@
 //	client -> agent notification: session/cancel
 //	agent  -> client request   : session/request_permission, elicitation/create (form), fs/*, terminal/*
 //	agent  -> client notification: session/update (agent_message_chunk, agent_thought_chunk,
-//	                               tool_call, tool_call_update, plan, ...)
+//	                               tool_call, tool_call_update, plan,
+//	                               available_commands_update, ...)
 //
 // This adapter serves session/request_permission, form-mode elicitation
 // (elicitation/create), fs/read_text_file / fs/write_text_file
@@ -1269,6 +1270,44 @@ type sessionUpdate struct {
 	Status   string          `json:"status"`
 	RawInput json.RawMessage `json:"rawInput"`
 	Entries  []planEntry     `json:"entries"`
+	// AvailableCommands carries the slash-command list of an
+	// available_commands_update.
+	AvailableCommands []availableCommand `json:"availableCommands"`
+}
+
+// availableCommand is one ACP-advertised slash command. `input` is optional
+// and only its hint is meaningful (ACP currently defines unstructured text
+// input).
+type availableCommand struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Input       *availableCommandInput `json:"input"`
+}
+
+type availableCommandInput struct {
+	Hint string `json:"hint"`
+}
+
+// toSessionCommands maps the ACP payload onto the wire shape. A command
+// without a name is dropped: it could not be invoked. An empty result is a
+// valid list (the agent withdrew every command).
+func toSessionCommands(in []availableCommand) []protocol.SessionCommand {
+	out := make([]protocol.SessionCommand, 0, len(in))
+	for _, c := range in {
+		name := strings.TrimSpace(strings.TrimPrefix(c.Name, "/"))
+		if name == "" {
+			continue
+		}
+		cmd := protocol.SessionCommand{
+			Name:        name,
+			Description: strings.TrimSpace(c.Description),
+		}
+		if c.Input != nil {
+			cmd.InputHint = strings.TrimSpace(c.Input.Hint)
+		}
+		out = append(out, cmd)
+	}
+	return out
 }
 
 // contentText returns the text of a chunk payload. It accepts either a single
@@ -1314,7 +1353,13 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 	}
 	// Session history replayed by session/load during a live resume is not
 	// live output. The history proxy collects it via replayAsm instead.
-	if a.replayAsm == nil && a.loading.Load() {
+	// Advertised commands are session metadata, not output: an agent sends
+	// them right after opening the session, which for a resume is inside the
+	// loading window, and they must still reach the composer.
+	if p.Update.SessionUpdate != "available_commands_update" && a.replayAsm == nil && a.loading.Load() {
+		return
+	}
+	if p.Update.SessionUpdate == "available_commands_update" && a.replayAsm != nil {
 		return
 	}
 
@@ -1354,6 +1399,13 @@ func (a *Adapter) handleNotification(ctx context.Context, sessionID string, sink
 			if ts, ok := sink.(adapters.ThoughtSink); ok {
 				ts.ThoughtDelta(ctx, sessionID, text)
 			}
+		}
+	case "available_commands_update":
+		// The agent advertises the slash commands this session supports (the
+		// list may change at any time). Commands run as ordinary prompts: the
+		// composer only uses this list for discovery and completion.
+		if cs, ok := sink.(adapters.CommandSink); ok {
+			cs.Commands(ctx, sessionID, toSessionCommands(p.Update.AvailableCommands))
 		}
 	case "session_info_update":
 		// Agents name their session (codex-acp generates one after the turn;
