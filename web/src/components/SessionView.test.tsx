@@ -178,6 +178,21 @@ describe('SessionView slash commands', () => {
     })
   })
 
+  it('shows every advertised command instead of a fixed first page', async () => {
+    const commands = Array.from({ length: 10 }, (_, index) => ({
+      name: `cmd-${index}`,
+      description: `Command ${index}`,
+    }))
+    renderView('done', { connected: true, commands })
+    const box = await screen.findByPlaceholderText(
+      'Continue the conversation… (Enter to send, Shift+Enter for a new line)'
+    )
+    fireEvent.change(box, { target: { value: '/' } })
+    const menu = await screen.findByRole('listbox', { name: 'Slash commands' })
+    expect(within(menu).getByText('/cmd-0')).toBeTruthy()
+    expect(within(menu).getByText('/cmd-9')).toBeTruthy()
+  })
+
   it('leaves ordinary text unslashed and sendable', async () => {
     renderView('done', {
       connected: true,

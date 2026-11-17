@@ -1,9 +1,6 @@
 import { useState } from 'react'
 import type { SessionCommand } from '../gen/protocol/index.ts'
 
-/** Completion rows shown at once; typing a prefix narrows the list. */
-const MAX_MATCHES = 8
-
 /** The composer holds a bare `/prefix`: no whitespace after the slash yet. */
 const SLASH_PREFIX = /^\/([^\s]*)$/
 
@@ -47,9 +44,7 @@ export function useSlashCommands({ value, commands, enabled, onPick }: Options):
   const query = SLASH_PREFIX.exec(value)?.[1].toLowerCase() ?? null
   const matches =
     enabled && dismissedForValue !== value && query !== null
-      ? commands
-          .filter((command) => command.name.toLowerCase().startsWith(query))
-          .slice(0, MAX_MATCHES)
+      ? commands.filter((command) => command.name.toLowerCase().startsWith(query))
       : []
   const activeIndex = nav.value === value ? Math.min(nav.index, Math.max(matches.length - 1, 0)) : 0
 
