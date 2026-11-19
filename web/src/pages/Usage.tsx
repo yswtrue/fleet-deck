@@ -7,7 +7,7 @@ import type { StatsModelUsage, StatsTokensFilters } from '../apiClient.ts'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
 import { SummaryCard } from '../components/SummaryCard.tsx'
-import { cacheHitPercent, formatCompact } from '../util.ts'
+import { cacheHitPercent, formatCompact, inputTokens } from '../util.ts'
 import { useTranslation } from '../i18n/index.ts'
 
 interface DateRange {
@@ -63,6 +63,7 @@ export function Usage() {
     prompt_tokens: 0,
     completion_tokens: 0,
     total_tokens: 0,
+    thought_tokens: 0,
     cached_read_tokens: 0,
     cached_write_tokens: 0,
     cache_prompt_tokens: 0,
@@ -75,11 +76,10 @@ export function Usage() {
   const columns: TableColumnsType<StatsModelUsage> = [
     { title: t('table.model'), dataIndex: 'model', key: 'model' },
     {
-      title: t('table.prompt'),
-      dataIndex: 'prompt_tokens',
-      key: 'prompt_tokens',
+      title: t('table.input'),
+      key: 'input',
       align: 'right',
-      render: compactCell,
+      render: (_: unknown, row: StatsModelUsage) => compactCell(inputTokens(row)),
     },
     {
       title: t('table.cache'),
@@ -97,9 +97,16 @@ export function Usage() {
       },
     },
     {
-      title: t('table.completion'),
+      title: t('table.output'),
       dataIndex: 'completion_tokens',
       key: 'completion_tokens',
+      align: 'right',
+      render: compactCell,
+    },
+    {
+      title: t('table.reasoning'),
+      dataIndex: 'thought_tokens',
+      key: 'thought_tokens',
       align: 'right',
       render: compactCell,
     },
@@ -167,8 +174,8 @@ export function Usage() {
       ) : (
         <>
           <div className="fd-grid-4">
-            <SummaryCard label={t('summary.prompt')} value={totals.prompt_tokens} />
-            <SummaryCard label={t('summary.completion')} value={totals.completion_tokens} />
+            <SummaryCard label={t('summary.input')} value={inputTokens(totals)} />
+            <SummaryCard label={t('summary.output')} value={totals.completion_tokens} />
             <SummaryCard label={t('summary.total')} value={totals.total_tokens} />
             <SummaryCard label={t('summary.turns')} value={turns} />
           </div>

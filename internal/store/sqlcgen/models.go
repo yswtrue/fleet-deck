@@ -126,6 +126,7 @@ type TokenUsage struct {
 	CreatedAt         time.Time
 	CachedReadTokens  *int64
 	CachedWriteTokens *int64
+	ThoughtTokens     *int64
 }
 
 type User struct {
@@ -144,4 +145,10 @@ type Workspace struct {
 	Path           string
 	CreatedAt      time.Time
 	AutoAllowScope string
+}
+
+type WorkspaceFavorite struct {
+	UserID      string
+	WorkspaceID string
+	CreatedAt   time.Time
 }

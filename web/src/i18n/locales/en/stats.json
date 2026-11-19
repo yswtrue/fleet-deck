@@ -1,6 +1,6 @@
 {
   "title": "Token usage",
-  "subtitle": "Prompt and completion tokens across your fleet.",
+  "subtitle": "Input, output and reasoning tokens across your fleet.",
   "loadError": "Couldn't load token usage",
   "loading": "Loading usage…",
   "byModel": "By model",
@@ -12,16 +12,17 @@
     "toPlaceholder": "End date"
   },
   "summary": {
-    "prompt": "Prompt tokens",
-    "completion": "Completion tokens",
+    "input": "Input tokens",
+    "output": "Output tokens",
     "total": "Total tokens",
     "turns": "Turns"
   },
   "table": {
     "model": "Model",
-    "prompt": "Prompt",
+    "input": "Input",
     "cache": "Cache (read / hit)",
-    "completion": "Completion",
+    "output": "Output",
+    "reasoning": "Reasoning",
     "total": "Total",
     "turns": "Turns"
   },
@@ -32,7 +33,8 @@
   "session": {
     "title": "Token usage",
     "empty": "No usage yet",
-    "line": "{{model}} · {{prompt}} in / {{completion}} out / {{total}} total",
+    "line": "{{model}} · {{input}} in / {{completion}} out / {{total}} total",
+    "reasoningLine": "{{reasoning}} reasoning",
     "cacheLine": "cache {{read}} read / {{write}} write · {{percent}} hit",
     "cacheUnavailable": "cache —"
   }

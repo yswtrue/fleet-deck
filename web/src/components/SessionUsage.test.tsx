@@ -37,6 +37,7 @@ describe('SessionUsage', () => {
           prompt_tokens: 50,
           completion_tokens: 80,
           total_tokens: 200,
+          thought_tokens: 20,
           cached_read_tokens: 40,
           cached_write_tokens: 10,
           cache_prompt_tokens: 50,
@@ -47,7 +48,8 @@ describe('SessionUsage', () => {
     })
     renderPanel()
 
-    expect(await screen.findByText('fake · 50 in / 80 out / 200 total')).toBeTruthy()
+    expect(await screen.findByText('fake · 100 in / 80 out / 200 total')).toBeTruthy()
+    expect(screen.getByText('20 reasoning')).toBeTruthy()
     expect(screen.getByText('cache 40 read / 10 write · 40% hit')).toBeTruthy()
     expect(String(fetchMock.mock.calls[0][0])).toBe('/api/stats/tokens?session_id=s-1')
   })
@@ -61,6 +63,7 @@ describe('SessionUsage', () => {
           prompt_tokens: 120,
           completion_tokens: 80,
           total_tokens: 200,
+          thought_tokens: 0,
           cached_read_tokens: 0,
           cached_write_tokens: 0,
           cache_prompt_tokens: 0,

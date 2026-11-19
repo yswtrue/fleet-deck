@@ -3,6 +3,7 @@ import { Card, Typography } from 'antd'
 import type { MessageInstance } from 'antd/es/message/interface'
 import { statusLabel } from '../util.ts'
 import { useTranslation } from '../i18n/index.ts'
+import { FavoriteButton } from './FavoriteButton.tsx'
 import { WorkspaceActions } from './WorkspaceActions.tsx'
 import type { TaskStatus, Workspace } from '../types.ts'
 import styles from './WorkspaceCard.module.css'
@@ -54,6 +55,7 @@ export function WorkspaceCard({
           {workspace.name}
         </Typography.Title>
         <span className={styles.actions}>
+          <FavoriteButton workspace={workspace} />
           <WorkspaceActions workspace={workspace} messageApi={messageApi} />
         </span>
       </div>

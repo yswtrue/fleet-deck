@@ -69,3 +69,17 @@ export function cacheHitPercent(row: {
   if (totalInput <= 0) return null
   return Math.min(100, Math.max(0, (read / totalInput) * 100))
 }
+
+/**
+ * Full input tokens processed by the model: the agent's reported prompt tokens
+ * cover only the non-cached input portion (ACP), so cache reads and writes are
+ * added back. This is the figure that reconciles with `total_tokens`:
+ * input + completion + thought ≈ total.
+ */
+export function inputTokens(row: {
+  prompt_tokens: number
+  cached_read_tokens?: number
+  cached_write_tokens?: number
+}): number {
+  return row.prompt_tokens + (row.cached_read_tokens ?? 0) + (row.cached_write_tokens ?? 0)
+}

@@ -931,6 +931,9 @@
         "total_tokens": {
           "type": "integer"
         },
+        "thought_tokens": {
+          "type": "integer"
+        },
         "cached_read_tokens": {
           "type": "integer"
         },
@@ -1524,6 +1527,9 @@
         "total_tokens": {
           "type": "integer"
         },
+        "thought_tokens": {
+          "type": "integer"
+        },
         "cached_read_tokens": {
           "type": "integer"
         },
@@ -1547,6 +1553,7 @@
         "prompt_tokens",
         "completion_tokens",
         "total_tokens",
+        "thought_tokens",
         "cached_read_tokens",
         "cached_write_tokens",
         "cache_prompt_tokens",
@@ -1569,6 +1576,9 @@
               "type": "integer"
             },
             "total_tokens": {
+              "type": "integer"
+            },
+            "thought_tokens": {
               "type": "integer"
             },
             "cached_read_tokens": {
@@ -1594,6 +1604,7 @@
             "prompt_tokens",
             "completion_tokens",
             "total_tokens",
+            "thought_tokens",
             "cached_read_tokens",
             "cached_write_tokens",
             "cache_prompt_tokens",
@@ -1610,6 +1621,9 @@
               "type": "integer"
             },
             "total_tokens": {
+              "type": "integer"
+            },
+            "thought_tokens": {
               "type": "integer"
             },
             "cached_read_tokens": {
@@ -1631,6 +1645,7 @@
             "prompt_tokens",
             "completion_tokens",
             "total_tokens",
+            "thought_tokens",
             "cached_read_tokens",
             "cached_write_tokens",
             "cache_prompt_tokens",
@@ -1668,6 +1683,9 @@
         "total_tokens": {
           "type": "integer"
         },
+        "thought_tokens": {
+          "type": "integer"
+        },
         "cached_read_tokens": {
           "type": "integer"
         },
@@ -1687,6 +1705,7 @@
         "prompt_tokens",
         "completion_tokens",
         "total_tokens",
+        "thought_tokens",
         "cached_read_tokens",
         "cached_write_tokens",
         "cache_prompt_tokens",

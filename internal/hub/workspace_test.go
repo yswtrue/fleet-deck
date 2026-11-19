@@ -143,6 +143,93 @@ func TestWorkspaceDeleteCascadesAndRefusesActiveSessions(t *testing.T) {
 	requireStatus(t, "get deleted workspace", resp, raw, http.StatusNotFound)
 }
 
+func TestWorkspaceFavoritesPerUserVisibility(t *testing.T) {
+	if testing.Short() {
+		t.Skip("hub integration test needs a live Postgres; skipped under -short")
+	}
+
+	_, st, ts, admin := newTestHub(t)
+	node := seedNode(t, st, uniqueName("fav-node"))
+	t.Cleanup(func() {
+		bg, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = st.Pool().Exec(bg, "DELETE FROM node WHERE id = $1", node.ID)
+	})
+	ws := postJSON[protocol.Workspace](t, admin.token, ts.URL+"/api/workspaces", map[string]string{
+		"node_id": node.ID, "name": uniqueName("fav-ws"), "path": "/tmp/fav-ws",
+	})
+	favoritesURL := ts.URL + "/api/workspaces/favorites"
+
+	resp, raw := getRaw(t, admin.token, favoritesURL)
+	requireStatus(t, "initial favorites", resp, raw, http.StatusOK)
+	if got := decodeOK[[]protocol.Workspace](t, favoritesURL, resp, raw); len(got) != 0 {
+		t.Fatalf("favorites before bookmarking = %v, want empty", got)
+	}
+
+	// Favorite twice: the PUT is idempotent and the list holds one row.
+	for range 2 {
+		resp, raw = doRequest(t, http.MethodPut, admin.token, ts.URL+"/api/workspaces/"+ws.ID+"/favorite", nil)
+		requireStatus(t, "add favorite", resp, raw, http.StatusNoContent)
+	}
+	resp, raw = getRaw(t, admin.token, favoritesURL)
+	requireStatus(t, "favorites after add", resp, raw, http.StatusOK)
+	favorites := decodeOK[[]protocol.Workspace](t, favoritesURL, resp, raw)
+	if len(favorites) != 1 || favorites[0].ID != ws.ID {
+		t.Fatalf("favorites after add = %+v, want just %s", favorites, ws.ID)
+	}
+
+	// Favorites are per user: a bound user sees their own list, not the
+	// admin's bookmark.
+	user, userToken := setupUserWithRole(t, st, "user")
+	resp, raw = getRaw(t, userToken, favoritesURL)
+	requireStatus(t, "user favorites before binding", resp, raw, http.StatusOK)
+	if got := decodeOK[[]protocol.Workspace](t, favoritesURL, resp, raw); len(got) != 0 {
+		t.Fatalf("unbound user favorites = %v, want empty", got)
+	}
+	resp, raw = doRequest(t, http.MethodPut, userToken, ts.URL+"/api/workspaces/"+ws.ID+"/favorite", nil)
+	requireStatus(t, "unbound user favorite", resp, raw, http.StatusNotFound)
+
+	bindUserToNodes(t, ts.URL, admin.token, user.ID, node.ID)
+	resp, raw = doRequest(t, http.MethodPut, userToken, ts.URL+"/api/workspaces/"+ws.ID+"/favorite", nil)
+	requireStatus(t, "bound user favorite", resp, raw, http.StatusNoContent)
+	resp, raw = getRaw(t, userToken, favoritesURL)
+	requireStatus(t, "bound user favorites", resp, raw, http.StatusOK)
+	if got := decodeOK[[]protocol.Workspace](t, favoritesURL, resp, raw); len(got) != 1 || got[0].ID != ws.ID {
+		t.Fatalf("bound user favorites = %+v, want just %s", got, ws.ID)
+	}
+
+	// Revoking the binding hides the row without deleting it: the workspace
+	// is no longer visible, so the favorite must not leak it.
+	bindUserToNodes(t, ts.URL, admin.token, user.ID)
+	resp, raw = getRaw(t, userToken, favoritesURL)
+	requireStatus(t, "unbound user favorites after revoke", resp, raw, http.StatusOK)
+	if got := decodeOK[[]protocol.Workspace](t, favoritesURL, resp, raw); len(got) != 0 {
+		t.Fatalf("revoked binding still lists favorites = %v", got)
+	}
+
+	// Unfavorite twice: idempotent.
+	for range 2 {
+		resp, raw = deleteReq(t, admin.token, ts.URL+"/api/workspaces/"+ws.ID+"/favorite")
+		requireStatus(t, "remove favorite", resp, raw, http.StatusNoContent)
+	}
+	resp, raw = getRaw(t, admin.token, favoritesURL)
+	requireStatus(t, "favorites after remove", resp, raw, http.StatusOK)
+	if got := decodeOK[[]protocol.Workspace](t, favoritesURL, resp, raw); len(got) != 0 {
+		t.Fatalf("favorites after remove = %v, want empty", got)
+	}
+
+	// Deleting the workspace cascades the bookmark.
+	resp, raw = doRequest(t, http.MethodPut, admin.token, ts.URL+"/api/workspaces/"+ws.ID+"/favorite", nil)
+	requireStatus(t, "favorite before delete", resp, raw, http.StatusNoContent)
+	resp, raw = deleteReq(t, admin.token, ts.URL+"/api/workspaces/"+ws.ID)
+	requireStatus(t, "delete favorited workspace", resp, raw, http.StatusNoContent)
+	resp, raw = getRaw(t, admin.token, favoritesURL)
+	requireStatus(t, "favorites after workspace delete", resp, raw, http.StatusOK)
+	if got := decodeOK[[]protocol.Workspace](t, favoritesURL, resp, raw); len(got) != 0 {
+		t.Fatalf("favorites survived workspace delete = %v", got)
+	}
+}
+
 func TestWorkspaceRenameDeleteRequiresBinding(t *testing.T) {
 	if testing.Short() {
 		t.Skip("hub integration test needs a live Postgres; skipped under -short")

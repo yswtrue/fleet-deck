@@ -1,6 +1,6 @@
 {
   "title": "Token 用量",
-  "subtitle": "整个集群的提示与补全 Token 用量。",
+  "subtitle": "整个集群的输入、输出与推理 Token 用量。",
   "loadError": "无法加载 Token 用量",
   "loading": "正在加载用量…",
   "byModel": "按模型",
@@ -12,16 +12,17 @@
     "toPlaceholder": "结束日期"
   },
   "summary": {
-    "prompt": "提示 Token",
-    "completion": "补全 Token",
+    "input": "输入 Token",
+    "output": "输出 Token",
     "total": "Token 总计",
     "turns": "对话轮次"
   },
   "table": {
     "model": "模型",
-    "prompt": "提示",
+    "input": "输入",
     "cache": "缓存（读取 / 命中）",
-    "completion": "补全",
+    "output": "输出",
+    "reasoning": "推理",
     "total": "总计",
     "turns": "轮次"
   },
@@ -32,7 +33,8 @@
   "session": {
     "title": "Token 用量",
     "empty": "暂无用量",
-    "line": "{{model}} · 输入 {{prompt}} / 输出 {{completion}} / 总计 {{total}}",
+    "line": "{{model}} · 输入 {{input}} / 输出 {{completion}} / 总计 {{total}}",
+    "reasoningLine": "推理 {{reasoning}}",
     "cacheLine": "缓存读取 {{read}} / 写入 {{write}} · 命中率 {{percent}}",
     "cacheUnavailable": "缓存 —"
   }

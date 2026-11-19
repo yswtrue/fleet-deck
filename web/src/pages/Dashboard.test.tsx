@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Dashboard } from './Dashboard.tsx'
 
@@ -15,13 +16,23 @@ const taskBody = {
 }
 
 const tokenBody = {
-  total: { prompt_tokens: 12520, completion_tokens: 8180, total_tokens: 20700 },
+  total: {
+    prompt_tokens: 12520,
+    completion_tokens: 8180,
+    total_tokens: 20700,
+    thought_tokens: 30,
+    cached_read_tokens: 6200,
+    cached_write_tokens: 0,
+    cache_prompt_tokens: 12400,
+    cache_reports: 7,
+  },
   by_model: [
     {
       model: 'gpt-x',
       prompt_tokens: 12400,
       completion_tokens: 8100,
       total_tokens: 20500,
+      thought_tokens: 30,
       cached_read_tokens: 6200,
       cached_write_tokens: 0,
       cache_prompt_tokens: 12400,
@@ -33,6 +44,7 @@ const tokenBody = {
       prompt_tokens: 120,
       completion_tokens: 80,
       total_tokens: 200,
+      thought_tokens: 0,
       cached_read_tokens: 0,
       cached_write_tokens: 0,
       cache_prompt_tokens: 0,
@@ -42,15 +54,17 @@ const tokenBody = {
   ],
 }
 
-/** Routes hub requests: task stats and token stats bodies, everything else empty. */
-function mockHub(tasks: unknown, tokens: unknown) {
+/** Routes hub requests: task stats, token stats, favorites, everything else empty. */
+function mockHub(tasks: unknown, tokens: unknown, favorites: unknown = []) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input)
     const payload = url.startsWith('/api/stats/tasks')
       ? tasks
       : url.startsWith('/api/stats/tokens')
         ? tokens
-        : []
+        : url.startsWith('/api/workspaces/favorites')
+          ? favorites
+          : []
     return Promise.resolve(
       new Response(JSON.stringify(payload), {
         status: 200,
@@ -66,7 +80,12 @@ function renderDashboard() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <Dashboard />
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/workspaces/:workspaceId" element={<div>workspace-page</div>} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>
   )
 }
@@ -98,14 +117,16 @@ describe('Dashboard', () => {
     expect(screen.getByTitle('5').textContent).toBe('5')
 
     // Token section: fleet totals, turn count and the per-model table.
-    expect(screen.getByText('Prompt tokens')).toBeTruthy()
-    expect(screen.getByText('Completion tokens')).toBeTruthy()
+    expect(screen.getByText('Input tokens')).toBeTruthy()
+    expect(screen.getByText('Output tokens')).toBeTruthy()
     expect(screen.getByText('Total tokens')).toBeTruthy()
     expect(screen.getAllByText('Turns')).toHaveLength(2)
-    expect((await screen.findByTitle('20700')).textContent).toBe('20.7k')
+    expect((await screen.findByTitle('18720')).textContent).toBe('18.7k')
+    expect(screen.getByTitle('20700').textContent).toBe('20.7k')
     expect(screen.getByTitle('10').textContent).toBe('10') // 7 + 3 turns
     expect(screen.getByText('gpt-x')).toBeTruthy()
     expect(screen.getByText('fake')).toBeTruthy()
+    expect(screen.getByTitle('18600').textContent).toBe('18.6k')
     expect(screen.getByTitle('20500').textContent).toBe('20.5k')
     expect(screen.getByText('Cache (read / hit)')).toBeTruthy()
     expect(screen.getByText('6.2k · 33%')).toBeTruthy()
@@ -125,5 +146,27 @@ describe('Dashboard', () => {
     // 2 task cards + 5 status counts + 4 token tiles, all zero.
     expect(screen.getAllByTitle('0')).toHaveLength(11)
     expect(screen.queryByText('gpt-x')).toBeNull()
+    // No favorites: the section explains how to add one.
+    expect(await screen.findByText('Favorite workspaces')).toBeTruthy()
+    expect(
+      screen.getByText('Star a workspace on its card or board header to jump back to it here.')
+    ).toBeTruthy()
+  })
+
+  it('lists favorite workspaces and jumps to the board', async () => {
+    mockHub(taskBody, tokenBody, [
+      {
+        id: 'w-1',
+        node_id: 'n-1',
+        name: 'Repo',
+        path: '/home/me/repo',
+        auto_allow_scope: 'none',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ])
+    renderDashboard()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Workspace Repo' }))
+    expect(await screen.findByText('workspace-page')).toBeTruthy()
   })
 })

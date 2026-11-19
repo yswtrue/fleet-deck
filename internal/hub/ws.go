@@ -487,6 +487,7 @@ func (h *Hub) applyUsage(ctx context.Context, sessionID string, u protocol.Sessi
 		PromptTokens:      u.PromptTokens,
 		CompletionTokens:  u.CompletionTokens,
 		TotalTokens:       u.TotalTokens,
+		ThoughtTokens:     u.ThoughtTokens,
 		CachedReadTokens:  u.CachedReadTokens,
 		CachedWriteTokens: u.CachedWriteTokens,
 	}); err != nil {

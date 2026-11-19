@@ -136,6 +136,8 @@ export interface StatsModelUsage {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  /** Reasoning/thought tokens included in total_tokens (0 when unreported). */
+  thought_tokens: number
   /** Cache read/write tokens summed over turns that reported cache telemetry. */
   cached_read_tokens: number
   cached_write_tokens: number
@@ -152,6 +154,8 @@ export interface StatsTokens {
     prompt_tokens: number
     completion_tokens: number
     total_tokens: number
+    /** Reasoning/thought tokens included in total_tokens (0 when unreported). */
+    thought_tokens: number
     cached_read_tokens: number
     cached_write_tokens: number
     cache_prompt_tokens: number
@@ -469,6 +473,20 @@ export const apiClient = {
 
   listWorkspaces: (nodeId: string) =>
     fetchJson<Workspace[]>(`/api/workspaces?node_id=${encodeURIComponent(nodeId)}`),
+
+  /**
+   * GET /api/workspaces/favorites returns the caller's bookmarked workspaces
+   * across every visible node, newest first. Favorites are per user.
+   */
+  listFavoriteWorkspaces: () => fetchJson<Workspace[]>('/api/workspaces/favorites'),
+
+  /** PUT /api/workspaces/{id}/favorite bookmarks a workspace (idempotent). */
+  addWorkspaceFavorite: (id: string) =>
+    fetchJson<void>(`/api/workspaces/${encodeURIComponent(id)}/favorite`, { method: 'PUT' }),
+
+  /** DELETE /api/workspaces/{id}/favorite removes the bookmark (idempotent). */
+  removeWorkspaceFavorite: (id: string) =>
+    fetchJson<void>(`/api/workspaces/${encodeURIComponent(id)}/favorite`, { method: 'DELETE' }),
 
   getWorkspace: (id: string) => fetchJson<Workspace>(`/api/workspaces/${id}`),
 

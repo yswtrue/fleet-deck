@@ -120,16 +120,19 @@ type SessionUserInputRequested struct {
 
 // SessionUsage reports one turn's model token usage. The node relays what the
 // agent reported; the hub persists it as a token_usage row. A session with no
-// reported usage produces no rows — numbers are never fabricated. The cache
-// counters are omitted when the agent does not report them (omission and an
-// explicit zero are distinct: the former means the model exposes no prompt
-// cache telemetry).
+// reported usage produces no rows — numbers are never fabricated. The thought
+// and cache counters are omitted when the agent does not report them (omission
+// and an explicit zero are distinct: the former means the model exposes no
+// reasoning or prompt-cache telemetry). PromptTokens is the non-cached input
+// portion; TotalTokens includes thought and cached tokens as the agent
+// reported them.
 type SessionUsage struct {
 	SessionID         string `json:"session_id"`
 	Model             string `json:"model"`
 	PromptTokens      int64  `json:"prompt_tokens"`
 	CompletionTokens  int64  `json:"completion_tokens"`
 	TotalTokens       int64  `json:"total_tokens"`
+	ThoughtTokens     *int64 `json:"thought_tokens,omitempty"`
 	CachedReadTokens  *int64 `json:"cached_read_tokens,omitempty"`
 	CachedWriteTokens *int64 `json:"cached_write_tokens,omitempty"`
 }

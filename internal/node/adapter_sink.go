@@ -119,6 +119,7 @@ func (s *connSink) Usage(_ context.Context, sessionID string, u adapters.Usage) 
 		PromptTokens:      u.PromptTokens,
 		CompletionTokens:  u.CompletionTokens,
 		TotalTokens:       u.TotalTokens,
+		ThoughtTokens:     u.ThoughtTokens,
 		CachedReadTokens:  u.CachedReadTokens,
 		CachedWriteTokens: u.CachedWriteTokens,
 	})

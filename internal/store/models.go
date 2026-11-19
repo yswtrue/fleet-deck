@@ -55,8 +55,8 @@ func eventsFromRows(rows []sqlcgen.Event) []Event {
 
 // TokenUsage is one persisted turn's reported model token usage. Like Event,
 // it has no protocol.* equivalent: protocol.SessionUsage is the node->hub
-// report payload, not a database row. The cache counters are nil when the
-// agent reported no cache telemetry (distinct from a reported zero).
+// report payload, not a database row. The thought and cache counters are nil
+// when the agent reported none (distinct from a reported zero).
 type TokenUsage struct {
 	ID                string
 	SessionID         string
@@ -65,6 +65,7 @@ type TokenUsage struct {
 	PromptTokens      int64
 	CompletionTokens  int64
 	TotalTokens       int64
+	ThoughtTokens     *int64
 	CachedReadTokens  *int64
 	CachedWriteTokens *int64
 	CreatedAt         time.Time
@@ -79,6 +80,7 @@ func tokenUsageFromRow(r sqlcgen.TokenUsage) TokenUsage {
 		PromptTokens:      r.PromptTokens,
 		CompletionTokens:  r.CompletionTokens,
 		TotalTokens:       r.TotalTokens,
+		ThoughtTokens:     r.ThoughtTokens,
 		CachedReadTokens:  r.CachedReadTokens,
 		CachedWriteTokens: r.CachedWriteTokens,
 		CreatedAt:         r.CreatedAt,

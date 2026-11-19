@@ -201,11 +201,15 @@ type Message struct {
 // "no cache telemetry" (0 reports) from a reported zero. The cache hit rate is
 // CachedReadTokens / (CachePromptTokens + CachedReadTokens + CachedWriteTokens):
 // ACP reports PromptTokens as the non-cached input portion, and only
-// cache-reporting rows belong in the denominator.
+// cache-reporting rows belong in the denominator. The full input the model
+// processed is PromptTokens + CachedReadTokens + CachedWriteTokens;
+// ThoughtTokens is the reported reasoning subtotal (also included in
+// TotalTokens).
 type TokenUsageTotals struct {
 	PromptTokens      int64 `json:"prompt_tokens"`
 	CompletionTokens  int64 `json:"completion_tokens"`
 	TotalTokens       int64 `json:"total_tokens"`
+	ThoughtTokens     int64 `json:"thought_tokens"`
 	CachedReadTokens  int64 `json:"cached_read_tokens"`
 	CachedWriteTokens int64 `json:"cached_write_tokens"`
 	CachePromptTokens int64 `json:"cache_prompt_tokens"`
@@ -213,14 +217,17 @@ type TokenUsageTotals struct {
 }
 
 // TokenUsageByModel aggregates token counts for one model. Turns counts the
-// underlying usage rows (one row per reported turn); CacheReports counts how
-// many of those rows carried cache telemetry and CachePromptTokens holds their
-// non-cached input subtotal (the cache ratio denominator).
+// underlying usage rows (one row per reported turn, including internal title
+// turns); CacheReports counts how many of those rows carried cache telemetry
+// and CachePromptTokens holds their non-cached input subtotal (the cache ratio
+// denominator). PromptTokens + CachedReadTokens + CachedWriteTokens is the full
+// input, and ThoughtTokens is the reasoning subtotal included in TotalTokens.
 type TokenUsageByModel struct {
 	Model             string `json:"model"`
 	PromptTokens      int64  `json:"prompt_tokens"`
 	CompletionTokens  int64  `json:"completion_tokens"`
 	TotalTokens       int64  `json:"total_tokens"`
+	ThoughtTokens     int64  `json:"thought_tokens"`
 	CachedReadTokens  int64  `json:"cached_read_tokens"`
 	CachedWriteTokens int64  `json:"cached_write_tokens"`
 	CachePromptTokens int64  `json:"cache_prompt_tokens"`

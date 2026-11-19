@@ -91,3 +91,41 @@ func (q *Queries) ListWorkspacesByNode(ctx context.Context, nodeID string) ([]pr
 	}
 	return workspacesFromRows(rows), nil
 }
+
+// AddWorkspaceFavorite bookmarks a workspace for a user. Repeated calls are
+// idempotent; the caller has already checked workspace visibility.
+func (q *Queries) AddWorkspaceFavorite(ctx context.Context, userID, workspaceID string) error {
+	if err := q.q.AddWorkspaceFavorite(ctx, sqlcgen.AddWorkspaceFavoriteParams{
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+	}); err != nil {
+		return fmt.Errorf("store: add workspace favorite: %w", err)
+	}
+	return nil
+}
+
+// RemoveWorkspaceFavorite removes a user's bookmark. A missing row is not an
+// error: unfavoriting twice is idempotent.
+func (q *Queries) RemoveWorkspaceFavorite(ctx context.Context, userID, workspaceID string) error {
+	if err := q.q.RemoveWorkspaceFavorite(ctx, sqlcgen.RemoveWorkspaceFavoriteParams{
+		UserID:      userID,
+		WorkspaceID: workspaceID,
+	}); err != nil {
+		return fmt.Errorf("store: remove workspace favorite: %w", err)
+	}
+	return nil
+}
+
+// ListFavoriteWorkspaces returns a user's favorite workspaces, newest first.
+// Admins see every bookmark they made; other users only those whose node is
+// still bound to them, so a revoked binding cannot leak through the list.
+func (q *Queries) ListFavoriteWorkspaces(ctx context.Context, userID string, isAdmin bool) ([]protocol.Workspace, error) {
+	rows, err := q.q.ListFavoriteWorkspaces(ctx, sqlcgen.ListFavoriteWorkspacesParams{
+		UserID:  userID,
+		IsAdmin: isAdmin,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: list favorite workspaces: %w", err)
+	}
+	return workspacesFromRows(rows), nil
+}

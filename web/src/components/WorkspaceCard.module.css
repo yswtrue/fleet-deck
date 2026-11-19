@@ -35,6 +35,9 @@
 .actions {
   margin-left: auto;
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
 
 .name {

@@ -185,6 +185,7 @@ export interface SessionUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  thought_tokens?: number;
   cached_read_tokens?: number;
   cached_write_tokens?: number;
 }
@@ -265,6 +266,7 @@ export interface TokenUsageByModel {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  thought_tokens: number;
   cached_read_tokens: number;
   cached_write_tokens: number;
   cache_prompt_tokens: number;
@@ -279,6 +281,7 @@ export interface TokenUsageTotals {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  thought_tokens: number;
   cached_read_tokens: number;
   cached_write_tokens: number;
   cache_prompt_tokens: number;

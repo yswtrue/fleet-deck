@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../apiClient.ts'
 import { useTranslation } from '../i18n/index.ts'
-import { cacheHitPercent } from '../util.ts'
+import { inputTokens, cacheHitPercent } from '../util.ts'
 
 export interface SessionUsageProps {
   /** Session whose token usage is summarized. */
@@ -45,11 +45,18 @@ export function SessionUsage({ sessionId }: SessionUsageProps) {
                 <div className="fd-meta">
                   {t('session.line', {
                     model: row.model,
-                    prompt: row.prompt_tokens.toLocaleString(),
+                    input: inputTokens(row).toLocaleString(),
                     completion: row.completion_tokens.toLocaleString(),
                     total: row.total_tokens.toLocaleString(),
                   })}
                 </div>
+                {row.thought_tokens > 0 && (
+                  <div className="fd-meta">
+                    {t('session.reasoningLine', {
+                      reasoning: row.thought_tokens.toLocaleString(),
+                    })}
+                  </div>
+                )}
                 <div className="fd-meta" data-cache={hit === null ? 'none' : 'reported'}>
                   {hit === null
                     ? t('session.cacheUnavailable')

@@ -430,6 +430,9 @@ func TestUsageCaptureFromPromptResult(t *testing.T) {
 	if got.CachedWriteTokens == nil || *got.CachedWriteTokens != 3 {
 		t.Fatalf("cached write = %v, want 3", got.CachedWriteTokens)
 	}
+	if got.ThoughtTokens == nil || *got.ThoughtTokens != 2 {
+		t.Fatalf("thought tokens = %v, want 2", got.ThoughtTokens)
+	}
 }
 
 // TestUsageWithoutCacheCategories keeps "not reported" distinct from zero: an
@@ -445,6 +448,9 @@ func TestUsageWithoutCacheCategories(t *testing.T) {
 	if usages[0].CachedReadTokens != nil || usages[0].CachedWriteTokens != nil {
 		t.Fatalf("cache counters = %v/%v, want nil when the agent omits them",
 			usages[0].CachedReadTokens, usages[0].CachedWriteTokens)
+	}
+	if usages[0].ThoughtTokens != nil {
+		t.Fatalf("thought tokens = %v, want nil when the agent omits them", usages[0].ThoughtTokens)
 	}
 }
 
@@ -1407,11 +1413,17 @@ func fakePrompt(enc *json.Encoder, dec *json.Decoder, id json.RawMessage, scenar
 		fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
 	case "title-request":
 		// The first turn answers normally; the adapter's internal title turn
-		// answers the `/rename` command with a generated title.
+		// answers the `/rename` command with a generated title and reports the
+		// usage it spent (the title turn is a real model turn).
 		if fakePromptText(params) == "/rename" {
 			fakeNotify(enc, "session/update", fakeSessionInfo("Refactor the auth middleware"))
 			fakeNotify(enc, "session/update", fakeChunk("m2", "Session renamed to Refactor the auth middleware."))
-			fakeResult(enc, id, map[string]any{"stopReason": "end_turn"})
+			fakeResult(enc, id, map[string]any{
+				"stopReason": "end_turn",
+				"usage": map[string]any{
+					"inputTokens": 30, "outputTokens": 5, "totalTokens": 35,
+				},
+			})
 			return
 		}
 		fakeNotify(enc, "session/update", fakeChunk("m1", "done"))
@@ -1947,6 +1959,26 @@ func TestTitleCommandNamesProvisionalTask(t *testing.T) {
 		if strings.Contains(text, "Session renamed") {
 			t.Fatalf("internal title turn leaked into the answer: %q", text)
 		}
+	}
+	// The title turn ran the model; its usage must be recorded even though the
+	// task is already done and the turn's output is suppressed. The report
+	// arrives with the command's response, just behind the title update.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		usages := rec.usages()
+		if len(usages) > 0 {
+			if usages[0].PromptTokens != 30 || usages[0].CompletionTokens != 5 || usages[0].TotalTokens != 35 {
+				t.Fatalf("title-turn usage = %+v, want 30/5/35", usages[0])
+			}
+			if len(usages) != 1 {
+				t.Fatalf("title-turn usages = %+v, want exactly one report", usages)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("title turn reported no usage")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

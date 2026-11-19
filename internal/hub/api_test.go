@@ -573,16 +573,24 @@ func TestGetSessionHappy(t *testing.T) {
 	}
 
 	// The body must carry exactly the SessionSnapshot fields: session, task,
-	// the pending ask's prompt and the in-progress text/thought (all served
-	// from the ephemeral buffer).
+	// the pending ask's prompt, the in-progress text/thought (all served from
+	// the ephemeral buffer) and the advertised slash commands (always an array;
+	// empty when the agent has advertised none).
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &keys); err != nil {
 		t.Fatalf("decode raw keys: %v (%s)", err, raw)
 	}
-	if len(keys) != 5 || keys["session"] == nil || keys["task"] == nil ||
+	if len(keys) != 6 || keys["session"] == nil || keys["task"] == nil ||
 		keys["pending_input"] == nil || keys["partial_output"] == nil ||
-		keys["partial_thought"] == nil {
-		t.Fatalf("response keys = %v, want exactly session+task+pending_input+partial_output+partial_thought", keys)
+		keys["partial_thought"] == nil || keys["commands"] == nil {
+		t.Fatalf("response keys = %v, want exactly session+task+pending_input+partial_output+partial_thought+commands", keys)
+	}
+	var commands []protocol.SessionCommand
+	if err := json.Unmarshal(keys["commands"], &commands); err != nil {
+		t.Fatalf("decode commands: %v (%s)", err, keys["commands"])
+	}
+	if len(commands) != 0 {
+		t.Fatalf("commands = %+v, want empty before the agent advertises any", commands)
 	}
 }
 

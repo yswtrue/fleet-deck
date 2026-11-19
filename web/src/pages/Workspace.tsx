@@ -1,11 +1,12 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { message } from 'antd'
+import { message, Space } from 'antd'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { useTranslation } from '../i18n/index.ts'
 import { AutoAllowScopeSelect } from '../components/AutoAllowScopeSelect.tsx'
 import { Board } from '../components/Board.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
+import { FavoriteButton } from '../components/FavoriteButton.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
 import { WorkspaceActions } from '../components/WorkspaceActions.tsx'
 import type { Workspace as WorkspaceData } from '../gen/protocol/index.ts'
@@ -61,12 +62,15 @@ export function Workspace() {
       <header className="fd-page-header">
         <div className="fd-section-header">
           <h1 className="fd-page-title">{workspace.name}</h1>
-          <WorkspaceActions
-            workspace={workspace}
-            variant="buttons"
-            messageApi={messageApi}
-            onDeleted={() => navigate(`/nodes/${workspace.node_id}`)}
-          />
+          <Space>
+            <FavoriteButton workspace={workspace} size="middle" />
+            <WorkspaceActions
+              workspace={workspace}
+              variant="buttons"
+              messageApi={messageApi}
+              onDeleted={() => navigate(`/nodes/${workspace.node_id}`)}
+            />
+          </Space>
         </div>
         <p className="fd-page-subtitle">
           <code title={workspace.path}>{workspace.path}</code>

@@ -177,6 +177,13 @@ func TestEvSessionUsagePersistsTokenUsageRow(t *testing.T) {
 // itself is pinned by TestEvSessionUsagePersistsTokenUsageRow).
 func seedUsage(t *testing.T, st *store.Store, sessionID, taskID, model string, prompt, completion, total int64) {
 	t.Helper()
+	seedUsageThought(t, st, sessionID, taskID, model, prompt, completion, total, nil)
+}
+
+// seedUsageThought is seedUsage with an optional reasoning subtotal (already
+// included in total, as agents report it).
+func seedUsageThought(t *testing.T, st *store.Store, sessionID, taskID, model string, prompt, completion, total int64, thought *int64) {
+	t.Helper()
 	if _, err := st.Queries().InsertTokenUsage(context.Background(), store.InsertTokenUsageParams{
 		SessionID:        sessionID,
 		TaskID:           taskID,
@@ -184,6 +191,7 @@ func seedUsage(t *testing.T, st *store.Store, sessionID, taskID, model string, p
 		PromptTokens:     prompt,
 		CompletionTokens: completion,
 		TotalTokens:      total,
+		ThoughtTokens:    thought,
 	}); err != nil {
 		t.Fatalf("insert token usage: %v", err)
 	}
@@ -207,22 +215,23 @@ func TestStatsTokensAggregation(t *testing.T) {
 	task2 := createWorkspaceAndTask(t, auth.token, ts, node2)
 
 	seedUsage(t, st, task1.SessionID, task1.ID, "alpha", 10, 5, 15)
-	seedUsage(t, st, task1.SessionID, task1.ID, "alpha", 5, 5, 10)
+	thought := int64(3)
+	seedUsageThought(t, st, task1.SessionID, task1.ID, "alpha", 5, 5, 10, &thought)
 	seedUsage(t, st, task1.SessionID, task1.ID, "beta", 1, 1, 2)
 	seedUsage(t, st, task2.SessionID, task2.ID, "alpha", 100, 100, 200)
 
 	statsURL := ts.URL + "/api/stats/tokens"
 	full := protocol.TokenUsageStats{
-		Total: protocol.TokenUsageTotals{PromptTokens: 116, CompletionTokens: 111, TotalTokens: 227},
+		Total: protocol.TokenUsageTotals{PromptTokens: 116, CompletionTokens: 111, TotalTokens: 227, ThoughtTokens: 3},
 		ByModel: []protocol.TokenUsageByModel{
-			{Model: "alpha", PromptTokens: 115, CompletionTokens: 110, TotalTokens: 225, Turns: 3},
+			{Model: "alpha", PromptTokens: 115, CompletionTokens: 110, TotalTokens: 225, ThoughtTokens: 3, Turns: 3},
 			{Model: "beta", PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2, Turns: 1},
 		},
 	}
 	task1Only := protocol.TokenUsageStats{
-		Total: protocol.TokenUsageTotals{PromptTokens: 16, CompletionTokens: 11, TotalTokens: 27},
+		Total: protocol.TokenUsageTotals{PromptTokens: 16, CompletionTokens: 11, TotalTokens: 27, ThoughtTokens: 3},
 		ByModel: []protocol.TokenUsageByModel{
-			{Model: "alpha", PromptTokens: 15, CompletionTokens: 10, TotalTokens: 25, Turns: 2},
+			{Model: "alpha", PromptTokens: 15, CompletionTokens: 10, TotalTokens: 25, ThoughtTokens: 3, Turns: 2},
 			{Model: "beta", PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2, Turns: 1},
 		},
 	}

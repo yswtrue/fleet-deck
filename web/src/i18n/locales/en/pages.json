@@ -3,6 +3,10 @@
     "title": "Dashboard",
     "subtitle": "Today's task and token activity across your fleet.",
     "loadError": "Could not load today's stats",
+    "favorites": {
+      "title": "Favorite workspaces",
+      "empty": "Star a workspace on its card or board header to jump back to it here."
+    },
     "tasks": {
       "title": "Tasks today",
       "created": "Created",
@@ -52,6 +56,9 @@
     "deleted": "Workspace “{{name}}” deleted",
     "deleteFailed": "Could not delete workspace: {{message}}",
     "actionsAria": "Workspace actions for {{name}}",
+    "favoriteAdd": "Add to favorites",
+    "favoriteRemove": "Remove from favorites",
+    "favoriteFailed": "Could not update favorite: {{message}}",
     "loadError": "Could not load workspaces",
     "emptyTitle": "No workspaces yet",
     "emptyBody": "Use “New workspace” above to add one.",

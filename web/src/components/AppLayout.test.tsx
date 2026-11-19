@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppLayout } from './AppLayout.tsx'
 import { clearToken, storeToken } from '../apiClient.ts'
@@ -14,7 +14,7 @@ const adminUser = {
 }
 
 /** Routes hub requests: `me` returns the admin user, health reports the hub. */
-function mockHub() {
+function mockHub(favorites: unknown = [], routes: Record<string, unknown> = {}) {
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) => {
@@ -23,7 +23,9 @@ function mockHub() {
         ? adminUser
         : url.startsWith('/api/health')
           ? { status: 'ok', version: 'v9.9.9' }
-          : {}
+          : url.startsWith('/api/workspaces/favorites')
+            ? favorites
+            : (routes[url] ?? {})
       return Promise.resolve(
         new Response(JSON.stringify(payload), {
           status: 200,
@@ -48,6 +50,10 @@ function stubMatchMedia(small: boolean) {
   }))
 }
 
+function LocationProbe() {
+  return <div data-testid="path">{useLocation().pathname}</div>
+}
+
 function renderLayout(initialEntry: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -55,6 +61,7 @@ function renderLayout(initialEntry: string) {
       <MemoryRouter initialEntries={[initialEntry]}>
         <AppLayout>
           <div>page-content</div>
+          <LocationProbe />
         </AppLayout>
       </MemoryRouter>
     </QueryClientProvider>
@@ -121,6 +128,29 @@ describe('AppLayout', () => {
     expect(screen.getByText('Nodes')).toBeTruthy()
   })
 
+  it('lists favorite workspaces in the sidebar and jumps to one', async () => {
+    const favorite = {
+      id: 'w-1',
+      node_id: 'n-1',
+      name: 'Repo',
+      path: '/home/me/repo',
+      auto_allow_scope: 'none',
+      created_at: '2026-01-01T00:00:00Z',
+    }
+    mockHub([favorite], {
+      '/api/workspaces/w-1': favorite,
+      '/api/nodes/n-1': { id: 'n-1', name: 'Box' },
+    })
+    stubMatchMedia(false)
+    renderLayout('/')
+
+    expect(await screen.findByText('Favorites')).toBeTruthy()
+    fireEvent.click(await screen.findByText('Repo'))
+    expect(screen.getByTestId('path').textContent).toBe('/workspaces/w-1')
+    // The favorite child is the active menu entry, not the nodes section.
+    expect(document.querySelector('.ant-menu-item-selected')?.textContent).toBe('Repo')
+  })
+
   it('resolves node, workspace and task crumbs for a session deep link', async () => {
     // A direct /sessions/{id} URL has no cached board/workspace state: the
     // header must resolve the parent chain from the snapshot + lookups.
@@ -156,13 +186,15 @@ describe('AppLayout', () => {
           ? adminUser
           : url.startsWith('/api/health')
             ? { status: 'ok', version: 'v9.9.9' }
-            : url === '/api/sessions/s-1'
-              ? snapshot
-              : url === '/api/workspaces/w-1'
-                ? { id: 'w-1', node_id: 'n-1', name: 'Repo' }
-                : url === '/api/nodes/n-1'
-                  ? { id: 'n-1', name: 'Box' }
-                  : {}
+            : url.startsWith('/api/workspaces/favorites')
+              ? []
+              : url === '/api/sessions/s-1'
+                ? snapshot
+                : url === '/api/workspaces/w-1'
+                  ? { id: 'w-1', node_id: 'n-1', name: 'Repo' }
+                  : url === '/api/nodes/n-1'
+                    ? { id: 'n-1', name: 'Box' }
+                    : {}
         return Promise.resolve(
           new Response(JSON.stringify(payload), {
             status: 200,

@@ -9,6 +9,22 @@ import (
 	"context"
 )
 
+const addWorkspaceFavorite = `-- name: AddWorkspaceFavorite :exec
+INSERT INTO workspace_favorite (user_id, workspace_id)
+VALUES ($1, $2)
+ON CONFLICT (user_id, workspace_id) DO NOTHING
+`
+
+type AddWorkspaceFavoriteParams struct {
+	UserID      string
+	WorkspaceID string
+}
+
+func (q *Queries) AddWorkspaceFavorite(ctx context.Context, arg AddWorkspaceFavoriteParams) error {
+	_, err := q.db.Exec(ctx, addWorkspaceFavorite, arg.UserID, arg.WorkspaceID)
+	return err
+}
+
 const countActiveSessionsByWorkspace = `-- name: CountActiveSessionsByWorkspace :one
 SELECT count(*) FROM session s
 JOIN task t ON t.id = s.task_id
@@ -75,6 +91,53 @@ func (q *Queries) GetWorkspace(ctx context.Context, id string) (Workspace, error
 	return i, err
 }
 
+const listFavoriteWorkspaces = `-- name: ListFavoriteWorkspaces :many
+
+SELECT w.id, w.node_id, w.name, w.path, w.created_at, w.auto_allow_scope FROM workspace_favorite f
+JOIN workspace w ON w.id = f.workspace_id
+WHERE f.user_id = $1
+  AND ($2::boolean OR EXISTS (
+      SELECT 1 FROM node_members m
+      WHERE m.user_id = f.user_id AND m.node_id = w.node_id
+  ))
+ORDER BY f.created_at DESC, w.name
+`
+
+type ListFavoriteWorkspacesParams struct {
+	UserID  string
+	IsAdmin bool
+}
+
+// Favorites: per-user bookmarks for quick navigation. The list endpoint
+// filters by the workspace node visibility, so a favorite cannot leak a
+// workspace the user is no longer bound to.
+func (q *Queries) ListFavoriteWorkspaces(ctx context.Context, arg ListFavoriteWorkspacesParams) ([]Workspace, error) {
+	rows, err := q.db.Query(ctx, listFavoriteWorkspaces, arg.UserID, arg.IsAdmin)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Workspace
+	for rows.Next() {
+		var i Workspace
+		if err := rows.Scan(
+			&i.ID,
+			&i.NodeID,
+			&i.Name,
+			&i.Path,
+			&i.CreatedAt,
+			&i.AutoAllowScope,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkspacesByNode = `-- name: ListWorkspacesByNode :many
 SELECT id, node_id, name, path, created_at, auto_allow_scope FROM workspace WHERE node_id = $1 ORDER BY created_at
 `
@@ -104,6 +167,21 @@ func (q *Queries) ListWorkspacesByNode(ctx context.Context, nodeID string) ([]Wo
 		return nil, err
 	}
 	return items, nil
+}
+
+const removeWorkspaceFavorite = `-- name: RemoveWorkspaceFavorite :exec
+DELETE FROM workspace_favorite
+WHERE user_id = $1 AND workspace_id = $2
+`
+
+type RemoveWorkspaceFavoriteParams struct {
+	UserID      string
+	WorkspaceID string
+}
+
+func (q *Queries) RemoveWorkspaceFavorite(ctx context.Context, arg RemoveWorkspaceFavoriteParams) error {
+	_, err := q.db.Exec(ctx, removeWorkspaceFavorite, arg.UserID, arg.WorkspaceID)
+	return err
 }
 
 const updateWorkspaceAutoAllowScope = `-- name: UpdateWorkspaceAutoAllowScope :one

@@ -51,6 +51,7 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/users/{id}/nodes", h.requireAdmin(h.handleSetUserNodes))
 
 	mux.HandleFunc("GET /api/workspaces", h.requireAuth(h.handleListWorkspaces))
+	mux.HandleFunc("GET /api/workspaces/favorites", h.requireAuth(h.handleListFavoriteWorkspaces))
 	mux.HandleFunc("GET /api/workspaces/{id}", h.requireWorkspaceAccess(h.handleGetWorkspace))
 	// Last command list an agent type advertised in this workspace, used by
 	// the new-task prompt before its session exists.
@@ -58,6 +59,8 @@ func (h *Hub) routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/workspaces", h.requireAuth(h.handleCreateWorkspace))
 	mux.HandleFunc("PATCH /api/workspaces/{id}", h.requireWorkspaceAccess(h.handlePatchWorkspace))
 	mux.HandleFunc("DELETE /api/workspaces/{id}", h.requireWorkspaceAccess(h.handleDeleteWorkspace))
+	mux.HandleFunc("PUT /api/workspaces/{id}/favorite", h.requireWorkspaceAccess(h.handleAddWorkspaceFavorite))
+	mux.HandleFunc("DELETE /api/workspaces/{id}/favorite", h.requireWorkspaceAccess(h.handleRemoveWorkspaceFavorite))
 
 	mux.HandleFunc("GET /api/tasks", h.requireAuth(h.handleListTasks))
 	mux.HandleFunc("POST /api/tasks", h.requireAuth(h.handleCreateTask))
@@ -200,6 +203,39 @@ func (h *Hub) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, workspaces)
+}
+
+// handleListFavoriteWorkspaces returns the caller's bookmarked workspaces
+// across every node they can still see, newest first. Favorites are per user
+// and grant no access: the store query drops rows whose node binding is gone.
+func (h *Hub) handleListFavoriteWorkspaces(w http.ResponseWriter, r *http.Request) {
+	user := userOf(r)
+	workspaces, err := h.store.Queries().ListFavoriteWorkspaces(r.Context(), user.ID, user.Role == "admin")
+	if err != nil {
+		h.serverError(w, "list favorite workspaces", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaces)
+}
+
+// handleAddWorkspaceFavorite bookmarks one visible workspace for the caller.
+// Idempotent: favoriting twice still answers 204.
+func (h *Hub) handleAddWorkspaceFavorite(w http.ResponseWriter, r *http.Request, id string) {
+	if err := h.store.Queries().AddWorkspaceFavorite(r.Context(), userOf(r).ID, id); err != nil {
+		h.serverError(w, "add workspace favorite", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRemoveWorkspaceFavorite removes the caller's bookmark. A row that is
+// already gone is not an error (unfavorite is idempotent).
+func (h *Hub) handleRemoveWorkspaceFavorite(w http.ResponseWriter, r *http.Request, id string) {
+	if err := h.store.Queries().RemoveWorkspaceFavorite(r.Context(), userOf(r).ID, id); err != nil {
+		h.serverError(w, "remove workspace favorite", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Hub) handleCreateWorkspace(w http.ResponseWriter, r *http.Request) {
@@ -1283,6 +1319,7 @@ func (h *Hub) handleStatsTokens(w http.ResponseWriter, r *http.Request) {
 		stats.Total.PromptTokens += row.PromptTokens
 		stats.Total.CompletionTokens += row.CompletionTokens
 		stats.Total.TotalTokens += row.TotalTokens
+		stats.Total.ThoughtTokens += row.ThoughtTokens
 		stats.Total.CachedReadTokens += row.CachedReadTokens
 		stats.Total.CachedWriteTokens += row.CachedWriteTokens
 		stats.Total.CachePromptTokens += row.CachePromptTokens

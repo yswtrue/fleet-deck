@@ -71,12 +71,13 @@ func TestConnSinkUsageEnvelope(t *testing.T) {
 	}
 	n := &Node{log: slog.Default(), buf: buf, sessions: map[string]adapters.Adapter{}}
 
-	read, write := int64(4), int64(5)
+	read, write, thought := int64(4), int64(5), int64(6)
 	(&connSink{n: n}).Usage(context.Background(), "sess-1", adapters.Usage{
 		Model:             "m",
 		PromptTokens:      1,
 		CompletionTokens:  2,
 		TotalTokens:       3,
+		ThoughtTokens:     &thought,
 		CachedReadTokens:  &read,
 		CachedWriteTokens: &write,
 	})
@@ -125,5 +126,8 @@ func TestConnSinkUsageEnvelope(t *testing.T) {
 		got.CachedWriteTokens == nil || *got.CachedWriteTokens != write {
 		t.Fatalf("cache counters = %v/%v, want %d/%d",
 			got.CachedReadTokens, got.CachedWriteTokens, read, write)
+	}
+	if got.ThoughtTokens == nil || *got.ThoughtTokens != thought {
+		t.Fatalf("thought tokens = %v, want %d", got.ThoughtTokens, thought)
 	}
 }

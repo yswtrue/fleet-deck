@@ -10,7 +10,7 @@ import (
 )
 
 // InsertTokenUsageParams are the fields of one reported turn's usage. The
-// cache counters are nil when the agent reported neither category.
+// thought and cache counters are nil when the agent reported none.
 type InsertTokenUsageParams struct {
 	SessionID         string
 	TaskID            string
@@ -18,6 +18,7 @@ type InsertTokenUsageParams struct {
 	PromptTokens      int64
 	CompletionTokens  int64
 	TotalTokens       int64
+	ThoughtTokens     *int64
 	CachedReadTokens  *int64
 	CachedWriteTokens *int64
 }
@@ -31,6 +32,7 @@ func (q *Queries) InsertTokenUsage(ctx context.Context, p InsertTokenUsageParams
 		PromptTokens:      p.PromptTokens,
 		CompletionTokens:  p.CompletionTokens,
 		TotalTokens:       p.TotalTokens,
+		ThoughtTokens:     p.ThoughtTokens,
 		CachedReadTokens:  p.CachedReadTokens,
 		CachedWriteTokens: p.CachedWriteTokens,
 	})
@@ -92,6 +94,7 @@ func (q *Queries) AggregateTokenUsage(ctx context.Context, f TokenUsageFilter) (
 			PromptTokens:      r.PromptTokens,
 			CompletionTokens:  r.CompletionTokens,
 			TotalTokens:       r.TotalTokens,
+			ThoughtTokens:     r.ThoughtTokens,
 			CachedReadTokens:  r.CachedReadTokens,
 			CachedWriteTokens: r.CachedWriteTokens,
 			CachePromptTokens: r.CachePromptTokens,

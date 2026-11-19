@@ -6,9 +6,10 @@ import { apiClient } from '../apiClient.ts'
 import type { StatsModelUsage, StatsTasks, StatsTokens } from '../apiClient.ts'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { ErrorState } from '../components/ErrorState.tsx'
+import { FavoriteWorkspaces } from '../components/FavoriteWorkspaces.tsx'
 import { LoadingSkeleton } from '../components/LoadingSkeleton.tsx'
 import { SummaryCard } from '../components/SummaryCard.tsx'
-import { cacheHitPercent, formatCompact, statusLabel } from '../util.ts'
+import { cacheHitPercent, formatCompact, inputTokens, statusLabel } from '../util.ts'
 import { useTranslation } from '../i18n/index.ts'
 import type { TaskStatus } from '../types.ts'
 import styles from './Dashboard.module.css'
@@ -57,6 +58,7 @@ export function Dashboard() {
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
+      thought_tokens: 0,
       cached_read_tokens: 0,
       cached_write_tokens: 0,
       cache_prompt_tokens: 0,
@@ -69,11 +71,10 @@ export function Dashboard() {
   const columns: TableColumnsType<StatsModelUsage> = [
     { title: tStats('table.model'), dataIndex: 'model', key: 'model' },
     {
-      title: tStats('table.prompt'),
-      dataIndex: 'prompt_tokens',
-      key: 'prompt_tokens',
+      title: tStats('table.input'),
+      key: 'input',
       align: 'right',
-      render: compactCell,
+      render: (_: unknown, row: StatsModelUsage) => compactCell(inputTokens(row)),
     },
     {
       title: tStats('table.cache'),
@@ -91,9 +92,16 @@ export function Dashboard() {
       },
     },
     {
-      title: tStats('table.completion'),
+      title: tStats('table.output'),
       dataIndex: 'completion_tokens',
       key: 'completion_tokens',
+      align: 'right',
+      render: compactCell,
+    },
+    {
+      title: tStats('table.reasoning'),
+      dataIndex: 'thought_tokens',
+      key: 'thought_tokens',
       align: 'right',
       render: compactCell,
     },
@@ -119,6 +127,8 @@ export function Dashboard() {
         <h1 className="fd-page-title">{t('dashboard.title')}</h1>
         <p className="fd-page-subtitle">{t('dashboard.subtitle')}</p>
       </header>
+
+      <FavoriteWorkspaces />
 
       <section className="fd-stack">
         <h2 className="fd-section-title">{t('dashboard.tasks.title')}</h2>
@@ -165,12 +175,9 @@ export function Dashboard() {
         ) : (
           <>
             <div className="fd-grid-4">
+              <SummaryCard label={tStats('summary.input')} value={inputTokens(tokenStats.total)} />
               <SummaryCard
-                label={tStats('summary.prompt')}
-                value={tokenStats.total.prompt_tokens}
-              />
-              <SummaryCard
-                label={tStats('summary.completion')}
+                label={tStats('summary.output')}
                 value={tokenStats.total.completion_tokens}
               />
               <SummaryCard label={tStats('summary.total')} value={tokenStats.total.total_tokens} />

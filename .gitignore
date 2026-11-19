@@ -50,6 +50,9 @@ internal/hub/static/*
 # Docker Compose local overrides (per-user)
 docker-compose.override.yml
 
+# Local release artifacts (downloaded binaries/checksums)
+.release-v*/
+
 # Nix
 result
 result-*

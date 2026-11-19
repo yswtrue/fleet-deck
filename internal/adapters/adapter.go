@@ -49,16 +49,18 @@ type StartResult struct {
 // relay real numbers only; when an agent reports no usage, no Usage is
 // emitted and nothing is recorded — numbers are never fabricated.
 //
-// The cache counters are pointers because ACP distinguishes "not reported"
-// (omitted/null) from a reported zero: only agents whose model exposes prompt
-// caching send them. PromptTokens is the non-cached input portion per ACP's
-// end-turn usage semantics; the full input the model processed is
-// PromptTokens + CachedReadTokens + CachedWriteTokens.
+// The cache and thought counters are pointers because ACP distinguishes "not
+// reported" (omitted/null) from a reported zero: only agents whose models
+// expose prompt caching or reasoning send them. PromptTokens is the non-cached
+// input portion per ACP's end-turn usage semantics; the full input the model
+// processed is PromptTokens + CachedReadTokens + CachedWriteTokens, and
+// TotalTokens includes the thought tokens as reported by the agent.
 type Usage struct {
 	Model             string
 	PromptTokens      int64
 	CompletionTokens  int64
 	TotalTokens       int64
+	ThoughtTokens     *int64
 	CachedReadTokens  *int64
 	CachedWriteTokens *int64
 }

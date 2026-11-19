@@ -1,0 +1,13 @@
+.star {
+  color: var(--text-dim);
+  flex: none;
+}
+
+.star:hover {
+  color: var(--status-awaiting-text);
+}
+
+.active,
+.active:hover {
+  color: var(--status-awaiting-text);
+}

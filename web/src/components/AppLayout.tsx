@@ -5,8 +5,10 @@ import type { MenuProps } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.ts'
+import { useFavoriteWorkspaces } from '../hooks/useFavoriteWorkspaces.ts'
 import { useHubApi } from '../hooks/useHubApi.ts'
 import { Header } from './Header.tsx'
+import { StarIcon } from './StarIcon.tsx'
 import { useTranslation } from '../i18n/index.ts'
 import styles from './AppLayout.module.css'
 import logoUrl from '../assets/fleetdeck-icon.png?w=64&format=webp'
@@ -159,9 +161,30 @@ export function AppLayout({ children }: { children: ReactNode }) {
   })
   const hubVersion = health?.version ?? ''
 
+  // Favorite workspaces are the sidebar's quick-jump list; the same cache
+  // backs the dashboard strip and every star toggle.
+  const { data: favoriteData } = useFavoriteWorkspaces()
+  const favorites = favoriteData ?? []
+  const favoritePath = favorites.find((row) => `/workspaces/${row.id}` === location.pathname)
+    ? location.pathname
+    : null
+
   const items: MenuProps['items'] = [
     { key: '/', icon: <DashboardIcon />, label: t('dashboard') },
     { key: '/nodes', icon: <NodesIcon />, label: t('nodes') },
+    ...(favorites.length > 0
+      ? [
+          {
+            key: '/favorites',
+            icon: <StarIcon />,
+            label: t('favorites'),
+            children: favorites.map((workspace) => ({
+              key: `/workspaces/${workspace.id}`,
+              label: workspace.name,
+            })),
+          },
+        ]
+      : []),
     { key: '/usage', icon: <UsageIcon />, label: t('usage') },
     ...(isAdmin ? [{ key: '/users', icon: <UsersIcon />, label: t('users') }] : []),
   ]
@@ -169,11 +192,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const menu = (
     <Menu
       mode="inline"
-      selectedKeys={[selectedKey(location.pathname)]}
+      selectedKeys={[favoritePath ?? selectedKey(location.pathname)]}
+      defaultOpenKeys={['/favorites']}
       items={items}
       onClick={({ key }) => {
         setDrawerOpen(false)
-        navigate(key)
+        if (key !== '/favorites') navigate(key)
       }}
     />
   )

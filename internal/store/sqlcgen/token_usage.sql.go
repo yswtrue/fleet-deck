@@ -16,6 +16,7 @@ SELECT
     COALESCE(SUM(tu.prompt_tokens), 0)::bigint     AS prompt_tokens,
     COALESCE(SUM(tu.completion_tokens), 0)::bigint AS completion_tokens,
     COALESCE(SUM(tu.total_tokens), 0)::bigint      AS total_tokens,
+    COALESCE(SUM(tu.thought_tokens), 0)::bigint    AS thought_tokens,
     COALESCE(SUM(tu.cached_read_tokens), 0)::bigint  AS cached_read_tokens,
     COALESCE(SUM(tu.cached_write_tokens), 0)::bigint AS cached_write_tokens,
     COALESCE(SUM(tu.prompt_tokens) FILTER (
@@ -55,6 +56,7 @@ type AggregateTokenUsageRow struct {
 	PromptTokens      int64
 	CompletionTokens  int64
 	TotalTokens       int64
+	ThoughtTokens     int64
 	CachedReadTokens  int64
 	CachedWriteTokens int64
 	CachePromptTokens int64
@@ -83,6 +85,7 @@ func (q *Queries) AggregateTokenUsage(ctx context.Context, arg AggregateTokenUsa
 			&i.PromptTokens,
 			&i.CompletionTokens,
 			&i.TotalTokens,
+			&i.ThoughtTokens,
 			&i.CachedReadTokens,
 			&i.CachedWriteTokens,
 			&i.CachePromptTokens,
@@ -102,10 +105,10 @@ func (q *Queries) AggregateTokenUsage(ctx context.Context, arg AggregateTokenUsa
 const insertTokenUsage = `-- name: InsertTokenUsage :one
 INSERT INTO token_usage (
     session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens,
-    cached_read_tokens, cached_write_tokens
+    thought_tokens, cached_read_tokens, cached_write_tokens
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens, created_at, cached_read_tokens, cached_write_tokens
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens, created_at, cached_read_tokens, cached_write_tokens, thought_tokens
 `
 
 type InsertTokenUsageParams struct {
@@ -115,6 +118,7 @@ type InsertTokenUsageParams struct {
 	PromptTokens      int64
 	CompletionTokens  int64
 	TotalTokens       int64
+	ThoughtTokens     *int64
 	CachedReadTokens  *int64
 	CachedWriteTokens *int64
 }
@@ -127,6 +131,7 @@ func (q *Queries) InsertTokenUsage(ctx context.Context, arg InsertTokenUsagePara
 		arg.PromptTokens,
 		arg.CompletionTokens,
 		arg.TotalTokens,
+		arg.ThoughtTokens,
 		arg.CachedReadTokens,
 		arg.CachedWriteTokens,
 	)
@@ -142,12 +147,13 @@ func (q *Queries) InsertTokenUsage(ctx context.Context, arg InsertTokenUsagePara
 		&i.CreatedAt,
 		&i.CachedReadTokens,
 		&i.CachedWriteTokens,
+		&i.ThoughtTokens,
 	)
 	return i, err
 }
 
 const listTokenUsageBySession = `-- name: ListTokenUsageBySession :many
-SELECT id, session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens, created_at, cached_read_tokens, cached_write_tokens FROM token_usage
+SELECT id, session_id, task_id, model, prompt_tokens, completion_tokens, total_tokens, created_at, cached_read_tokens, cached_write_tokens, thought_tokens FROM token_usage
 WHERE session_id = $1
 ORDER BY created_at
 `
@@ -172,6 +178,7 @@ func (q *Queries) ListTokenUsageBySession(ctx context.Context, sessionID string)
 			&i.CreatedAt,
 			&i.CachedReadTokens,
 			&i.CachedWriteTokens,
+			&i.ThoughtTokens,
 		); err != nil {
 			return nil, err
 		}

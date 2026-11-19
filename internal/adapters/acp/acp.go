@@ -81,14 +81,19 @@
 //     when the provider exposes prompt caching,
 //     `cachedReadTokens`/`cachedWriteTokens`. The mapping onto
 //     adapters.Usage is inputTokens -> PromptTokens,
-//     outputTokens -> CompletionTokens, totalTokens -> TotalTokens, and the
-//     cache counters verbatim (omitted when the agent reports neither).
-//     Observed opencode arithmetic: totalTokens = input + output + thought, so
-//     prompt + completion may not sum to total; the agent's total is kept as
-//     reported. inputTokens is the non-cached input portion, so the full input
-//     the model processed is input + cached read + cached write.
+//     outputTokens -> CompletionTokens, totalTokens -> TotalTokens,
+//     thoughtTokens -> ThoughtTokens and the cache counters verbatim
+//     (optional fields stay nil when the agent omits them).
+//     Observed arithmetic (opencode 2.3.0, omp 18.22.2):
+//     totalTokens = input + cached read + cached write + output + thought, so
+//     prompt + completion alone does not sum to total; the agent's total is
+//     kept as reported. inputTokens is the non-cached input portion, so the
+//     full input the model processed is input + cached read + cached write.
 //     A result without a `usage` field reports nothing (zero rows) —
 //     numbers are never fabricated.
+//   - title turns: the internal title command (omp's `/rename`) is a real
+//     model turn whose usage is recorded too, even though its output is
+//     suppressed and the task already ended.
 //   - model: `session/new` (and `session/load`) results carry
 //     `configOptions: [{id: "model", currentValue: "<provider/model>", ...}]`.
 //     That currentValue is the model the agent actually runs — the best real
@@ -1069,19 +1074,36 @@ type promptResult struct {
 }
 
 // usageReport is one turn's token accounting as carried in a session/prompt
-// result (observed from opencode: inputTokens/outputTokens/totalTokens/
-// thoughtTokens, plus cachedReadTokens/cachedWriteTokens when the provider
-// exposes prompt caching). Fields are relayed verbatim; the agent's
-// totalTokens is kept even though it may include thoughtTokens beyond
-// input + output. ACP's inputTokens is the non-cached input portion, so cache
-// reads/writes are separate input categories.
+// result (observed from opencode and omp: inputTokens/outputTokens/
+// totalTokens/thoughtTokens, plus cachedReadTokens/cachedWriteTokens when the
+// provider exposes prompt caching). Fields are relayed verbatim; the agent's
+// totalTokens is kept even though prompt + completion alone excludes cached
+// and thought tokens. ACP's inputTokens is the non-cached input portion, so
+// cache reads/writes are separate input categories.
 type usageReport struct {
 	InputTokens       int64  `json:"inputTokens"`
 	OutputTokens      int64  `json:"outputTokens"`
 	TotalTokens       int64  `json:"totalTokens"`
-	ThoughtTokens     int64  `json:"thoughtTokens"`
+	ThoughtTokens     *int64 `json:"thoughtTokens"`
 	CachedReadTokens  *int64 `json:"cachedReadTokens"`
 	CachedWriteTokens *int64 `json:"cachedWriteTokens"`
+}
+
+// reportUsage relays one turn's agent-reported usage. Nil usage means the
+// agent reported none and nothing is recorded (numbers are never fabricated).
+func (a *Adapter) reportUsage(ctx context.Context, sink adapters.EventSink, u *usageReport) {
+	if sink == nil || u == nil {
+		return
+	}
+	sink.Usage(ctx, a.currentSessionID(), adapters.Usage{
+		Model:             a.modelOrAgentType(),
+		PromptTokens:      u.InputTokens,
+		CompletionTokens:  u.OutputTokens,
+		TotalTokens:       u.TotalTokens,
+		ThoughtTokens:     u.ThoughtTokens,
+		CachedReadTokens:  u.CachedReadTokens,
+		CachedWriteTokens: u.CachedWriteTokens,
+	})
 }
 
 func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSink, resp rpcResponse) {
@@ -1097,17 +1119,9 @@ func (a *Adapter) handlePromptResult(ctx context.Context, sink adapters.EventSin
 		_ = json.Unmarshal(resp.result, &res)
 	}
 	// Usage is reported for a turn that ran the model, including one a steer
-	// interrupted: the tokens were spent either way.
-	if res.Usage != nil {
-		sink.Usage(ctx, a.currentSessionID(), adapters.Usage{
-			Model:             a.modelOrAgentType(),
-			PromptTokens:      res.Usage.InputTokens,
-			CompletionTokens:  res.Usage.OutputTokens,
-			TotalTokens:       res.Usage.TotalTokens,
-			CachedReadTokens:  res.Usage.CachedReadTokens,
-			CachedWriteTokens: res.Usage.CachedWriteTokens,
-		})
-	}
+	// interrupted (the tokens were spent either way) and the internal title
+	// turn requested after a provisional task ends (see requestAgentTitle).
+	a.reportUsage(ctx, sink, res.Usage)
 
 	// A steered turn is not terminal: hand its text to InterruptTurn (the node
 	// commits it before the steering message) and let the next prompt run.
@@ -1542,7 +1556,7 @@ func (a *Adapter) terminate(ctx context.Context, sink adapters.EventSink, err er
 func (a *Adapter) finishTurn(ctx context.Context, sink adapters.EventSink) {
 	a.ending.Store(true)
 	a.finishSession(ctx, sink, nil)
-	a.collectTitle(ctx)
+	a.collectTitle(ctx, sink)
 	a.killProc()
 }
 
@@ -1552,7 +1566,7 @@ func (a *Adapter) finishTurn(ctx context.Context, sink adapters.EventSink) {
 // the thread on its own after answering the turn (codex-acp) gets a grace
 // window to deliver the update. Either way the wait is bounded and the task has
 // already been reported done.
-func (a *Adapter) collectTitle(ctx context.Context) {
+func (a *Adapter) collectTitle(ctx context.Context, sink adapters.EventSink) {
 	// At most once per adapter: follow-up turns must not re-trigger it.
 	if !a.titleChecked.CompareAndSwap(false, true) {
 		return
@@ -1563,7 +1577,7 @@ func (a *Adapter) collectTitle(ctx context.Context) {
 	if a.cfg.titlePrompt != "" {
 		// A title reported during the turn makes the request unnecessary.
 		if !a.titleDone.Load() {
-			a.requestAgentTitle(ctx)
+			a.requestAgentTitle(ctx, sink)
 		}
 		return
 	}
@@ -1593,7 +1607,7 @@ func (a *Adapter) linger(ctx context.Context, d time.Duration) {
 // requestAgentTitle sends the launcher's title command as one internal turn
 // and waits for the title it reports. Its output is suppressed by
 // handleNotification; only the session_info_update title is relayed.
-func (a *Adapter) requestAgentTitle(ctx context.Context) {
+func (a *Adapter) requestAgentTitle(ctx context.Context, sink adapters.EventSink) {
 	prompt := strings.TrimSpace(a.cfg.titlePrompt)
 	if prompt == "" {
 		return
@@ -1617,10 +1631,19 @@ func (a *Adapter) requestAgentTitle(ctx context.Context) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = a.call(callCtx, "session/prompt", sessionPromptParams{
+		raw, err := a.call(callCtx, "session/prompt", sessionPromptParams{
 			SessionID: external,
 			Prompt:    []contentBlock{{Type: "text", Text: prompt}},
 		})
+		if err != nil {
+			return
+		}
+		// The title turn ran the model, so its usage is real spend: record it
+		// even though the task is already done and its output is suppressed.
+		var res promptResult
+		if json.Unmarshal(raw, &res) == nil {
+			a.reportUsage(callCtx, sink, res.Usage)
+		}
 	}()
 
 	select {
